@@ -1,0 +1,40 @@
+# 줄바꿈 정규화
+#
+# 저장소에는 항상 LF 로 저장하고, 작업 트리는 OS 기본을 따른다.
+# 이렇게 두지 않으면 Windows/macOS 개발자가 같은 파일을 저장할 때마다
+# 전체 줄이 변경된 것처럼 보여 diff 와 blame 이 쓸모없어진다.
+* text=auto
+
+# 텍스트로 확실히 취급할 것
+*.java   text
+*.js     text
+*.vue    text
+*.css    text
+*.html   text
+*.json   text
+*.yml    text
+*.yaml   text
+*.sql    text
+*.xml    text
+*.md     text
+*.gradle text
+*.properties text
+
+# 실행 스크립트는 LF 를 유지해야 한다 (CRLF 면 셸이 실행하지 못한다)
+gradlew  text eol=lf
+*.sh     text eol=lf
+
+# Windows 배치는 CRLF 를 유지한다
+*.bat    text eol=crlf
+*.cmd    text eol=crlf
+
+# 바이너리 — 변환하지 않는다
+*.jar    binary
+*.png    binary
+*.jpg    binary
+*.jpeg   binary
+*.gif    binary
+*.ico    binary
+*.woff   binary
+*.woff2  binary
+*.pdf    binary

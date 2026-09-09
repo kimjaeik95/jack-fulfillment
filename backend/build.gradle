@@ -1,0 +1,62 @@
+plugins {
+	id 'java'
+	id 'org.springframework.boot' version '4.1.1'
+	id 'io.spring.dependency-management' version '1.1.7'
+}
+
+group = 'com.fulfillment'
+version = '0.0.1-SNAPSHOT'
+
+java {
+	toolchain {
+		languageVersion = JavaLanguageVersion.of(21)
+	}
+}
+
+repositories {
+	mavenCentral()
+}
+
+ext {
+	// MyBatis 스타터는 Spring Boot BOM이 관리하지 않으므로 버전을 명시한다.
+	// 4.1.x = Spring Boot 4.1.x 대응 버전 (3.0.x 는 Boot 3.x 용)
+	mybatisStarterVersion = '4.1.0'
+}
+
+dependencies {
+	// 웹 / 검증 / 보안 / 모니터링
+	implementation 'org.springframework.boot:spring-boot-starter-webmvc'
+	implementation 'org.springframework.boot:spring-boot-starter-validation'
+	implementation 'org.springframework.boot:spring-boot-starter-security'
+	implementation 'org.springframework.boot:spring-boot-starter-actuator'
+
+	// 데이터 접근 — MyBatis (SQL 직접 작성)
+	implementation 'org.springframework.boot:spring-boot-starter-jdbc'
+	implementation "org.mybatis.spring.boot:mybatis-spring-boot-starter:${mybatisStarterVersion}"
+
+	// DB 스키마 버전 관리 — Flyway
+	// Boot 4 는 자동설정이 기술별 스타터로 분리되어 있다.
+	// flyway-core 만 넣으면 FlywayAutoConfiguration 이 등록되지 않는다.
+	implementation 'org.springframework.boot:spring-boot-starter-flyway'
+	implementation 'org.flywaydb:flyway-database-postgresql'
+
+	// 드라이버 — PostgreSQL 단일 대상
+	runtimeOnly 'org.postgresql:postgresql'
+
+	// 개발 편의
+	developmentOnly 'org.springframework.boot:spring-boot-devtools'
+	compileOnly 'org.projectlombok:lombok'
+	annotationProcessor 'org.projectlombok:lombok'
+
+	// 테스트
+	testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
+	testImplementation 'org.springframework.boot:spring-boot-starter-security-test'
+	testImplementation "org.mybatis.spring.boot:mybatis-spring-boot-starter-test:${mybatisStarterVersion}"
+	testCompileOnly 'org.projectlombok:lombok'
+	testAnnotationProcessor 'org.projectlombok:lombok'
+	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+tasks.named('test') {
+	useJUnitPlatform()
+}
