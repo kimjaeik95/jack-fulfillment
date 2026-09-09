@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.fulfillment.common.audit.dao.AuditDao">
+
+    <!-- 등록 전용. UPDATE / DELETE 문을 두지 않는다. -->
+    <insert id="insertLog" parameterType="com.fulfillment.domain.AuditLog"
+            useGeneratedKeys="true" keyProperty="logSeq" keyColumn="log_seq">
+        INSERT INTO tb_audit_log (
+            user_seq, actor_user_id, actor_name, action_type,
+            target_table, target_key, reason, client_ip, request_id
+        ) VALUES (
+            #{userSeq}, #{actorUserId}, #{actorName}, #{actionType},
+            #{targetTable}, #{targetKey}, #{reason}, #{clientIp}, #{requestId}
+        )
+    </insert>
+
+    <insert id="insertDetails">
+        INSERT INTO tb_audit_log_detail (log_seq, column_name, before_value, after_value)
+        VALUES
+        <foreach collection="details" item="d" separator=",">
+            (#{logSeq}, #{d.columnName}, #{d.beforeValue}, #{d.afterValue})
+        </foreach>
+    </insert>
+
+    <sql id="searchWhere">
+        <where>
+            <if test="actionType != null and actionType != ''">
+                AND l.action_type = #{actionType}
+            </if>
+            <if test="targetTable != null and targetTable != ''">
+                AND l.target_table = #{targetTable}
+            </if>
+            <if test="actorUserId != null and actorUserId != ''">
+                AND l.actor_user_id = #{actorUserId}
+            </if>
+            <if test="fromDate != null and fromDate != ''">
+                AND l.occurred_at &gt;= CAST(#{fromDate} || ' 00:00:00' AS TIMESTAMP)
+            </if>
+            <if test="toDate != null and toDate != ''">
+                AND l.occurred_at &lt;= CAST(#{toDate} || ' 23:59:59' AS TIMESTAMP)
+            </if>
+            <if test="keyword != null and keyword != ''">
+                AND ( LOWER(l.target_key)    LIKE '%' || LOWER(#{keyword}) || '%'
+                   OR LOWER(l.actor_user_id) LIKE '%' || LOWER(#{keyword}) || '%'
+                   OR LOWER(l.actor_name)    LIKE '%' || LOWER(#{keyword}) || '%'
+                   OR LOWER(l.reason)        LIKE '%' || LOWER(#{keyword}) || '%' )
+            </if>
+        </where>
+    </sql>
+
+    <select id="selectLogs" resultType="com.fulfillment.domain.AuditLog">
+        SELECT l.log_seq, l.user_seq, l.actor_user_id, l.actor_name, l.action_type,
+               l.target_table, l.target_key, l.reason, l.client_ip, l.request_id, l.occurred_at,
+               c.code_name AS action_name,
+               (SELECT COUNT(*) FROM tb_audit_log_detail d WHERE d.log_seq = l.log_seq) AS changed_column_count
+          FROM tb_audit_log l
+          LEFT JOIN tb_code_group g ON g.code_group_id = 'AUDIT_ACTION'
+          LEFT JOIN tb_code c       ON c.code_group_seq = g.code_group_seq
+                                   AND c.code_id = l.action_type
+        <include refid="searchWhere"/>
+         ORDER BY l.occurred_at DESC, l.log_seq DESC
+        <if test="size > 0">
+            LIMIT #{size} OFFSET #{offset}
+        </if>
+    </select>
+
+    <select id="countLogs" resultType="long">
+        SELECT COUNT(*)
+          FROM tb_audit_log l
+        <include refid="searchWhere"/>
+    </select>
+
+    <select id="selectDetails" resultType="com.fulfillment.domain.AuditLogDetail">
+        SELECT log_detail_seq, log_seq, column_name, before_value, after_value
+          FROM tb_audit_log_detail
+         WHERE log_seq = #{logSeq}
+         ORDER BY log_detail_seq
+    </select>
+
+</mapper>
