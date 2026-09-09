@@ -1,0 +1,19 @@
+# 공통 설정 — 프로파일과 무관하게 적용된다.
+spring:
+  application:
+    name: fulfillment
+  profiles:
+    # 별도 지정이 없으면 로컬(H2)로 뜬다.
+    default: local
+
+server:
+  port: 8080
+  servlet:
+    # 프론트(Vite)의 프록시 대상과 맞춘다. 예) fetch('/api/users')
+    context-path: /api
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info

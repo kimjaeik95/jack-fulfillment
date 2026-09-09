@@ -1,0 +1,45 @@
+# 로컬 개발 프로파일 — 개발자 PC 의 PostgreSQL.
+#
+# dev 프로파일과 다른 점은 두 가지뿐이다.
+#   1) db/demo 마이그레이션(데모 사용자 12명)을 함께 적용한다
+#   2) 실행 SQL 을 콘솔에 출력한다
+#
+# 사전 준비 (한 번만) — postgres 계정으로 실행
+#   CREATE USER fulfillment WITH PASSWORD '비밀번호';
+#   CREATE DATABASE fulfillment OWNER fulfillment ENCODING 'UTF8';
+#
+# 실행
+#   $env:DB_PASSWORD = "비밀번호"
+#   gradlew bootRun
+spring:
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:fulfillment}
+    driver-class-name: org.postgresql.Driver
+    username: ${DB_USER:fulfillment}
+    password: ${DB_PASSWORD:}
+    hikari:
+      maximum-pool-size: 5
+      connection-timeout: 5000
+
+  flyway:
+    enabled: true
+    # db/demo 는 로컬 전용. 데모 계정이 운영에 배포되지 않도록 프로파일로 분리한다.
+    locations: classpath:db/migration,classpath:db/demo
+    baseline-on-migrate: false
+    validate-on-migrate: true
+
+mybatis:
+  mapper-locations: classpath*:mapper/**/*.xml
+  type-aliases-package: com.fulfillment
+  configuration:
+    # user_name(DB) ↔ userName(Java) 자동 변환
+    map-underscore-to-camel-case: true
+    # null 컬럼도 setter 를 호출해 필드가 누락되지 않게 한다
+    call-setters-on-nulls: true
+    default-statement-timeout: 10
+
+logging:
+  level:
+    # 실행되는 SQL 과 바인딩 파라미터를 콘솔에 출력
+    com.fulfillment: debug
+    org.mybatis: debug

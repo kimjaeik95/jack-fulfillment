@@ -1,0 +1,35 @@
+# 개발 서버 프로파일 — PostgreSQL.
+#
+# 접속 정보는 환경변수로 주입한다. 비밀값을 파일에 적어 커밋하지 않는다.
+#   DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD
+#
+# 실행:  java -jar app.jar --spring.profiles.active=dev
+spring:
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:fulfillment}
+    driver-class-name: org.postgresql.Driver
+    username: ${DB_USER:fulfillment}
+    password: ${DB_PASSWORD:}
+    hikari:
+      maximum-pool-size: 10
+      connection-timeout: 5000
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    # 이미 테이블이 있는 DB에 처음 붙일 때만 true 로 바꾼다.
+    baseline-on-migrate: false
+    # 적용된 마이그레이션 파일을 나중에 수정하면 실행을 거부한다 (이력 보호)
+    validate-on-migrate: true
+
+mybatis:
+  mapper-locations: classpath*:mapper/**/*.xml
+  type-aliases-package: com.fulfillment
+  configuration:
+    map-underscore-to-camel-case: true
+    call-setters-on-nulls: true
+    default-statement-timeout: 10
+
+logging:
+  level:
+    com.fulfillment: info
