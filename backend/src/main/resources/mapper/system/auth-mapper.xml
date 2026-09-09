@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.fulfillment.system.auth.dao.AuthDao">
+
+    <select id="selectForLogin" resultType="com.fulfillment.domain.User">
+        SELECT u.user_seq, u.user_id, u.user_name, u.password_hash,
+               u.org_seq, u.email, u.phone, u.dept_name, u.position_name,
+               u.status, u.approval_limit, u.login_fail_count,
+               u.last_login_at, u.password_changed_at, u.use_yn,
+               o.org_id, o.org_name, o.org_type
+          FROM tb_user u
+          JOIN tb_org o ON o.org_seq = u.org_seq
+         WHERE u.user_id = #{userId}
+    </select>
+
+    <select id="selectRoleIds" resultType="string">
+        SELECT r.role_id
+          FROM tb_user_role ur
+          JOIN tb_role r ON r.role_seq = ur.role_seq
+         WHERE ur.user_seq = #{userSeq}
+         ORDER BY r.sort_order
+    </select>
+
+    <select id="selectRoleNames" resultType="string">
+        SELECT r.role_name
+          FROM tb_user_role ur
+          JOIN tb_role r ON r.role_seq = ur.role_seq
+         WHERE ur.user_seq = #{userSeq}
+         ORDER BY r.sort_order
+    </select>
+
+    <!--
+      유효 권한 — 미사용(use_yn='N') 역할과 권한은 제외한다.
+      data_scope 가 NULL 이면 역할의 기본값을 상속하므로 COALESCE 로 확정값을 계산한다.
+    -->
+    <select id="selectGrants" resultType="com.fulfillment.domain.RolePermission">
+        SELECT DISTINCT
+               p.perm_id,
+               rp.action_code,
+               r.role_id,
+               p.module_code,
+               COALESCE(rp.data_scope, r.default_data_scope) AS effective_data_scope
+          FROM tb_user_role ur
+          JOIN tb_role r            ON r.role_seq = ur.role_seq AND r.use_yn = 'Y'
+          JOIN tb_role_permission rp ON rp.role_seq = r.role_seq
+          JOIN tb_permission p       ON p.perm_seq = rp.perm_seq AND p.use_yn = 'Y'
+         WHERE ur.user_seq = #{userSeq}
+    </select>
+
+    <select id="selectPolicies" resultType="com.fulfillment.domain.Policy">
+        SELECT pol.policy_seq, pol.policy_id, pol.policy_name,
+               pol.role_seq, pol.perm_seq, pol.policy_type, pol.enforce_level,
+               pol.condition_expr, pol.target_field, pol.message, pol.alt_process,
+               pol.limit_amount, pol.limit_qty, pol.remark, pol.use_yn,
+               r.role_id, r.role_name,
+               pm.perm_id, pm.perm_name
+          FROM tb_user_role ur
+          JOIN tb_role r        ON r.role_seq = ur.role_seq AND r.use_yn = 'Y'
+          JOIN tb_policy pol    ON pol.role_seq = r.role_seq AND pol.use_yn = 'Y'
+          LEFT JOIN tb_permission pm ON pm.perm_seq = pol.perm_seq
+         WHERE ur.user_seq = #{userSeq}
+         ORDER BY pol.policy_id
+    </select>
+
+    <update id="increaseLoginFail">
+        UPDATE tb_user
+           SET login_fail_count = login_fail_count + 1,
+               updated_by = 'system',
+               updated_at = CURRENT_TIMESTAMP
+         WHERE user_seq = #{userSeq}
+    </update>
+
+    <update id="lockAccount">
+        UPDATE tb_user
+           SET status = 'LOCKED',
+               updated_by = 'system',
+               updated_at = CURRENT_TIMESTAMP
+         WHERE user_seq = #{userSeq}
+    </update>
+
+    <update id="markLoginSuccess">
+        UPDATE tb_user
+           SET login_fail_count = 0,
+               last_login_at = CURRENT_TIMESTAMP,
+               updated_by = 'system',
+               updated_at = CURRENT_TIMESTAMP
+         WHERE user_seq = #{userSeq}
+    </update>
+
+</mapper>
