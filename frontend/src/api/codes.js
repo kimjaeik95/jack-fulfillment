@@ -1,75 +1,57 @@
 /**
- * 공통코드 정의.
- * 화면의 셀렉트박스 / 배지 라벨은 모두 이 파일을 참조한다.
- * 실제 시스템에서는 공통코드 테이블(TB_COM_CODE)에서 내려받는 값이며,
- * 여기서는 그 구조(그룹 - 코드 - 라벨 - 색상)를 그대로 흉내낸다.
+ * 공통코드 — 화면의 셀렉트박스 / 배지 라벨.
+ *
+ * 값은 서버(tb_code_group / tb_code)에서 온다. 예전에는 이 파일에 상수로
+ * 적어 뒀는데, 그러면 공통코드 관리 화면에서 코드를 고쳐도 쓰는 곳이 모른다.
+ * 관리 화면의 목적 자체가 무력화되므로 서버를 단일 출처로 삼는다.
+ *
+ * 함수 이름과 인자는 그대로 뒀다. 이 파일을 쓰는 곳이 10개 파일 · 57곳이라,
+ * 계약을 바꾸면 그 전부를 함께 고쳐야 한다.
+ *
+ * CODE_GROUPS 는 reactive 객체다. load() 가 내용을 채우면 이를 읽는
+ * computed 가 자동으로 다시 계산된다. App 이 부팅 중에 load() 를 부르고
+ * 그때까지 RouterView 를 띄우지 않으므로, 화면이 빈 목록을 보는 일은 없다.
  */
+import { reactive } from 'vue'
+import * as codeApi from './code.js'
 
-/** 코드그룹 정의 */
-export const CODE_GROUPS = {
-  /** 권한 모듈(대분류) */
-  PERM_MODULE: [
-    { code: 'SYS', label: '시스템설정', color: 'slate' },
-    { code: 'MST', label: '기준정보', color: 'violet' },
-    { code: 'PUR', label: '구매', color: 'amber' },
-    { code: 'INB', label: '입고', color: 'teal' },
-    { code: 'OUT', label: '출고', color: 'blue' },
-    { code: 'INV', label: '재고/실사', color: 'green' },
-    { code: 'STR', label: '매장', color: 'pink' },
-    { code: 'QRY', label: '조회', color: 'cyan' },
-    { code: 'AUD', label: '감사/분석', color: 'gray' },
-  ],
+/**
+ * { PERM_MODULE: [{ code, label, color, desc }], ... }
+ *
+ * 서버의 codeId/codeName/color/description 을 화면이 쓰던 이름으로 옮긴다.
+ * 이름을 맞추는 편이 호출부 57곳을 고치는 것보다 싸다.
+ */
+export const CODE_GROUPS = reactive({})
 
-  /** 권한 액션 유형 */
-  PERM_ACTION: [
-    { code: 'R', label: '조회', color: 'gray' },
-    { code: 'C', label: '등록', color: 'blue' },
-    { code: 'U', label: '수정', color: 'amber' },
-    { code: 'D', label: '삭제', color: 'red' },
-    { code: 'A', label: '승인', color: 'violet' },
-    { code: 'X', label: '다운로드', color: 'teal' },
-  ],
+let loaded = false
 
-  /** 정책(제한/승인) 유형 */
-  POLICY_TYPE: [
-    { code: 'DENY', label: '금지', color: 'red', desc: '해당 기능/필드에 대한 실행을 막는다.' },
-    { code: 'REQUIRED', label: '필수입력', color: 'amber', desc: '지정 필드가 비어 있으면 저장 불가.' },
-    { code: 'CONDITION', label: '조건충족', color: 'blue', desc: '조건식이 참일 때만 실행 허용.' },
-    { code: 'SOD', label: '직무분리', color: 'violet', desc: '요청자와 승인자가 동일인이면 제재.' },
-    { code: 'SCOPE', label: '범위제한', color: 'teal', desc: '소속(센터/매장) 범위 밖의 데이터 차단.' },
-    { code: 'LIMIT', label: '승인한도', color: 'pink', desc: '금액/수량 한도 초과 시 상위 승인 필요.' },
-    { code: 'READONLY', label: '읽기전용', color: 'gray', desc: '조회만 허용, 모든 변경 차단.' },
-    { code: 'MASKING', label: '마스킹', color: 'cyan', desc: '개인정보 항목을 마스킹하여 노출.' },
-  ],
+/**
+ * 서버에서 코드를 받아 채운다.
+ *
+ * @param {boolean} force 이미 받았어도 다시 받을지 (코드를 고친 뒤)
+ */
+export async function loadCodes(force = false) {
+  if (loaded && !force) return CODE_GROUPS
 
-  /** 정책 적용 강도 */
-  ENFORCE_LEVEL: [
-    { code: 'BLOCK', label: '차단', color: 'red', desc: '저장/실행을 거부한다.' },
-    { code: 'APPROVAL', label: '상위승인', color: 'amber', desc: '상위 권한자의 승인으로 통과.' },
-    { code: 'WARN', label: '경고', color: 'blue', desc: '확인 팝업 후 진행 가능(권고).' },
-    { code: 'LOG', label: '기록만', color: 'gray', desc: '차단 없이 감사로그만 남긴다.' },
-  ],
+  const groups = await codeApi.lookup()
 
-  /** 조직 유형 */
-  ORG_TYPE: [
-    { code: 'HQ', label: '본사', color: 'violet' },
-    { code: 'DC', label: '물류센터', color: 'teal' },
-    { code: 'STORE', label: '매장', color: 'pink' },
-  ],
+  // 기존 키를 지우고 새로 채운다. 그룹이 삭제된 경우 남아 있으면 안 된다.
+  for (const key of Object.keys(CODE_GROUPS)) delete CODE_GROUPS[key]
+  for (const group of groups) {
+    CODE_GROUPS[group.codeGroupId] = group.codes.map((c) => ({
+      code: c.codeId,
+      label: c.codeName,
+      color: c.color ?? 'gray',
+      desc: c.description ?? null,
+    }))
+  }
+  loaded = true
+  return CODE_GROUPS
+}
 
-  /** 사용자 상태 */
-  USER_STATUS: [
-    { code: 'ACTIVE', label: '정상', color: 'green' },
-    { code: 'LOCKED', label: '잠김', color: 'red' },
-    { code: 'DORMANT', label: '휴면', color: 'amber' },
-    { code: 'RETIRED', label: '퇴사', color: 'gray' },
-  ],
-
-  /** 사용여부 */
-  USE_YN: [
-    { code: 'Y', label: '사용', color: 'green' },
-    { code: 'N', label: '미사용', color: 'gray' },
-  ],
+/** 코드를 받았는지 — 화면이 빈 목록과 미로딩을 구분해야 할 때 */
+export function codesLoaded() {
+  return loaded
 }
 
 /** 그룹 내 코드 라벨 조회 */

@@ -18,7 +18,8 @@ const toast = useToastStore()
 const route = useRoute()
 const router = useRouter()
 
-const ACTIONS = CODE_GROUPS.PERM_ACTION.map((a) => a.code)
+// 코드는 서버에서 오므로 computed 로 둔다. 액션이 추가되면 매트릭스 열도 함께 늘어난다.
+const ACTIONS = computed(() => (CODE_GROUPS.PERM_ACTION ?? []).map((a) => a.code))
 
 const selectedRoleId = ref('')
 /** 편집 중인 매핑: { permId: string[] } */
@@ -144,7 +145,7 @@ const visiblePerms = computed(() => {
 /** 모듈 그룹 헤더가 있는 평면 목록 */
 const matrixRows = computed(() => {
   const out = []
-  for (const mod of CODE_GROUPS.PERM_MODULE) {
+  for (const mod of CODE_GROUPS.PERM_MODULE ?? []) {
     const items = visiblePerms.value
       .filter((p) => p.moduleCode === mod.code)
       .sort((a, b) => a.permId.localeCompare(b.permId))
@@ -208,7 +209,7 @@ function toggleColumn(action) {
 const grantedCount = computed(() => Object.values(draft).filter((v) => v?.length).length)
 const actionTotals = computed(() =>
   Object.fromEntries(
-    ACTIONS.map((a) => [a, Object.values(draft).filter((v) => v?.includes(a)).length]),
+    ACTIONS.value.map((a) => [a, Object.values(draft).filter((v) => v?.includes(a)).length]),
   ),
 )
 

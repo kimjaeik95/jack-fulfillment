@@ -25,7 +25,7 @@ const stats = computed(() => [
   {
     label: '권한',
     value: admin.permissions.length,
-    sub: `${CODE_GROUPS.PERM_MODULE.length}개 모듈`,
+    sub: `${(CODE_GROUPS.PERM_MODULE ?? []).length}개 모듈`,
     to: 'permissions',
   },
   {
@@ -49,7 +49,7 @@ const stats = computed(() => [
   {
     label: '조직',
     value: admin.orgs.length,
-    sub: CODE_GROUPS.ORG_TYPE.map((t) => `${t.label} ${admin.orgs.filter((o) => o.orgType === t.code).length}`).join(' · '),
+    sub: (CODE_GROUPS.ORG_TYPE ?? []).map((t) => `${t.label} ${admin.orgs.filter((o) => o.orgType === t.code).length}`).join(' · '),
     to: 'orgs',
   },
 ])

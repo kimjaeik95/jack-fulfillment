@@ -1,6 +1,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { RouterView, useRoute, useRouter } from 'vue-router'
+import { loadCodes } from '@/api/codes.js'
 import { menuGroups } from '@/router/index.js'
 import { useAdminStore } from '@/stores/admin.js'
 import { useOrgStore } from '@/stores/org.js'
@@ -40,8 +41,12 @@ watch(
     if (!authed) return
     booting.value = true
     try {
-      // 조직은 실서버, 나머지 기준정보는 아직 Mock — 둘 다 채워야 사이드바 건수가 맞는다
+      // 공통코드는 모든 화면의 셀렉트박스·배지 라벨이다. 이걸 받기 전에
+      // 화면을 띄우면 드롭다운이 빈 채로 그려지므로, 부팅이 끝날 때까지
+      // RouterView 를 내보내지 않는다 (아래 v-if="booting").
+      // 정책·감사이력 등 남은 Mock 화면 때문에 admin 스토어도 함께 채운다.
       await Promise.all([
+        loadCodes(true),
         admin.loadAll(true), orgStore.load(true), roleStore.load(true), permStore.load(true),
       ])
     } catch (e) {

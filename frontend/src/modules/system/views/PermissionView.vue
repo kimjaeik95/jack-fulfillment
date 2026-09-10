@@ -146,7 +146,10 @@ const {
   },
 })
 
-const actionOptions = CODE_GROUPS.PERM_ACTION.map((a) => ({ value: a.code, label: `${a.code} ${a.label}` }))
+// 코드는 서버에서 오므로 computed 로 둔다. 공통코드 화면에서 액션을 고치면 여기도 따라 바뀐다.
+const actionOptions = computed(() =>
+  (CODE_GROUPS.PERM_ACTION ?? []).map((a) => ({ value: a.code, label: `${a.code} ${a.label}` })),
+)
 
 /** 수정 중인 권한의 현재 상태 — 서버가 함께 내려준 값 */
 const editing = computed(() =>
@@ -188,7 +191,7 @@ const deleteDetail = computed(() => {
 const readDenyReason = computed(() => session.denyReason('SYS_ROLE', 'R'))
 
 const moduleSummary = computed(() =>
-  CODE_GROUPS.PERM_MODULE.map((m) => ({
+  (CODE_GROUPS.PERM_MODULE ?? []).map((m) => ({
     ...m,
     count: permStore.permissions.filter((p) => p.moduleCode === m.code).length,
   })).filter((m) => m.count > 0),
