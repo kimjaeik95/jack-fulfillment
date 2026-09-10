@@ -1,0 +1,193 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.fulfillment.system.user.dao.UserDao">
+
+    <!--
+      목록에 역할을 함께 보여줘야 하는데 사용자 1건당 역할이 여러 개다.
+      조인하면 행이 늘어나 페이징이 깨지므로, 역할은 string_agg 로 묶어 가져온 뒤
+      CsvListTypeHandler 가 List 로 나눈다. N+1 조회도 함께 피한다.
+    -->
+    <resultMap id="userMap" type="com.fulfillment.domain.User">
+        <id     property="userSeq"            column="user_seq"/>
+        <result property="userId"             column="user_id"/>
+        <result property="userName"           column="user_name"/>
+        <result property="orgSeq"             column="org_seq"/>
+        <result property="email"              column="email"/>
+        <result property="phone"              column="phone"/>
+        <result property="deptName"           column="dept_name"/>
+        <result property="positionName"       column="position_name"/>
+        <result property="status"             column="status"/>
+        <result property="approvalLimit"      column="approval_limit"/>
+        <result property="loginFailCount"     column="login_fail_count"/>
+        <result property="lastLoginAt"        column="last_login_at"/>
+        <result property="passwordChangedAt"  column="password_changed_at"/>
+        <result property="mustChangePassword" column="must_change_password"/>
+        <result property="useYn"              column="use_yn"/>
+        <result property="createdBy"          column="created_by"/>
+        <result property="createdAt"          column="created_at"/>
+        <result property="updatedBy"          column="updated_by"/>
+        <result property="updatedAt"          column="updated_at"/>
+        <result property="orgId"              column="org_id"/>
+        <result property="orgName"            column="org_name"/>
+        <result property="orgType"            column="org_type"/>
+        <result property="roleIds"            column="role_ids"
+                typeHandler="com.fulfillment.common.mybatis.CsvListTypeHandler"/>
+        <result property="roleNames"          column="role_names"
+                typeHandler="com.fulfillment.common.mybatis.CsvListTypeHandler"/>
+    </resultMap>
+
+    <sql id="userColumns">
+        u.user_seq, u.user_id, u.user_name, u.org_seq, u.email, u.phone,
+        u.dept_name, u.position_name, u.status, u.approval_limit, u.login_fail_count,
+        u.last_login_at, u.password_changed_at, u.must_change_password, u.use_yn,
+        u.created_by, u.created_at, u.updated_by, u.updated_at,
+        o.org_id, o.org_name, o.org_type,
+        (SELECT string_agg(r.role_id, ',' ORDER BY r.sort_order)
+           FROM tb_user_role ur JOIN tb_role r ON r.role_seq = ur.role_seq
+          WHERE ur.user_seq = u.user_seq) AS role_ids,
+        (SELECT string_agg(r.role_name, ',' ORDER BY r.sort_order)
+           FROM tb_user_role ur JOIN tb_role r ON r.role_seq = ur.role_seq
+          WHERE ur.user_seq = u.user_seq) AS role_names
+    </sql>
+
+    <sql id="searchWhere">
+        <where>
+            <if test="orgId != null and orgId != ''">
+                AND o.org_id = #{orgId}
+            </if>
+            <if test="status != null and status != ''">
+                AND u.status = #{status}
+            </if>
+            <if test="useYn != null and useYn != ''">
+                AND u.use_yn = #{useYn}
+            </if>
+            <if test="roleId != null and roleId != ''">
+                AND EXISTS (SELECT 1
+                              FROM tb_user_role ur
+                              JOIN tb_role r ON r.role_seq = ur.role_seq
+                             WHERE ur.user_seq = u.user_seq
+                               AND r.role_id = #{roleId})
+            </if>
+            <if test="keyword != null and keyword != ''">
+                AND ( LOWER(u.user_id)   LIKE '%' || LOWER(#{keyword}) || '%'
+                   OR LOWER(u.user_name) LIKE '%' || LOWER(#{keyword}) || '%'
+                   OR LOWER(u.email)     LIKE '%' || LOWER(#{keyword}) || '%'
+                   OR LOWER(u.dept_name) LIKE '%' || LOWER(#{keyword}) || '%' )
+            </if>
+        </where>
+    </sql>
+
+    <select id="selectList" resultMap="userMap">
+        SELECT <include refid="userColumns"/>
+          FROM tb_user u
+          JOIN tb_org o ON o.org_seq = u.org_seq
+        <include refid="searchWhere"/>
+        <!-- ${} 치환 자리다. UserSearch 가 화이트리스트로 걸러 SQL 인젝션을 막는다. -->
+         ORDER BY ${sortColumn} ${sortDirection}, u.user_id ASC
+        <if test="size > 0">
+            LIMIT #{size} OFFSET #{offset}
+        </if>
+    </select>
+
+    <select id="countList" resultType="long">
+        SELECT COUNT(*)
+          FROM tb_user u
+          JOIN tb_org o ON o.org_seq = u.org_seq
+        <include refid="searchWhere"/>
+    </select>
+
+    <select id="selectByUserId" resultMap="userMap">
+        SELECT <include refid="userColumns"/>
+          FROM tb_user u
+          JOIN tb_org o ON o.org_seq = u.org_seq
+         WHERE u.user_id = #{userId}
+    </select>
+
+    <select id="countByUserId" resultType="int">
+        SELECT COUNT(*) FROM tb_user WHERE user_id = #{userId}
+    </select>
+
+    <select id="countByEmail" resultType="int">
+        SELECT COUNT(*) FROM tb_user
+         WHERE email = #{email}
+        <if test="exceptUserId != null and exceptUserId != ''">
+            AND user_id &lt;&gt; #{exceptUserId}
+        </if>
+    </select>
+
+    <insert id="insert" parameterType="com.fulfillment.domain.User"
+            useGeneratedKeys="true" keyProperty="userSeq" keyColumn="user_seq">
+        INSERT INTO tb_user (
+            user_id, user_name, password_hash, org_seq, email, phone,
+            dept_name, position_name, status, approval_limit,
+            must_change_password, use_yn, created_by
+        ) VALUES (
+            #{userId}, #{userName}, #{passwordHash}, #{orgSeq}, #{email}, #{phone},
+            #{deptName}, #{positionName}, #{status}, #{approvalLimit},
+            #{mustChangePassword}, #{useYn}, #{createdBy}
+        )
+    </insert>
+
+    <!-- 비밀번호·실패횟수·최종접속은 여기서 건드리지 않는다 (전용 메서드로 분리) -->
+    <update id="update" parameterType="com.fulfillment.domain.User">
+        UPDATE tb_user
+           SET user_name      = #{userName},
+               org_seq        = #{orgSeq},
+               email          = #{email},
+               phone          = #{phone},
+               dept_name      = #{deptName},
+               position_name  = #{positionName},
+               status         = #{status},
+               approval_limit = #{approvalLimit},
+               use_yn         = #{useYn},
+               updated_by     = #{updatedBy},
+               updated_at     = CURRENT_TIMESTAMP
+         WHERE user_seq = #{userSeq}
+    </update>
+
+    <update id="retire">
+        UPDATE tb_user
+           SET status     = 'RETIRED',
+               use_yn     = 'N',
+               updated_by = #{updatedBy},
+               updated_at = CURRENT_TIMESTAMP
+         WHERE user_seq = #{userSeq}
+    </update>
+
+    <delete id="deleteRoles">
+        DELETE FROM tb_user_role WHERE user_seq = #{userSeq}
+    </delete>
+
+    <insert id="insertRoles">
+        INSERT INTO tb_user_role (user_seq, role_seq, created_by)
+        SELECT #{userSeq}, r.role_seq, #{createdBy}
+          FROM tb_role r
+         WHERE r.role_id IN
+        <foreach collection="roleIds" item="rid" open="(" separator="," close=")">
+            #{rid}
+        </foreach>
+    </insert>
+
+    <update id="updatePassword">
+        UPDATE tb_user
+           SET password_hash        = #{passwordHash},
+               password_changed_at  = CURRENT_TIMESTAMP,
+               must_change_password = #{mustChange},
+               login_fail_count     = 0,
+               updated_by           = #{updatedBy},
+               updated_at           = CURRENT_TIMESTAMP
+         WHERE user_seq = #{userSeq}
+    </update>
+
+    <update id="unlock">
+        UPDATE tb_user
+           SET status           = 'ACTIVE',
+               login_fail_count = 0,
+               updated_by       = #{updatedBy},
+               updated_at       = CURRENT_TIMESTAMP
+         WHERE user_seq = #{userSeq}
+    </update>
+
+</mapper>

@@ -5,6 +5,7 @@ import com.fulfillment.common.audit.AuditRecorder;
 import com.fulfillment.common.exception.BusinessException;
 import com.fulfillment.common.exception.ErrorCode;
 import com.fulfillment.common.security.LoginUser;
+import com.fulfillment.common.security.PasswordPolicy;
 import com.fulfillment.domain.Policy;
 import com.fulfillment.domain.RolePermission;
 import com.fulfillment.domain.User;
@@ -40,11 +41,14 @@ public class AuthService {
 	private final AuthDao authDao;
 	private final PasswordEncoder passwordEncoder;
 	private final AuditRecorder auditRecorder;
+	private final PasswordPolicy passwordPolicy;
 
-	public AuthService(AuthDao authDao, PasswordEncoder passwordEncoder, AuditRecorder auditRecorder) {
+	public AuthService(AuthDao authDao, PasswordEncoder passwordEncoder,
+			AuditRecorder auditRecorder, PasswordPolicy passwordPolicy) {
 		this.authDao = authDao;
 		this.passwordEncoder = passwordEncoder;
 		this.auditRecorder = auditRecorder;
+		this.passwordPolicy = passwordPolicy;
 	}
 
 	@Transactional
@@ -137,6 +141,50 @@ public class AuthService {
 		return buildLoginUser(user);
 	}
 
+	/**
+	 * 본인 비밀번호 변경.
+	 *
+	 * 관리자가 정한 초기 비밀번호를 담당자가 바꾸는 경로이자,
+	 * 평상시 사용자가 스스로 바꾸는 경로다. 성공하면 변경 강제 플래그가 해제된다.
+	 *
+	 * 현재 비밀번호를 다시 확인하는 이유는, 자리를 비운 사이 남이 세션을 잡고
+	 * 비밀번호를 바꿔 계정을 탈취하는 것을 막기 위해서다.
+	 */
+	@Transactional
+	public LoginUser changePassword(LoginUser actor, String currentPassword,
+			String newPassword, String confirmPassword) {
+
+		if (actor == null) {
+			throw new BusinessException(ErrorCode.UNAUTHENTICATED);
+		}
+		if (!newPassword.equals(confirmPassword)) {
+			throw new BusinessException(ErrorCode.INVALID_INPUT, "새 비밀번호가 서로 일치하지 않습니다.");
+		}
+
+		User user = authDao.selectForLogin(actor.getUserId());
+		if (user == null) {
+			throw new BusinessException(ErrorCode.UNAUTHENTICATED);
+		}
+		if (!passwordEncoder.matches(currentPassword, user.getPasswordHash())) {
+			// 실패 횟수는 올리지 않는다. 로그인한 상태이므로 잠금 대상이 아니고,
+			// 오타로 본인 계정이 잠기면 오히려 업무가 막힌다.
+			throw new BusinessException(ErrorCode.INVALID_CREDENTIALS, "현재 비밀번호가 올바르지 않습니다.");
+		}
+		if (passwordEncoder.matches(newPassword, user.getPasswordHash())) {
+			throw new BusinessException(ErrorCode.INVALID_INPUT,
+					"이전과 다른 비밀번호를 사용하세요.");
+		}
+
+		passwordPolicy.validate(newPassword, user.getUserId(), user.getUserName());
+
+		authDao.updatePassword(user.getUserSeq(), passwordEncoder.encode(newPassword), actor.getUserId());
+		auditRecorder.recordAction(actor, AuditAction.PWD_CHANGE, "tb_user",
+				actor.getUserId(), "본인 비밀번호 변경");
+
+		// 변경 강제 플래그가 풀렸으므로 세션의 인증 주체를 다시 만든다
+		return reload(actor.getUserId());
+	}
+
 	/* ------------------------------------------------------------------ */
 
 	private LoginUser buildLoginUser(User user) {
@@ -153,7 +201,7 @@ public class AuthService {
 		return new LoginUser(
 				user.getUserSeq(), user.getUserId(), user.getUserName(),
 				user.getOrgSeq(), user.getOrgId(), user.getOrgName(), user.getOrgType(),
-				user.getApprovalLimit(),
+				user.getApprovalLimit(), "Y".equals(user.getMustChangePassword()),
 				roleIds, roleNames, grants, policies);
 	}
 

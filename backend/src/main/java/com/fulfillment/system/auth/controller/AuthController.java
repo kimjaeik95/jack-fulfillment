@@ -7,6 +7,7 @@ import com.fulfillment.common.web.ApiResponse;
 import com.fulfillment.system.auth.dto.LoginRequest;
 import com.fulfillment.system.auth.dto.LoginResult;
 import com.fulfillment.system.auth.dto.MeResponse;
+import com.fulfillment.system.user.dto.PasswordChangeRequest;
 import com.fulfillment.system.auth.service.AuthService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -130,6 +131,41 @@ public class AuthController {
 		return ApiResponse.ok(MeResponse.from(reloaded, null));
 	}
 
+
+	/**
+	 * 본인 비밀번호 변경.
+	 * 초기 비밀번호를 바꾸지 않은 계정도 이 경로만은 열려 있다.
+	 */
+	@PostMapping("/password")
+	public ApiResponse<MeResponse> changePassword(@Valid @RequestBody PasswordChangeRequest request,
+			HttpServletRequest httpRequest, HttpServletResponse httpResponse) {
+
+		LoginUser current = currentUser();
+		if (current == null) {
+			throw new BusinessException(ErrorCode.UNAUTHENTICATED);
+		}
+
+		LoginUser updated = authService.changePassword(current,
+				request.currentPassword(), request.newPassword(), request.confirmPassword());
+
+		// 변경 강제 플래그가 풀린 인증 주체로 세션을 갱신한다.
+		// 갱신하지 않으면 세션에 남은 옛 플래그 때문에 계속 차단된다.
+		saveAuthentication(updated, httpRequest, httpResponse);
+		return ApiResponse.ok(MeResponse.from(updated, null));
+	}
+
+	/** 인증 주체를 SecurityContext 에 넣고 세션에 저장한다 */
+	private void saveAuthentication(LoginUser loginUser,
+			HttpServletRequest httpRequest, HttpServletResponse httpResponse) {
+		List<SimpleGrantedAuthority> authorities = loginUser.getRoleIds().stream()
+				.map(roleId -> new SimpleGrantedAuthority("ROLE_" + roleId))
+				.toList();
+		SecurityContext context = SecurityContextHolder.createEmptyContext();
+		context.setAuthentication(
+				UsernamePasswordAuthenticationToken.authenticated(loginUser, null, authorities));
+		SecurityContextHolder.setContext(context);
+		securityContextRepository.saveContext(context, httpRequest, httpResponse);
+	}
 	private LoginUser currentUser() {
 		Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
 		if (authentication == null || !(authentication.getPrincipal() instanceof LoginUser loginUser)) {

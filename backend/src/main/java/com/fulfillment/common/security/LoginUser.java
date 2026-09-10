@@ -38,6 +38,8 @@ public class LoginUser implements Serializable {
 	private final String orgType;
 
 	private final Long approvalLimit;
+	/** 최초/초기화 후 비밀번호 변경 필요 여부 */
+	private final boolean mustChangePassword;
 
 	private final List<String> roleIds;
 	private final List<String> roleNames;
@@ -50,7 +52,7 @@ public class LoginUser implements Serializable {
 
 	public LoginUser(Long userSeq, String userId, String userName,
 			Long orgSeq, String orgId, String orgName, String orgType,
-			Long approvalLimit,
+			Long approvalLimit, boolean mustChangePassword,
 			List<String> roleIds, List<String> roleNames,
 			Map<String, Set<String>> grants, List<Policy> policies) {
 		this.userSeq = userSeq;
@@ -61,6 +63,7 @@ public class LoginUser implements Serializable {
 		this.orgName = orgName;
 		this.orgType = orgType;
 		this.approvalLimit = approvalLimit;
+		this.mustChangePassword = mustChangePassword;
 		this.roleIds = List.copyOf(roleIds);
 		this.roleNames = List.copyOf(roleNames);
 		// 세션 직렬화를 위해 변경 불가 사본으로 보관

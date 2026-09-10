@@ -8,7 +8,7 @@
         SELECT u.user_seq, u.user_id, u.user_name, u.password_hash,
                u.org_seq, u.email, u.phone, u.dept_name, u.position_name,
                u.status, u.approval_limit, u.login_fail_count,
-               u.last_login_at, u.password_changed_at, u.use_yn,
+               u.last_login_at, u.password_changed_at, u.must_change_password, u.use_yn,
                o.org_id, o.org_name, o.org_type
           FROM tb_user u
           JOIN tb_org o ON o.org_seq = u.org_seq
@@ -86,6 +86,17 @@
                last_login_at = CURRENT_TIMESTAMP,
                updated_by = 'system',
                updated_at = CURRENT_TIMESTAMP
+         WHERE user_seq = #{userSeq}
+    </update>
+
+    <update id="updatePassword">
+        UPDATE tb_user
+           SET password_hash        = #{passwordHash},
+               password_changed_at  = CURRENT_TIMESTAMP,
+               must_change_password = 'N',
+               login_fail_count     = 0,
+               updated_by           = #{updatedBy},
+               updated_at           = CURRENT_TIMESTAMP
          WHERE user_seq = #{userSeq}
     </update>
 

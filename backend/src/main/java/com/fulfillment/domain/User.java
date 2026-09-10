@@ -37,6 +37,8 @@ public class User {
 	private Integer loginFailCount;
 	private LocalDateTime lastLoginAt;
 	private LocalDateTime passwordChangedAt;
+	/** 최초/초기화 후 비밀번호 변경 필요 여부. Y 이면 변경 화면 외 접근이 차단된다 */
+	private String mustChangePassword;
 	private String useYn;
 
 	private String createdBy;

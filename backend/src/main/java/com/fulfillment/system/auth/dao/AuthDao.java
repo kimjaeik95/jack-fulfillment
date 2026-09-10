@@ -33,4 +33,9 @@ public interface AuthDao {
 
 	/** 로그인 성공 처리 — 실패 횟수 초기화 + 최종 접속일시 갱신 */
 	void markLoginSuccess(@Param("userSeq") Long userSeq);
+
+	/** 비밀번호 변경 — 변경 강제 플래그를 함께 해제한다 */
+	void updatePassword(@Param("userSeq") Long userSeq,
+			@Param("passwordHash") String passwordHash,
+			@Param("updatedBy") String updatedBy);
 }

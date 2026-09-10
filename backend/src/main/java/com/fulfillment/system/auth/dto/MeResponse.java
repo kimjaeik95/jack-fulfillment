@@ -27,6 +27,7 @@ public record MeResponse(
 		Map<String, List<String>> grants,
 		List<PolicyBrief> policies,
 		boolean readOnly,
+		boolean mustChangePassword,
 		boolean masked
 ) {
 
@@ -63,6 +64,6 @@ public record MeResponse(
 				u.getApprovalLimit(),
 				u.getRoleIds(), u.getRoleNames(),
 				grants, policies,
-				u.isReadOnly(), u.isMasked());
+				u.isReadOnly(), u.isMustChangePassword(), u.isMasked());
 	}
 }
