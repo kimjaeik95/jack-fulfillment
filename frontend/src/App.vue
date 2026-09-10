@@ -21,8 +21,8 @@ const resetAsk = ref(false)
 const resetting = ref(false)
 const logoutAsk = ref(false)
 
-/** 로그인 화면은 헤더·사이드바 없이 전체 화면으로 렌더한다. */
-const isPublic = computed(() => route.meta.public === true)
+/** 로그인·비밀번호 변경 화면은 헤더·사이드바 없이 전체 화면으로 렌더한다. */
+const isPublic = computed(() => route.meta.public === true || route.meta.passwordChange === true)
 
 /**
  * 인증 상태가 되면 기준정보를 적재한다.

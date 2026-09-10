@@ -45,6 +45,15 @@ router.beforeEach(async (to) => {
   if (!session.isAuthenticated) {
     return { name: 'login', query: to.fullPath === '/' ? {} : { redirect: to.fullPath } }
   }
+
+  // 초기 비밀번호를 바꾸지 않은 계정은 변경 화면 외로 갈 수 없다.
+  // 서버도 같은 규칙으로 API 를 막지만, 화면을 먼저 보내야 사용자가 무엇을
+  // 해야 하는지 알 수 있다. 통제 자체는 서버가 한다.
+  if (session.mustChangePassword && to.meta.passwordChange !== true) {
+    return { name: 'password-change', query: to.fullPath === '/' ? {} : { redirect: to.fullPath } }
+  }
+
+  // 바꿀 필요가 없는데 변경 화면으로 들어오는 것은 막지 않는다 (임의 변경 허용)
   return true
 })
 

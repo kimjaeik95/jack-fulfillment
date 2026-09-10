@@ -27,6 +27,11 @@ export class ApiError extends Error {
   get isUnauthenticated() {
     return this.status === 401
   }
+
+  /** 초기 비밀번호를 아직 바꾸지 않아 차단된 상태인지 */
+  get isPasswordChangeRequired() {
+    return this.code === 'PASSWORD_CHANGE_REQUIRED'
+  }
 }
 
 /** 백엔드가 내려준 XSRF-TOKEN 쿠키를 읽는다 (HttpOnly 가 아니라 JS 로 읽을 수 있다) */
@@ -117,4 +122,4 @@ async function readJson(response) {
 export const get = (path, query) => request(path, { method: 'GET', query })
 export const post = (path, body) => request(path, { method: 'POST', body })
 export const put = (path, body) => request(path, { method: 'PUT', body })
-export const del = (path) => request(path, { method: 'DELETE' })
+export const del = (path, body) => request(path, { method: 'DELETE', body })

@@ -42,6 +42,15 @@ export async function me() {
  * 세션의 권한 정보를 서버에서 다시 계산한다.
  * 역할·권한·정책을 변경한 뒤 재로그인 없이 반영할 때 호출한다.
  */
+export async function changePassword(currentPassword, newPassword, confirmPassword) {
+  const { data } = await post('/auth/password', { currentPassword, newPassword, confirmPassword })
+  return data
+}
+
+/**
+ * 세션의 권한 정보를 서버에서 다시 계산한다.
+ * 역할·권한·정책을 변경한 뒤 재로그인 없이 반영할 때 호출한다.
+ */
 export async function refresh() {
   const { data } = await post('/auth/refresh')
   return data

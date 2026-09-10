@@ -107,6 +107,16 @@ export const useSessionStore = defineStore('session', () => {
     readyPromise = null
   }
 
+
+  /**
+   * 본인 비밀번호 변경.
+   * 성공하면 서버가 변경 강제 플래그를 해제한 인증 정보를 돌려주므로
+   * 세션 상태를 그것으로 교체한다.
+   */
+  async function changePassword(currentPassword, newPassword, confirmPassword) {
+    me.value = await authApi.changePassword(currentPassword, newPassword, confirmPassword)
+    return me.value
+  }
   /** 역할·권한·정책을 변경한 뒤 재로그인 없이 반영한다 */
   async function refreshGrants() {
     me.value = await authApi.refresh()
@@ -129,6 +139,8 @@ export const useSessionStore = defineStore('session', () => {
 
   const isReadOnly = computed(() => me.value?.readOnly === true)
   const isMasked = computed(() => me.value?.masked === true)
+  /** 초기 비밀번호를 아직 바꾸지 않아 다른 기능이 막힌 상태 */
+  const mustChangePassword = computed(() => me.value?.mustChangePassword === true)
 
   /* ---------------------------------------------------------------- */
   /* 권한 판정                                                         */
@@ -223,9 +235,9 @@ export const useSessionStore = defineStore('session', () => {
     // 파생
     isAuthenticated, currentUserId, currentUser,
     myRoleIds, myRoleNames, myGrants, myPolicies,
-    isReadOnly, isMasked,
+    isReadOnly, isMasked, mustChangePassword,
     // 액션
-    ensureReady, restore, loadDemoAccounts, login, logout, refreshGrants,
+    ensureReady, restore, loadDemoAccounts, login, logout, refreshGrants, changePassword,
     check, can, denyReason, mask, lastLoginId,
   }
 })
