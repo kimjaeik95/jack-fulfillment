@@ -27,7 +27,7 @@ import { useToastStore } from '@/stores/toast.js'
  *  nameOf(row)  삭제 확인 문구에 쓸 표시명
  *  api      실서버 연동 시 { create, update, remove }.
  *           update 는 { warning } 을 함께 돌려줄 수 있다.
- *  afterChange()  등록·수정·삭제 성공 후 호출 (목록 재조회용)
+ *  afterChange({action, key})  등록·수정·삭제 성공 후 호출 (목록 재조회용)
  */
 export function useCrud(cfg) {
   const admin = useAdminStore()
@@ -121,7 +121,9 @@ export function useCrud(cfg) {
         // 막지는 않았지만 알려야 할 사항 — 저장 자체는 끝난 뒤에 보여준다
         if (result?.warning) toast.warn(result.warning)
       }
-      if (cfg.afterChange) await cfg.afterChange()
+      if (cfg.afterChange) {
+        await cfg.afterChange({ action: mode.value, key: form.value[cfg.pk] })
+      }
       open.value = false
       return true
     } catch (e) {
@@ -147,7 +149,7 @@ export function useCrud(cfg) {
       if (cfg.api) await cfg.api.remove(key)
       else await admin.removeRow(cfg.entity, key)
       toast.success(`${cfg.label}을(를) 삭제했습니다.`)
-      if (cfg.afterChange) await cfg.afterChange()
+      if (cfg.afterChange) await cfg.afterChange({ action: 'delete', key })
       askDelete.value = null
     } catch (e) {
       // 참조 무결성 거부(소속 사용자·하위 조직)는 사유가 곧 다음 행동이므로 그대로 보여준다

@@ -90,7 +90,20 @@ function cellValue(row, col) {
   return col.key.split('.').reduce((acc, k) => (acc == null ? acc : acc[k]), row)
 }
 
-defineExpose({ resetPage: () => (page.value = 1) })
+/**
+ * 특정 행이 있는 페이지로 이동한다.
+ *
+ * 등록 직후에 쓴다. 새 행이 정렬 순서상 뒤로 밀리면 1페이지에 나타나지 않아,
+ * 저장에 성공했는데도 아무 일도 일어나지 않은 것처럼 보인다.
+ */
+function goToKey(key) {
+  if (size.value <= 0) return
+  const index = sorted.value.findIndex((r) => r[props.rowKey] === key)
+  if (index < 0) return
+  page.value = Math.floor(index / size.value) + 1
+}
+
+defineExpose({ resetPage: () => (page.value = 1), goToKey })
 </script>
 
 <template>

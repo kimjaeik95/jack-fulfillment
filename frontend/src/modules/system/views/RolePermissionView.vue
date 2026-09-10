@@ -3,6 +3,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { CODE_GROUPS, codeLabel, codeOptions } from '@/api/codes.js'
 import { useAdminStore } from '@/stores/admin.js'
+import { useRoleStore } from '@/stores/role.js'
 import { useSessionStore } from '@/stores/session.js'
 import { useToastStore } from '@/stores/toast.js'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
@@ -10,6 +11,9 @@ import FormField from '@/components/FormField.vue'
 import CodeBadge from '@/components/CodeBadge.vue'
 
 const admin = useAdminStore()
+// 역할 목록만 실서버를 쓴다. 권한 매핑 자체는 아직 화면 임시 데이터라,
+// 목록까지 임시로 두면 역할 화면에서 새로 만든 역할이 여기 나타나지 않는다.
+const roleStore = useRoleStore()
 const session = useSessionStore()
 const toast = useToastStore()
 const route = useRoute()
@@ -28,7 +32,7 @@ const filters = reactive({ keyword: '', module: '', onlyGranted: false })
 const canUpdate = computed(() => session.can('SYS_ROLE', 'U'))
 const updateDenyReason = computed(() => session.denyReason('SYS_ROLE', 'U'))
 
-const selectedRole = computed(() => admin.roleMap[selectedRoleId.value] ?? null)
+const selectedRole = computed(() => roleStore.roleMap[selectedRoleId.value] ?? null)
 
 /** 저장된 매핑 */
 const savedGrants = computed(() => (selectedRoleId.value ? admin.grantMapOf(selectedRoleId.value) : {}))
@@ -53,8 +57,8 @@ function selectRole(roleId, force = false) {
 
 onMounted(() => {
   const initial =
-    (route.query.roleId && admin.roleMap[route.query.roleId] ? route.query.roleId : null) ??
-    [...admin.roles].sort((a, b) => (a.sortOrder ?? 999) - (b.sortOrder ?? 999))[0]?.roleId
+    (route.query.roleId && roleStore.roleMap[route.query.roleId] ? route.query.roleId : null) ??
+    [...roleStore.roles].sort((a, b) => (a.sortOrder ?? 999) - (b.sortOrder ?? 999))[0]?.roleId
   if (initial) {
     selectedRoleId.value = initial
     loadDraft(initial)
@@ -63,10 +67,10 @@ onMounted(() => {
 
 // 다른 화면에서 역할이 추가/삭제되어도 목록이 유지되도록 보정
 watch(
-  () => admin.roles.length,
+  () => roleStore.roles.length,
   () => {
-    if (selectedRoleId.value && !admin.roleMap[selectedRoleId.value]) {
-      selectedRoleId.value = admin.roles[0]?.roleId ?? ''
+    if (selectedRoleId.value && !roleStore.roleMap[selectedRoleId.value]) {
+      selectedRoleId.value = roleStore.roles[0]?.roleId ?? ''
       if (selectedRoleId.value) loadDraft(selectedRoleId.value)
     }
   },
@@ -214,16 +218,16 @@ function applyCopy() {
   const src = admin.grantMapOf(copyFrom.value)
   for (const k of Object.keys(draft)) delete draft[k]
   for (const [permId, actions] of Object.entries(src)) draft[permId] = [...actions]
-  toast.warn(`'${admin.roleNameOf(copyFrom.value)}' 의 권한 구성을 복사했습니다. 저장 버튼을 눌러야 반영됩니다.`)
+  toast.warn(`'${roleStore.roleNameOf(copyFrom.value)}' 의 권한 구성을 복사했습니다. 저장 버튼을 눌러야 반영됩니다.`)
 }
 
 const roleListRows = computed(() =>
-  [...admin.roles]
+  [...roleStore.roles]
     .sort((a, b) => (a.sortOrder ?? 999) - (b.sortOrder ?? 999))
     .map((r) => ({ ...r, count: admin.grantsOf(r.roleId).length })),
 )
 
-const copyOptions = computed(() => admin.roleOptions.filter((o) => o.value !== selectedRoleId.value))
+const copyOptions = computed(() => roleStore.roleOptions.filter((o) => o.value !== selectedRoleId.value))
 
 /** 미저장 변경을 버리고 다른 역할로 이동 */
 function confirmLeave() {
@@ -273,7 +277,7 @@ function confirmLeave() {
             class="nav-item"
             :class="{ active: r.roleId === selectedRoleId }"
             :style="r.useYn !== 'Y' ? { opacity: 0.5 } : null"
-            :title="r.summary"
+            :title="r.description"
             style="border-radius: 0; padding: 8px 12px"
             @click="selectRole(r.roleId)"
           >
@@ -323,10 +327,10 @@ function confirmLeave() {
           </div>
         </div>
 
-        <div v-if="selectedRole?.restriction" class="alert alert-info" style="margin: 12px 14px 0">
+        <div v-if="selectedRole?.restrictionSummary" class="alert alert-info" style="margin: 12px 14px 0">
           <span class="alert-icon">⚖</span>
           <span>
-            <strong>제한/승인 사항</strong> — {{ selectedRole.restriction }}
+            <strong>제한/승인 사항</strong> — {{ selectedRole.restrictionSummary }}
             <RouterLink :to="{ name: 'policies', query: { roleId: selectedRoleId } }">정책 확인</RouterLink>
           </span>
         </div>

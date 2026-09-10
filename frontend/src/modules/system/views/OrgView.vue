@@ -9,7 +9,7 @@
  * 판정은 모두 서버가 한다. 여기서 막는 것은 왕복을 줄이기 위한 편의일 뿐이고,
  * 계층 규칙·순환 참조·참조 무결성은 저장 시 서버가 다시 검사한다.
  */
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref } from 'vue'
 import { codeOptions } from '@/api/codes.js'
 import * as orgApi from '@/api/org.js'
 import { useOrgStore } from '@/stores/org.js'
@@ -25,6 +25,8 @@ const orgStore = useOrgStore()
 const session = useSessionStore()
 
 const loadError = ref('')
+/** 등록 직후 새 행이 있는 페이지로 이동시키기 위한 참조 */
+const table = ref(null)
 
 const filters = reactive({ keyword: '', orgType: '', useYn: '' })
 
@@ -88,7 +90,15 @@ const {
     update: (orgId, payload) => orgApi.update(orgId, payload),
     remove: (orgId) => orgApi.remove(orgId, '조직 삭제'),
   },
-  afterChange: reload,
+  // 등록 직후 새 행이 정렬상 뒤로 밀려 1페이지에 안 보이면, 저장했는데도
+  // 아무 일도 없었던 것처럼 보인다. 해당 페이지로 옮겨준다.
+  async afterChange({ action, key }) {
+    await reload()
+    if (action === "create") {
+      await nextTick()
+      table.value?.goToKey(key)
+    }
+  },
   blank: () => ({
     orgId: '',
     orgName: '',
@@ -218,6 +228,7 @@ const readDenyReason = computed(() => session.denyReason('SYS_COMPANY', 'R'))
       </div>
 
       <DataTable
+        ref="table"
         :columns="columns"
         :rows="rows"
         row-key="orgId"

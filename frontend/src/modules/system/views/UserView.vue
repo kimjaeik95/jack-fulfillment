@@ -7,24 +7,21 @@
  *
  * 목록의 검색·필터·페이징·정렬은 모두 서버가 처리한다.
  * 전체를 받아 화면에서 자르면 사용자가 늘어났을 때 감당할 수 없다.
- *
- * 조직·역할 목록은 아직 Mock(admin 스토어)을 쓴다.
- * 해당 기능의 API 가 만들어지면 그때 교체한다.
  */
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { codeOptions } from '@/api/codes.js'
 import * as userApi from '@/api/user.js'
-import { useAdminStore } from '@/stores/admin.js'
 import { useOrgStore } from '@/stores/org.js'
+import { useRoleStore } from '@/stores/role.js'
 import { useSessionStore } from '@/stores/session.js'
 import { useToastStore } from '@/stores/toast.js'
 import ModalDialog from '@/components/ModalDialog.vue'
 import FormField from '@/components/FormField.vue'
 import CodeBadge from '@/components/CodeBadge.vue'
 
-const admin = useAdminStore()
-// 조직은 실서버, 역할은 아직 Mock — 두 출처가 섞여 있는 동안 각각 명시한다
+// 조직·역할은 실서버 목록을 쓴다 — 사용자 저장 시 서버가 같은 데이터로 검증한다
 const orgStore = useOrgStore()
+const roleStore = useRoleStore()
 const session = useSessionStore()
 const toast = useToastStore()
 
@@ -72,9 +69,10 @@ watch(() => [paging.page, paging.size, paging.sortBy, paging.sortDir], load)
 
 onMounted(() => {
   load()
-  // 소속 드롭다운은 실제 조직 목록을 써야 한다. 화면마다 출처가 다르면
-  // 한쪽에만 있는 조직을 골라 저장할 때마다 서버에 거부당한다.
+  // 소속·역할 드롭다운은 실제 목록을 써야 한다. 화면마다 출처가 다르면
+  // 한쪽에만 있는 값을 골라 저장할 때마다 서버에 거부당한다.
   orgStore.load()
+  roleStore.load()
 })
 
 const totalPages = computed(() => (paging.size > 0 ? Math.max(1, Math.ceil(total.value / paging.size)) : 1))
@@ -199,7 +197,7 @@ function openEdit(row) {
 /** 소속 조직유형에 배정 가능한 역할만 노출 (서버 검증과 같은 규칙) */
 const assignableRoles = computed(() => {
   const orgType = orgStore.orgMap[form.orgId]?.orgType
-  return admin.roles
+  return roleStore.roles
     .filter((r) => r.useYn === 'Y')
     .map((r) => ({
       value: r.roleId,
@@ -207,7 +205,7 @@ const assignableRoles = computed(() => {
       disabled: !!orgType && r.orgScope !== orgType,
       title: orgType && r.orgScope !== orgType
         ? `${r.roleName}은(는) ${orgTypeLabel(r.orgScope)} 소속에만 배정할 수 있습니다.`
-        : r.summary,
+        : r.description,
     }))
     .sort((a, b) => Number(a.disabled) - Number(b.disabled))
 })
@@ -221,9 +219,9 @@ function onOrgChange(orgId) {
   form.orgId = orgId
   const orgType = orgStore.orgMap[orgId]?.orgType
   if (!orgType) return
-  const kept = form.roleIds.filter((rid) => admin.roleMap[rid]?.orgScope === orgType)
+  const kept = form.roleIds.filter((rid) => roleStore.roleMap[rid]?.orgScope === orgType)
   if (kept.length !== form.roleIds.length) {
-    const dropped = form.roleIds.filter((rid) => !kept.includes(rid)).map((r) => admin.roleNameOf(r))
+    const dropped = form.roleIds.filter((rid) => !kept.includes(rid)).map((r) => roleStore.roleNameOf(r))
     form.roleIds = kept
     toast.warn(`소속 변경으로 배정 범위를 벗어난 역할을 해제했습니다: ${dropped.join(', ')}`)
   }
@@ -395,7 +393,7 @@ async function doResetPassword() {
       <div class="toolbar">
         <FormField v-model="filters.keyword" class="grow" label="검색어" placeholder="ID / 이름 / 이메일 / 부서" />
         <FormField v-model="filters.orgId" label="소속" type="select" empty-option="전체" :options="orgStore.orgOptions" />
-        <FormField v-model="filters.roleId" label="역할" type="select" empty-option="전체" :options="admin.roleOptions" />
+        <FormField v-model="filters.roleId" label="역할" type="select" empty-option="전체" :options="roleStore.roleOptions" />
         <FormField
           v-model="filters.status"
           label="상태"
