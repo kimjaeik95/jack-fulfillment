@@ -4,14 +4,18 @@ import com.fulfillment.common.exception.BusinessException;
 import com.fulfillment.common.exception.ErrorCode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.FieldError;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -71,6 +75,34 @@ public class GlobalExceptionHandler {
 		return ResponseEntity.status(ErrorCode.NOT_FOUND.getStatus())
 				.body(ApiResponse.fail(ErrorCode.NOT_FOUND.name(),
 						"요청한 경로를 찾을 수 없습니다. (%s)".formatted(e.getResourcePath())));
+	}
+
+	/**
+	 * 지원하지 않는 HTTP 메서드 — 경로는 있지만 그 동작이 없는 경우.
+	 *
+	 * 감사로그처럼 일부러 조회만 두는 자원이 있어, 이 상황은 오류가 아니라
+	 * 설계다. 500 으로 내보내면 서버 장애처럼 보이고, 허용 메서드도 알 수 없다.
+	 * Allow 헤더에 가능한 메서드를 실어 보낸다 (HTTP 규약).
+	 */
+	@ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+	public ResponseEntity<ApiResponse<Void>> handleMethodNotAllowed(
+			HttpRequestMethodNotSupportedException e) {
+
+		Set<HttpMethod> allowed = e.getSupportedHttpMethods();
+		String allowedText = allowed == null ? ""
+				: allowed.stream().map(HttpMethod::name).sorted().collect(Collectors.joining(", "));
+
+		log.info("지원하지 않는 메서드: {} (허용: {})", e.getMethod(), allowedText);
+
+		ResponseEntity.BodyBuilder builder = ResponseEntity.status(HttpStatus.METHOD_NOT_ALLOWED);
+		if (allowed != null && !allowed.isEmpty()) {
+			builder.allow(allowed.toArray(HttpMethod[]::new));
+		}
+		return builder.body(ApiResponse.fail("METHOD_NOT_ALLOWED",
+				allowedText.isEmpty()
+						? "%s 메서드는 이 경로에서 지원하지 않습니다.".formatted(e.getMethod())
+						: "%s 메서드는 이 경로에서 지원하지 않습니다. 사용 가능: %s"
+								.formatted(e.getMethod(), allowedText)));
 	}
 
 	/** 그 외 — 상세는 로그에만 남기고 응답에는 일반 메시지만 */

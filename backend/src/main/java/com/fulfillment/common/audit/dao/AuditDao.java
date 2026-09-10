@@ -19,5 +19,8 @@ public interface AuditDao {
 
 	long countLogs(AuditLogSearch search);
 
+	/** 단건 조회. 상세를 펼쳐 볼 때 쓴다. */
+	AuditLog selectLog(@Param("logSeq") Long logSeq);
+
 	List<AuditLogDetail> selectDetails(@Param("logSeq") Long logSeq);
 }

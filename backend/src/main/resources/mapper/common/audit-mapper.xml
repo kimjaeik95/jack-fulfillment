@@ -72,6 +72,19 @@
         <include refid="searchWhere"/>
     </select>
 
+    <!-- 상세를 펼쳐 볼 때. 목록 조회를 재사용해 자바에서 거르면 전체를 읽게 된다. -->
+    <select id="selectLog" resultType="com.fulfillment.domain.AuditLog">
+        SELECT l.log_seq, l.user_seq, l.actor_user_id, l.actor_name, l.action_type,
+               l.target_table, l.target_key, l.reason, l.client_ip, l.request_id, l.occurred_at,
+               c.code_name AS action_name,
+               (SELECT COUNT(*) FROM tb_audit_log_detail d WHERE d.log_seq = l.log_seq) AS changed_column_count
+          FROM tb_audit_log l
+          LEFT JOIN tb_code_group g ON g.code_group_id = 'AUDIT_ACTION'
+          LEFT JOIN tb_code c       ON c.code_group_seq = g.code_group_seq
+                                   AND c.code_id = l.action_type
+         WHERE l.log_seq = #{logSeq}
+    </select>
+
     <select id="selectDetails" resultType="com.fulfillment.domain.AuditLogDetail">
         SELECT log_detail_seq, log_seq, column_name, before_value, after_value
           FROM tb_audit_log_detail
