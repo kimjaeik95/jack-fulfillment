@@ -1,18 +1,15 @@
 package com.fulfillment.system.user.controller;
 
-import com.fulfillment.common.exception.BusinessException;
-import com.fulfillment.common.exception.ErrorCode;
-import com.fulfillment.common.security.LoginUser;
+import com.fulfillment.common.security.CurrentUser;
 import com.fulfillment.common.web.ApiResponse;
 import com.fulfillment.common.web.PageResponse;
+import com.fulfillment.common.web.ReasonRequest;
+import com.fulfillment.system.user.dto.PasswordResetRequest;
 import com.fulfillment.system.user.dto.UserResponse;
 import com.fulfillment.system.user.dto.UserSaveRequest;
 import com.fulfillment.system.user.dto.UserSearch;
 import com.fulfillment.system.user.service.UserService;
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.NotBlank;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
@@ -49,30 +46,30 @@ public class UserController {
 
 	@GetMapping
 	public ApiResponse<PageResponse<UserResponse>> list(@ModelAttribute UserSearch search) {
-		return ApiResponse.ok(userService.search(currentUser(), search));
+		return ApiResponse.ok(userService.search(CurrentUser.require(), search));
 	}
 
 	@GetMapping("/{userId}")
 	public ApiResponse<UserResponse> detail(@PathVariable String userId) {
-		return ApiResponse.ok(userService.get(currentUser(), userId));
+		return ApiResponse.ok(userService.get(CurrentUser.require(), userId));
 	}
 
 	@PostMapping
 	public ApiResponse<UserResponse> create(@Valid @RequestBody UserSaveRequest request) {
-		return ApiResponse.ok(userService.create(currentUser(), request));
+		return ApiResponse.ok(userService.create(CurrentUser.require(), request));
 	}
 
 	@PutMapping("/{userId}")
 	public ApiResponse<UserResponse> update(@PathVariable String userId,
 			@Valid @RequestBody UserSaveRequest request) {
-		return ApiResponse.ok(userService.update(currentUser(), userId, request));
+		return ApiResponse.ok(userService.update(CurrentUser.require(), userId, request));
 	}
 
 	/** 물리 삭제가 아니라 퇴사 처리다. 감사 추적을 위해 계정 자체는 남긴다. */
 	@DeleteMapping("/{userId}")
 	public ApiResponse<Void> retire(@PathVariable String userId,
 			@RequestBody(required = false) ReasonRequest request) {
-		userService.retire(currentUser(), userId, request == null ? null : request.reason());
+		userService.retire(CurrentUser.require(), userId, request == null ? null : request.reason());
 		return ApiResponse.ok();
 	}
 
@@ -80,30 +77,13 @@ public class UserController {
 	public ApiResponse<UserResponse> unlock(@PathVariable String userId,
 			@RequestBody(required = false) ReasonRequest request) {
 		return ApiResponse.ok(
-				userService.unlock(currentUser(), userId, request == null ? null : request.reason()));
+				userService.unlock(CurrentUser.require(), userId, request == null ? null : request.reason()));
 	}
 
 	@PostMapping("/{userId}/reset-password")
 	public ApiResponse<Void> resetPassword(@PathVariable String userId,
-			@Valid @RequestBody ResetPasswordRequest request) {
-		userService.resetPassword(currentUser(), userId, request.newPassword(), request.reason());
+			@Valid @RequestBody PasswordResetRequest request) {
+		userService.resetPassword(CurrentUser.require(), userId, request.newPassword(), request.reason());
 		return ApiResponse.ok();
-	}
-
-	/** 처리 사유 — 감사로그에 기록된다 */
-	public record ReasonRequest(String reason) {
-	}
-
-	public record ResetPasswordRequest(
-			@NotBlank(message = "새 비밀번호를 입력하세요.") String newPassword,
-			String reason) {
-	}
-
-	private LoginUser currentUser() {
-		Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-		if (authentication == null || !(authentication.getPrincipal() instanceof LoginUser loginUser)) {
-			throw new BusinessException(ErrorCode.UNAUTHENTICATED);
-		}
-		return loginUser;
 	}
 }

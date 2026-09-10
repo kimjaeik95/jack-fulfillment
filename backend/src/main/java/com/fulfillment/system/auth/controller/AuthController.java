@@ -1,7 +1,6 @@
 package com.fulfillment.system.auth.controller;
 
-import com.fulfillment.common.exception.BusinessException;
-import com.fulfillment.common.exception.ErrorCode;
+import com.fulfillment.common.security.CurrentUser;
 import com.fulfillment.common.security.LoginUser;
 import com.fulfillment.common.web.ApiResponse;
 import com.fulfillment.system.auth.dto.LoginRequest;
@@ -14,10 +13,10 @@ import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
 import jakarta.validation.Valid;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContext;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.context.SecurityContextRepository;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -86,7 +85,7 @@ public class AuthController {
 
 	@PostMapping("/logout")
 	public ApiResponse<Void> logout(HttpServletRequest httpRequest) {
-		LoginUser loginUser = currentUser();
+		LoginUser loginUser = CurrentUser.orNull();
 		authService.logout(loginUser);
 
 		HttpSession session = httpRequest.getSession(false);
@@ -100,10 +99,7 @@ public class AuthController {
 	/** 새로고침 후 세션 복원용. 프론트가 진입 시 호출한다. */
 	@GetMapping("/me")
 	public ApiResponse<MeResponse> me() {
-		LoginUser loginUser = currentUser();
-		if (loginUser == null) {
-			throw new BusinessException(ErrorCode.UNAUTHENTICATED);
-		}
+		LoginUser loginUser = CurrentUser.require();
 		return ApiResponse.ok(MeResponse.from(loginUser, null));
 	}
 
@@ -113,10 +109,7 @@ public class AuthController {
 	 */
 	@PostMapping("/refresh")
 	public ApiResponse<MeResponse> refresh(HttpServletRequest httpRequest, HttpServletResponse httpResponse) {
-		LoginUser current = currentUser();
-		if (current == null) {
-			throw new BusinessException(ErrorCode.UNAUTHENTICATED);
-		}
+		LoginUser current = CurrentUser.require();
 		LoginUser reloaded = authService.reload(current.getUserId());
 
 		List<SimpleGrantedAuthority> authorities = reloaded.getRoleIds().stream()
@@ -140,11 +133,7 @@ public class AuthController {
 	public ApiResponse<MeResponse> changePassword(@Valid @RequestBody PasswordChangeRequest request,
 			HttpServletRequest httpRequest, HttpServletResponse httpResponse) {
 
-		LoginUser current = currentUser();
-		if (current == null) {
-			throw new BusinessException(ErrorCode.UNAUTHENTICATED);
-		}
-
+		LoginUser current = CurrentUser.require();
 		LoginUser updated = authService.changePassword(current,
 				request.currentPassword(), request.newPassword(), request.confirmPassword());
 
@@ -165,12 +154,5 @@ public class AuthController {
 				UsernamePasswordAuthenticationToken.authenticated(loginUser, null, authorities));
 		SecurityContextHolder.setContext(context);
 		securityContextRepository.saveContext(context, httpRequest, httpResponse);
-	}
-	private LoginUser currentUser() {
-		Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-		if (authentication == null || !(authentication.getPrincipal() instanceof LoginUser loginUser)) {
-			return null;
-		}
-		return loginUser;
 	}
 }

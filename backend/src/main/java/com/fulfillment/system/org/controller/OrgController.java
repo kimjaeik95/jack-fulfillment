@@ -1,17 +1,14 @@
 package com.fulfillment.system.org.controller;
 
-import com.fulfillment.common.exception.BusinessException;
-import com.fulfillment.common.exception.ErrorCode;
-import com.fulfillment.common.security.LoginUser;
+import com.fulfillment.common.security.CurrentUser;
 import com.fulfillment.common.web.ApiResponse;
 import com.fulfillment.common.web.PageResponse;
+import com.fulfillment.common.web.ReasonRequest;
 import com.fulfillment.system.org.dto.OrgResponse;
 import com.fulfillment.system.org.dto.OrgSaveRequest;
 import com.fulfillment.system.org.dto.OrgSearch;
 import com.fulfillment.system.org.service.OrgService;
 import jakarta.validation.Valid;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
@@ -45,17 +42,17 @@ public class OrgController {
 
 	@GetMapping
 	public ApiResponse<PageResponse<OrgResponse>> list(@ModelAttribute OrgSearch search) {
-		return ApiResponse.ok(orgService.search(currentUser(), search));
+		return ApiResponse.ok(orgService.search(CurrentUser.require(), search));
 	}
 
 	@GetMapping("/{orgId}")
 	public ApiResponse<OrgResponse> detail(@PathVariable String orgId) {
-		return ApiResponse.ok(orgService.get(currentUser(), orgId));
+		return ApiResponse.ok(orgService.get(CurrentUser.require(), orgId));
 	}
 
 	@PostMapping
 	public ApiResponse<OrgResponse> create(@Valid @RequestBody OrgSaveRequest request) {
-		return ApiResponse.ok(orgService.create(currentUser(), request));
+		return ApiResponse.ok(orgService.create(CurrentUser.require(), request));
 	}
 
 	/**
@@ -65,26 +62,14 @@ public class OrgController {
 	@PutMapping("/{orgId}")
 	public ApiResponse<OrgResponse> update(@PathVariable String orgId,
 			@Valid @RequestBody OrgSaveRequest request) {
-		OrgService.Result result = orgService.update(currentUser(), orgId, request);
+		OrgService.Result result = orgService.update(CurrentUser.require(), orgId, request);
 		return ApiResponse.ok(result.org(), result.warning());
 	}
 
 	@DeleteMapping("/{orgId}")
 	public ApiResponse<Void> delete(@PathVariable String orgId,
 			@RequestBody(required = false) ReasonRequest request) {
-		orgService.delete(currentUser(), orgId, request == null ? null : request.reason());
+		orgService.delete(CurrentUser.require(), orgId, request == null ? null : request.reason());
 		return ApiResponse.ok();
-	}
-
-	/** 처리 사유 — 감사로그에 기록된다 */
-	public record ReasonRequest(String reason) {
-	}
-
-	private LoginUser currentUser() {
-		Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-		if (authentication == null || !(authentication.getPrincipal() instanceof LoginUser loginUser)) {
-			throw new BusinessException(ErrorCode.UNAUTHENTICATED);
-		}
-		return loginUser;
 	}
 }
