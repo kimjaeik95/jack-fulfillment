@@ -13,6 +13,7 @@ public final class AuditAction {
 	public static final String LOGIN_FAIL = "LOGIN_FAIL";
 	public static final String LOGOUT = "LOGOUT";
 	public static final String PWD_RESET = "PWD_RESET";
+	public static final String PWD_CHANGE = "PWD_CHANGE";
 	public static final String DOWNLOAD = "DOWNLOAD";
 
 	private AuditAction() {

@@ -10,6 +10,7 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.util.stream.Collectors;
 
@@ -57,6 +58,19 @@ public class GlobalExceptionHandler {
 		return ResponseEntity.status(ErrorCode.INVALID_INPUT.getStatus())
 				.body(ApiResponse.fail(ErrorCode.INVALID_INPUT.name(),
 						"요청 형식이 올바르지 않습니다. 전송한 JSON 본문을 확인하세요."));
+	}
+
+	/**
+	 * 매핑되지 않은 경로 — 오타 난 URL, 아직 만들지 않은 API 등.
+	 * 처리하지 않으면 아래 일반 예외 핸들러가 잡아 500 이 되어
+	 * 클라이언트 잘못이 서버 장애처럼 보인다.
+	 */
+	@ExceptionHandler(NoResourceFoundException.class)
+	public ResponseEntity<ApiResponse<Void>> handleNoResource(NoResourceFoundException e) {
+		log.info("존재하지 않는 경로 요청: {}", e.getResourcePath());
+		return ResponseEntity.status(ErrorCode.NOT_FOUND.getStatus())
+				.body(ApiResponse.fail(ErrorCode.NOT_FOUND.name(),
+						"요청한 경로를 찾을 수 없습니다. (%s)".formatted(e.getResourcePath())));
 	}
 
 	/** 그 외 — 상세는 로그에만 남기고 응답에는 일반 메시지만 */

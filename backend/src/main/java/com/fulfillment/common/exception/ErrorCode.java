@@ -15,6 +15,7 @@ public enum ErrorCode {
 	NOT_FOUND(HttpStatus.NOT_FOUND, "요청한 정보를 찾을 수 없습니다."),
 	DUPLICATE(HttpStatus.CONFLICT, "이미 존재하는 값입니다."),
 	IN_USE(HttpStatus.CONFLICT, "사용 중이므로 처리할 수 없습니다."),
+	PROTECTED(HttpStatus.CONFLICT, "시스템이 보호하는 데이터라 처리할 수 없습니다."),
 	INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "처리 중 오류가 발생했습니다."),
 
 	/* 인증 ---------------------------------------------------------------- */
@@ -25,6 +26,8 @@ public enum ErrorCode {
 	ACCOUNT_RETIRED(HttpStatus.UNAUTHORIZED, "퇴사 처리된 계정으로는 로그인할 수 없습니다."),
 	ACCOUNT_DISABLED(HttpStatus.UNAUTHORIZED, "사용 중지된 계정입니다. 시스템 관리자에게 문의하세요."),
 	UNAUTHENTICATED(HttpStatus.UNAUTHORIZED, "로그인이 필요합니다."),
+	PASSWORD_CHANGE_REQUIRED(HttpStatus.FORBIDDEN,
+			"초기 비밀번호를 변경해야 다른 기능을 사용할 수 있습니다."),
 
 	/* 권한 · 정책 --------------------------------------------------------- */
 	FORBIDDEN(HttpStatus.FORBIDDEN, "이 기능에 대한 권한이 없습니다."),

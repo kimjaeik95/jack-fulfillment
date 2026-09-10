@@ -8,7 +8,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
-/** 코드그룹. tb_code_group */
+/** 공통 코드그룹. tb_code_group */
 @Getter
 @Setter
 @NoArgsConstructor
