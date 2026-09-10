@@ -15,6 +15,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { codeOptions } from '@/api/codes.js'
 import * as userApi from '@/api/user.js'
 import { useAdminStore } from '@/stores/admin.js'
+import { useOrgStore } from '@/stores/org.js'
 import { useSessionStore } from '@/stores/session.js'
 import { useToastStore } from '@/stores/toast.js'
 import ModalDialog from '@/components/ModalDialog.vue'
@@ -22,6 +23,8 @@ import FormField from '@/components/FormField.vue'
 import CodeBadge from '@/components/CodeBadge.vue'
 
 const admin = useAdminStore()
+// 조직은 실서버, 역할은 아직 Mock — 두 출처가 섞여 있는 동안 각각 명시한다
+const orgStore = useOrgStore()
 const session = useSessionStore()
 const toast = useToastStore()
 
@@ -67,7 +70,12 @@ function resetFilters() {
 
 watch(() => [paging.page, paging.size, paging.sortBy, paging.sortDir], load)
 
-onMounted(load)
+onMounted(() => {
+  load()
+  // 소속 드롭다운은 실제 조직 목록을 써야 한다. 화면마다 출처가 다르면
+  // 한쪽에만 있는 조직을 골라 저장할 때마다 서버에 거부당한다.
+  orgStore.load()
+})
 
 const totalPages = computed(() => (paging.size > 0 ? Math.max(1, Math.ceil(total.value / paging.size)) : 1))
 
@@ -190,7 +198,7 @@ function openEdit(row) {
 
 /** 소속 조직유형에 배정 가능한 역할만 노출 (서버 검증과 같은 규칙) */
 const assignableRoles = computed(() => {
-  const orgType = admin.orgMap[form.orgId]?.orgType
+  const orgType = orgStore.orgMap[form.orgId]?.orgType
   return admin.roles
     .filter((r) => r.useYn === 'Y')
     .map((r) => ({
@@ -211,7 +219,7 @@ function orgTypeLabel(t) {
 /** 소속을 바꾸면 범위를 벗어난 역할 배정을 정리한다 */
 function onOrgChange(orgId) {
   form.orgId = orgId
-  const orgType = admin.orgMap[orgId]?.orgType
+  const orgType = orgStore.orgMap[orgId]?.orgType
   if (!orgType) return
   const kept = form.roleIds.filter((rid) => admin.roleMap[rid]?.orgScope === orgType)
   if (kept.length !== form.roleIds.length) {
@@ -386,7 +394,7 @@ async function doResetPassword() {
     <div class="card">
       <div class="toolbar">
         <FormField v-model="filters.keyword" class="grow" label="검색어" placeholder="ID / 이름 / 이메일 / 부서" />
-        <FormField v-model="filters.orgId" label="소속" type="select" empty-option="전체" :options="admin.orgOptions" />
+        <FormField v-model="filters.orgId" label="소속" type="select" empty-option="전체" :options="orgStore.orgOptions" />
         <FormField v-model="filters.roleId" label="역할" type="select" empty-option="전체" :options="admin.roleOptions" />
         <FormField
           v-model="filters.status"
@@ -578,7 +586,7 @@ async function doResetPassword() {
           <label class="field-label">소속 조직<span class="req">*</span></label>
           <select class="select" :class="{ invalid: !!errors.orgId }" :value="form.orgId" @change="onOrgChange($event.target.value)">
             <option value="">선택하세요</option>
-            <option v-for="o in admin.orgOptions" :key="o.value" :value="o.value" :disabled="o.disabled">
+            <option v-for="o in orgStore.orgOptions" :key="o.value" :value="o.value" :disabled="o.disabled">
               {{ o.label }}
             </option>
           </select>

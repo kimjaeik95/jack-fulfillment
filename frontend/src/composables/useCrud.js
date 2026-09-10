@@ -2,9 +2,13 @@
  * CRUD 화면 공통 로직.
  *
  * - 등록/수정 모달 상태와 폼 데이터
- * - 저장 전 클라이언트 검증 → 저장 시 서버(Mock API) 검증 오류 표시
+ * - 저장 전 클라이언트 검증 → 저장 시 서버 검증 오류 표시
  * - 삭제 확인 → 실행
  * - 권한/정책 판정에 따른 버튼 활성 제어 및 차단 사유 안내
+ *
+ * 저장 경로는 두 가지다. cfg.api 를 주면 그 API 를 쓰고, 주지 않으면
+ * 아직 Mock(localStorage)에 남아 있는 화면을 위해 admin 스토어를 쓴다.
+ * 화면을 하나씩 실서버로 옮기는 동안 두 방식이 공존해야 하기 때문이다.
  */
 import { computed, ref } from 'vue'
 import { useAdminStore } from '@/stores/admin.js'
@@ -21,6 +25,9 @@ import { useToastStore } from '@/stores/toast.js'
  *  toForm(row)  행 -> 폼 변환 (기본: 얕은 복제)
  *  validate(form, ctx)  { field: message } 반환
  *  nameOf(row)  삭제 확인 문구에 쓸 표시명
+ *  api      실서버 연동 시 { create, update, remove }.
+ *           update 는 { warning } 을 함께 돌려줄 수 있다.
+ *  afterChange()  등록·수정·삭제 성공 후 호출 (목록 재조회용)
  */
 export function useCrud(cfg) {
   const admin = useAdminStore()
@@ -103,12 +110,18 @@ export function useCrud(cfg) {
     try {
       const payload = cfg.toPayload ? cfg.toPayload(form.value) : { ...form.value }
       if (mode.value === 'create') {
-        await admin.createRow(cfg.entity, payload)
+        if (cfg.api) await cfg.api.create(payload)
+        else await admin.createRow(cfg.entity, payload)
         toast.success(`${cfg.label}을(를) 등록했습니다.`)
       } else {
-        await admin.updateRow(cfg.entity, form.value[cfg.pk], payload)
+        let result
+        if (cfg.api) result = await cfg.api.update(form.value[cfg.pk], payload)
+        else await admin.updateRow(cfg.entity, form.value[cfg.pk], payload)
         toast.success(`${cfg.label} 정보를 수정했습니다.`)
+        // 막지는 않았지만 알려야 할 사항 — 저장 자체는 끝난 뒤에 보여준다
+        if (result?.warning) toast.warn(result.warning)
       }
+      if (cfg.afterChange) await cfg.afterChange()
       open.value = false
       return true
     } catch (e) {
@@ -130,10 +143,14 @@ export function useCrud(cfg) {
     if (!askDelete.value) return
     deleting.value = true
     try {
-      await admin.removeRow(cfg.entity, askDelete.value[cfg.pk])
+      const key = askDelete.value[cfg.pk]
+      if (cfg.api) await cfg.api.remove(key)
+      else await admin.removeRow(cfg.entity, key)
       toast.success(`${cfg.label}을(를) 삭제했습니다.`)
+      if (cfg.afterChange) await cfg.afterChange()
       askDelete.value = null
     } catch (e) {
+      // 참조 무결성 거부(소속 사용자·하위 조직)는 사유가 곧 다음 행동이므로 그대로 보여준다
       toast.error(e.message)
       askDelete.value = null
     } finally {

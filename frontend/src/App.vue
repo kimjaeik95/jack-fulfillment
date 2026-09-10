@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { RouterView, useRoute, useRouter } from 'vue-router'
 import { menuGroups } from '@/router/index.js'
 import { useAdminStore } from '@/stores/admin.js'
+import { useOrgStore } from '@/stores/org.js'
 import { useSessionStore } from '@/stores/session.js'
 import { useToastStore } from '@/stores/toast.js'
 import ToastHost from '@/components/ToastHost.vue'
@@ -11,6 +12,7 @@ import ConfirmDialog from '@/components/ConfirmDialog.vue'
 const route = useRoute()
 const router = useRouter()
 const admin = useAdminStore()
+const orgStore = useOrgStore()
 const session = useSessionStore()
 const toast = useToastStore()
 
@@ -34,7 +36,8 @@ watch(
     if (!authed) return
     booting.value = true
     try {
-      await admin.loadAll(true)
+      // 조직은 실서버, 나머지 기준정보는 아직 Mock — 둘 다 채워야 사이드바 건수가 맞는다
+      await Promise.all([admin.loadAll(true), orgStore.load(true)])
     } catch (e) {
       toast.error(`기준정보를 불러오지 못했습니다. ${e.message}`)
     } finally {
@@ -58,7 +61,7 @@ function toggleTheme() {
 /** 사이드바 항목별 건수 표시 */
 const counts = computed(() => ({
   users: admin.users.length,
-  orgs: admin.orgs.length,
+  orgs: orgStore.orgs.length,
   roles: admin.roles.length,
   permissions: admin.permissions.length,
   'role-permissions': admin.rolePermissions.length,
