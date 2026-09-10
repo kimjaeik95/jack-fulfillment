@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.fulfillment.system.rolepermission.dao.RolePermissionDao">
+
+    <resultMap id="grantMap" type="com.fulfillment.domain.RolePermission">
+        <result property="roleSeq"            column="role_seq"/>
+        <result property="permSeq"            column="perm_seq"/>
+        <result property="actionCode"         column="action_code"/>
+        <result property="dataScope"          column="data_scope"/>
+        <result property="roleId"             column="role_id"/>
+        <result property="permId"             column="perm_id"/>
+        <result property="moduleCode"         column="module_code"/>
+        <result property="effectiveDataScope" column="effective_data_scope"/>
+    </resultMap>
+
+    <!--
+      data_scope 가 NULL 이면 역할의 기본값을 상속한다.
+      화면이 "상속: 소속 조직" 처럼 보여줄 수 있도록 확정값도 함께 계산해 준다.
+    -->
+    <select id="selectByRoleSeq" resultMap="grantMap">
+        SELECT rp.role_seq, rp.perm_seq, rp.action_code, rp.data_scope,
+               r.role_id, p.perm_id, p.module_code,
+               COALESCE(rp.data_scope, r.default_data_scope) AS effective_data_scope
+          FROM tb_role_permission rp
+          JOIN tb_role r       ON r.role_seq = rp.role_seq
+          JOIN tb_permission p ON p.perm_seq = rp.perm_seq
+         WHERE rp.role_seq = #{roleSeq}
+         ORDER BY p.sort_order, p.perm_id, rp.action_code
+    </select>
+
+    <delete id="deleteByRoleSeq">
+        DELETE FROM tb_role_permission WHERE role_seq = #{roleSeq}
+    </delete>
+
+    <!--
+      권한코드로 perm_seq 를 찾아 넣는다. 화면은 코드로 말하고 테이블은
+      대리키로 물려 있으므로, 코드 -> 순번 변환을 SQL 안에서 끝낸다.
+    -->
+    <insert id="insertGrants">
+        INSERT INTO tb_role_permission (role_seq, perm_seq, action_code, data_scope, created_by)
+        SELECT #{roleSeq}, p.perm_seq, v.action_code, v.data_scope, #{createdBy}
+          FROM (
+        <foreach collection="rows" item="row" separator=" UNION ALL ">
+            SELECT #{row.permId} AS perm_id, #{row.actionCode} AS action_code,
+                   #{row.dataScope} AS data_scope
+        </foreach>
+               ) AS v
+          JOIN tb_permission p ON p.perm_id = v.perm_id
+    </insert>
+
+    <!--
+      허용 액션은 권한 1건당 여러 개다. string_agg 로 묶어 한 행으로 받고
+      CsvListTypeHandler 가 List 로 나눈다. 매핑 검증에 필요한 컬럼만 읽는다.
+    -->
+    <resultMap id="permissionCheckMap" type="com.fulfillment.domain.Permission">
+        <id     property="permSeq"    column="perm_seq"/>
+        <result property="permId"     column="perm_id"/>
+        <result property="permName"   column="perm_name"/>
+        <result property="moduleCode" column="module_code"/>
+        <result property="useYn"      column="use_yn"/>
+        <result property="actions"    column="actions"
+                typeHandler="com.fulfillment.common.mybatis.CsvListTypeHandler"/>
+    </resultMap>
+
+    <select id="selectPermissionsByIds" resultMap="permissionCheckMap">
+        SELECT p.perm_seq, p.perm_id, p.perm_name, p.module_code, p.use_yn,
+               (SELECT string_agg(a.action_code, ',' ORDER BY a.action_code)
+                  FROM tb_permission_action a
+                 WHERE a.perm_seq = p.perm_seq) AS actions
+          FROM tb_permission p
+         WHERE p.perm_id IN
+        <foreach collection="permIds" item="permId" open="(" separator="," close=")">
+            #{permId}
+        </foreach>
+    </select>
+
+    <!--
+      이 역할을 뺀 나머지 중, 특정 권한의 특정 액션을 가진 사용중 역할 수.
+      마지막 관리 권한이 사라지는 저장을 막는 데 쓴다.
+      권한 자체도 사용중이어야 의미가 있으므로 함께 확인한다.
+    -->
+    <select id="countOtherRolesWithAction" resultType="int">
+        SELECT COUNT(DISTINCT rp.role_seq)
+          FROM tb_role_permission rp
+          JOIN tb_role r       ON r.role_seq = rp.role_seq AND r.use_yn = 'Y'
+          JOIN tb_permission p ON p.perm_seq = rp.perm_seq AND p.use_yn = 'Y'
+         WHERE rp.role_seq &lt;&gt; #{exceptRoleSeq}
+           AND p.perm_id = #{permId}
+           AND rp.action_code = #{actionCode}
+    </select>
+
+</mapper>
