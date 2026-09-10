@@ -1,0 +1,182 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.fulfillment.system.code.dao.CodeDao">
+
+    <resultMap id="groupMap" type="com.fulfillment.domain.CodeGroup">
+        <id     property="codeGroupSeq"  column="code_group_seq"/>
+        <result property="codeGroupId"   column="code_group_id"/>
+        <result property="codeGroupName" column="code_group_name"/>
+        <result property="description"   column="description"/>
+        <result property="useYn"         column="use_yn"/>
+        <result property="createdBy"     column="created_by"/>
+        <result property="createdAt"     column="created_at"/>
+        <result property="updatedBy"     column="updated_by"/>
+        <result property="updatedAt"     column="updated_at"/>
+        <result property="codeCount"     column="code_count"/>
+    </resultMap>
+
+    <resultMap id="codeMap" type="com.fulfillment.domain.Code">
+        <id     property="codeSeq"      column="code_seq"/>
+        <result property="codeGroupSeq" column="code_group_seq"/>
+        <result property="codeId"       column="code_id"/>
+        <result property="codeName"     column="code_name"/>
+        <result property="description"  column="description"/>
+        <result property="attr1"        column="attr1"/>
+        <result property="attr2"        column="attr2"/>
+        <result property="sortOrder"    column="sort_order"/>
+        <result property="useYn"        column="use_yn"/>
+        <result property="createdBy"    column="created_by"/>
+        <result property="createdAt"    column="created_at"/>
+        <result property="updatedBy"    column="updated_by"/>
+        <result property="updatedAt"    column="updated_at"/>
+        <result property="codeGroupId"  column="code_group_id"/>
+    </resultMap>
+
+    <sql id="groupColumns">
+        g.code_group_seq, g.code_group_id, g.code_group_name, g.description, g.use_yn,
+        g.created_by, g.created_at, g.updated_by, g.updated_at,
+        (SELECT COUNT(*) FROM tb_code c WHERE c.code_group_seq = g.code_group_seq) AS code_count
+    </sql>
+
+    <!-- 값 검증용. 다른 기능들이 "허용된 값" 목록을 얻는 데 쓴다. -->
+    <select id="selectCodeIds" resultType="string">
+        SELECT c.code_id
+          FROM tb_code c
+          JOIN tb_code_group g ON g.code_group_seq = c.code_group_seq
+         WHERE g.code_group_id = #{groupId}
+           AND g.use_yn = 'Y'
+           AND c.use_yn = 'Y'
+         ORDER BY c.sort_order
+    </select>
+
+    <!--
+      화면 라벨용 — 사용중인 것만.
+      그룹과 코드를 따로 읽어 서비스에서 묶는다. 조인 한 번으로 가져오면
+      중첩 resultMap 이 필요하고, 그룹이 9건이라 두 번 읽는 비용이 더 싸다.
+    -->
+    <select id="selectActiveGroups" resultMap="groupMap">
+        SELECT <include refid="groupColumns"/>
+          FROM tb_code_group g
+         WHERE g.use_yn = 'Y'
+         ORDER BY g.code_group_id
+    </select>
+
+    <select id="selectActiveCodes" resultMap="codeMap">
+        SELECT c.code_seq, c.code_group_seq, c.code_id, c.code_name, c.description,
+               c.attr1, c.attr2, c.sort_order, c.use_yn,
+               c.created_by, c.created_at, c.updated_by, c.updated_at,
+               g.code_group_id
+          FROM tb_code c
+          JOIN tb_code_group g ON g.code_group_seq = c.code_group_seq
+         WHERE g.use_yn = 'Y'
+           AND c.use_yn = 'Y'
+         ORDER BY c.code_group_seq, c.sort_order, c.code_id
+    </select>
+
+    <!-- 관리용 — 미사용까지 포함 -->
+    <select id="selectGroups" resultMap="groupMap">
+        SELECT <include refid="groupColumns"/>
+          FROM tb_code_group g
+        <where>
+            <if test="useYn != null and useYn != ''">
+                AND g.use_yn = #{useYn}
+            </if>
+            <if test="keyword != null and keyword != ''">
+                AND ( LOWER(g.code_group_id)   LIKE '%' || LOWER(#{keyword}) || '%'
+                   OR LOWER(g.code_group_name) LIKE '%' || LOWER(#{keyword}) || '%'
+                   OR LOWER(COALESCE(g.description, '')) LIKE '%' || LOWER(#{keyword}) || '%' )
+            </if>
+        </where>
+         ORDER BY g.code_group_id
+    </select>
+
+    <select id="selectGroup" resultMap="groupMap">
+        SELECT <include refid="groupColumns"/>
+          FROM tb_code_group g
+         WHERE g.code_group_id = #{codeGroupId}
+    </select>
+
+    <select id="countGroupById" resultType="int">
+        SELECT COUNT(*) FROM tb_code_group WHERE code_group_id = #{codeGroupId}
+    </select>
+
+    <insert id="insertGroup" parameterType="com.fulfillment.domain.CodeGroup"
+            useGeneratedKeys="true" keyProperty="codeGroupSeq" keyColumn="code_group_seq">
+        INSERT INTO tb_code_group (code_group_id, code_group_name, description, use_yn, created_by)
+        VALUES (#{codeGroupId}, #{codeGroupName}, #{description}, #{useYn}, #{createdBy})
+    </insert>
+
+    <!-- 그룹ID 는 바꾸지 않는다. 화면·서버 코드가 문자열로 참조한다. -->
+    <update id="updateGroup" parameterType="com.fulfillment.domain.CodeGroup">
+        UPDATE tb_code_group
+           SET code_group_name = #{codeGroupName},
+               description     = #{description},
+               use_yn          = #{useYn},
+               updated_by      = #{updatedBy},
+               updated_at      = CURRENT_TIMESTAMP
+         WHERE code_group_seq = #{codeGroupSeq}
+    </update>
+
+    <delete id="deleteGroup">
+        DELETE FROM tb_code_group WHERE code_group_seq = #{codeGroupSeq}
+    </delete>
+
+    <select id="selectCodes" resultMap="codeMap">
+        SELECT c.code_seq, c.code_group_seq, c.code_id, c.code_name, c.description,
+               c.attr1, c.attr2, c.sort_order, c.use_yn,
+               c.created_by, c.created_at, c.updated_by, c.updated_at
+          FROM tb_code c
+         WHERE c.code_group_seq = #{codeGroupSeq}
+         ORDER BY c.sort_order, c.code_id
+    </select>
+
+    <select id="selectCode" resultMap="codeMap">
+        SELECT c.code_seq, c.code_group_seq, c.code_id, c.code_name, c.description,
+               c.attr1, c.attr2, c.sort_order, c.use_yn,
+               c.created_by, c.created_at, c.updated_by, c.updated_at
+          FROM tb_code c
+         WHERE c.code_group_seq = #{codeGroupSeq}
+           AND c.code_id = #{codeId}
+    </select>
+
+    <select id="countCodeById" resultType="int">
+        SELECT COUNT(*) FROM tb_code
+         WHERE code_group_seq = #{codeGroupSeq} AND code_id = #{codeId}
+    </select>
+
+    <select id="countCodesInGroup" resultType="int">
+        SELECT COUNT(*) FROM tb_code WHERE code_group_seq = #{codeGroupSeq}
+    </select>
+
+    <insert id="insertCode" parameterType="com.fulfillment.domain.Code"
+            useGeneratedKeys="true" keyProperty="codeSeq" keyColumn="code_seq">
+        INSERT INTO tb_code (
+            code_group_seq, code_id, code_name, description, attr1, attr2,
+            sort_order, use_yn, created_by
+        ) VALUES (
+            #{codeGroupSeq}, #{codeId}, #{codeName}, #{description}, #{attr1}, #{attr2},
+            #{sortOrder}, #{useYn}, #{createdBy}
+        )
+    </insert>
+
+    <!-- 코드값은 바꾸지 않는다. 업무 데이터가 이 값을 그대로 저장하고 있다. -->
+    <update id="updateCode" parameterType="com.fulfillment.domain.Code">
+        UPDATE tb_code
+           SET code_name   = #{codeName},
+               description = #{description},
+               attr1       = #{attr1},
+               attr2       = #{attr2},
+               sort_order  = #{sortOrder},
+               use_yn      = #{useYn},
+               updated_by  = #{updatedBy},
+               updated_at  = CURRENT_TIMESTAMP
+         WHERE code_seq = #{codeSeq}
+    </update>
+
+    <delete id="deleteCode">
+        DELETE FROM tb_code WHERE code_seq = #{codeSeq}
+    </delete>
+
+</mapper>

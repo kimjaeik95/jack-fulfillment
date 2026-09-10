@@ -2,7 +2,6 @@ package com.fulfillment.system.rolepermission.service;
 
 import com.fulfillment.common.audit.AuditRecorder;
 import com.fulfillment.common.audit.AuditRecorder.Field;
-import com.fulfillment.common.code.dao.CodeDao;
 import com.fulfillment.common.exception.BusinessException;
 import com.fulfillment.common.exception.ErrorCode;
 import com.fulfillment.common.security.LoginUser;
@@ -10,6 +9,7 @@ import com.fulfillment.common.security.PermissionChecker;
 import com.fulfillment.domain.Permission;
 import com.fulfillment.domain.Role;
 import com.fulfillment.domain.RolePermission;
+import com.fulfillment.system.code.dao.CodeDao;
 import com.fulfillment.system.role.dao.RoleDao;
 import com.fulfillment.system.rolepermission.dao.RolePermissionDao;
 import com.fulfillment.system.rolepermission.dto.PermissionGrant;
