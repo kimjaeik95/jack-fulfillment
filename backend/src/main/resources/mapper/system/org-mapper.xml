@@ -1,0 +1,183 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.fulfillment.system.org.dao.OrgDao">
+
+    <resultMap id="orgMap" type="com.fulfillment.domain.Org">
+        <id     property="orgSeq"        column="org_seq"/>
+        <result property="orgId"         column="org_id"/>
+        <result property="orgName"       column="org_name"/>
+        <result property="orgType"       column="org_type"/>
+        <result property="parentSeq"     column="parent_seq"/>
+        <result property="managerName"   column="manager_name"/>
+        <result property="phone"         column="phone"/>
+        <result property="address"       column="address"/>
+        <result property="sortOrder"     column="sort_order"/>
+        <result property="useYn"         column="use_yn"/>
+        <result property="createdBy"     column="created_by"/>
+        <result property="createdAt"     column="created_at"/>
+        <result property="updatedBy"     column="updated_by"/>
+        <result property="updatedAt"     column="updated_at"/>
+        <result property="parentOrgId"   column="parent_org_id"/>
+        <result property="parentOrgName" column="parent_org_name"/>
+        <result property="userCount"     column="user_count"/>
+        <result property="childCount"    column="child_count"/>
+    </resultMap>
+
+    <!--
+      소속 인원과 하위 조직 수를 목록에서 함께 센다.
+      화면이 삭제 가능 여부를 미리 알아야, 버튼을 눌러 거부당한 뒤에야
+      이유를 알게 되는 흐름을 피할 수 있다. 조직은 수십 건 규모라
+      상관 서브쿼리를 써도 비용이 문제되지 않는다.
+    -->
+    <sql id="orgColumns">
+        o.org_seq, o.org_id, o.org_name, o.org_type, o.parent_seq,
+        o.manager_name, o.phone, o.address, o.sort_order, o.use_yn,
+        o.created_by, o.created_at, o.updated_by, o.updated_at,
+        p.org_id   AS parent_org_id,
+        p.org_name AS parent_org_name,
+        (SELECT COUNT(*) FROM tb_user u WHERE u.org_seq = o.org_seq) AS user_count,
+        (SELECT COUNT(*) FROM tb_org  c WHERE c.parent_seq = o.org_seq) AS child_count
+    </sql>
+
+    <sql id="searchWhere">
+        <where>
+            <if test="orgType != null and orgType != ''">
+                AND o.org_type = #{orgType}
+            </if>
+            <if test="useYn != null and useYn != ''">
+                AND o.use_yn = #{useYn}
+            </if>
+            <if test="parentId != null and parentId != ''">
+                AND p.org_id = #{parentId}
+            </if>
+            <if test="keyword != null and keyword != ''">
+                AND ( LOWER(o.org_id)       LIKE '%' || LOWER(#{keyword}) || '%'
+                   OR LOWER(o.org_name)     LIKE '%' || LOWER(#{keyword}) || '%'
+                   OR LOWER(o.manager_name) LIKE '%' || LOWER(#{keyword}) || '%' )
+            </if>
+        </where>
+    </sql>
+
+    <select id="selectList" resultMap="orgMap">
+        SELECT <include refid="orgColumns"/>
+          FROM tb_org o
+          LEFT JOIN tb_org p ON p.org_seq = o.parent_seq
+        <include refid="searchWhere"/>
+        <!-- ${} 치환 자리다. OrgSearch 가 화이트리스트로 걸러 SQL 인젝션을 막는다. -->
+         ORDER BY ${sortColumn} ${sortDirection}, o.org_id ASC
+        <if test="size > 0">
+            LIMIT #{size} OFFSET #{offset}
+        </if>
+    </select>
+
+    <select id="countList" resultType="long">
+        SELECT COUNT(*)
+          FROM tb_org o
+          LEFT JOIN tb_org p ON p.org_seq = o.parent_seq
+        <include refid="searchWhere"/>
+    </select>
+
+    <select id="selectByOrgId" resultMap="orgMap">
+        SELECT <include refid="orgColumns"/>
+          FROM tb_org o
+          LEFT JOIN tb_org p ON p.org_seq = o.parent_seq
+         WHERE o.org_id = #{orgId}
+    </select>
+
+    <select id="countByOrgId" resultType="int">
+        SELECT COUNT(*) FROM tb_org WHERE org_id = #{orgId}
+    </select>
+
+    <select id="countByOrgName" resultType="int">
+        SELECT COUNT(*) FROM tb_org
+         WHERE org_name = #{orgName}
+        <if test="exceptOrgId != null and exceptOrgId != ''">
+            AND org_id &lt;&gt; #{exceptOrgId}
+        </if>
+    </select>
+
+    <insert id="insert" parameterType="com.fulfillment.domain.Org"
+            useGeneratedKeys="true" keyProperty="orgSeq" keyColumn="org_seq">
+        INSERT INTO tb_org (
+            org_id, org_name, org_type, parent_seq,
+            manager_name, phone, address, sort_order, use_yn, created_by
+        ) VALUES (
+            #{orgId}, #{orgName}, #{orgType}, #{parentSeq},
+            #{managerName}, #{phone}, #{address}, #{sortOrder}, #{useYn}, #{createdBy}
+        )
+    </insert>
+
+    <!-- 조직코드는 바꾸지 않는다. 다른 테이블과 화면이 코드로 조직을 부르기 때문이다. -->
+    <update id="update" parameterType="com.fulfillment.domain.Org">
+        UPDATE tb_org
+           SET org_name     = #{orgName},
+               org_type     = #{orgType},
+               parent_seq   = #{parentSeq},
+               manager_name = #{managerName},
+               phone        = #{phone},
+               address      = #{address},
+               sort_order   = #{sortOrder},
+               use_yn       = #{useYn},
+               updated_by   = #{updatedBy},
+               updated_at   = CURRENT_TIMESTAMP
+         WHERE org_seq = #{orgSeq}
+    </update>
+
+    <delete id="delete">
+        DELETE FROM tb_org WHERE org_seq = #{orgSeq}
+    </delete>
+
+    <select id="countUsers" resultType="int">
+        SELECT COUNT(*) FROM tb_user WHERE org_seq = #{orgSeq}
+    </select>
+
+    <select id="countActiveUsers" resultType="int">
+        SELECT COUNT(*) FROM tb_user
+         WHERE org_seq = #{orgSeq}
+           AND use_yn = 'Y'
+           AND status &lt;&gt; 'RETIRED'
+    </select>
+
+    <select id="countChildren" resultType="int">
+        SELECT COUNT(*) FROM tb_org WHERE parent_seq = #{orgSeq}
+    </select>
+
+    <!--
+      조직유형을 바꾸면 배정 범위를 벗어나게 되는 소속 사용자.
+      퇴사자는 제외한다 — 다시 로그인하지 않으므로 역할이 어긋나도 문제가 없고,
+      오래된 퇴사자 때문에 조직 정비가 막히면 안 된다.
+    -->
+    <select id="selectScopeViolatingUsers" resultType="string">
+        SELECT u.user_name
+          FROM tb_user u
+          JOIN tb_user_role ur ON ur.user_seq = u.user_seq
+          JOIN tb_role r       ON r.role_seq  = ur.role_seq
+         WHERE u.org_seq = #{orgSeq}
+           AND u.status &lt;&gt; 'RETIRED'
+           AND r.org_scope &lt;&gt; #{orgType}
+         GROUP BY u.user_name
+         ORDER BY u.user_name
+    </select>
+
+    <!--
+      상위로 거슬러 올라가며 만나는 조직 순번 (자기 자신 포함).
+      깊이 제한을 두는 이유는, 이미 잘못 저장된 순환이 있을 때
+      재귀 질의가 끝나지 않는 것을 막기 위해서다.
+    -->
+    <select id="selectAncestorSeqs" resultType="long">
+        WITH RECURSIVE ancestors(org_seq, parent_seq, depth) AS (
+            SELECT org_seq, parent_seq, 1
+              FROM tb_org
+             WHERE org_seq = #{orgSeq}
+            UNION ALL
+            SELECT o.org_seq, o.parent_seq, a.depth + 1
+              FROM tb_org o
+              JOIN ancestors a ON o.org_seq = a.parent_seq
+             WHERE a.depth &lt; 20
+        )
+        SELECT org_seq FROM ancestors
+    </select>
+
+</mapper>

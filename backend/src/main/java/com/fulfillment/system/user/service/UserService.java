@@ -12,6 +12,7 @@ import com.fulfillment.common.web.PageResponse;
 import com.fulfillment.domain.Org;
 import com.fulfillment.domain.Role;
 import com.fulfillment.domain.User;
+import com.fulfillment.system.org.dao.OrgDao;
 import com.fulfillment.system.user.dao.UserDao;
 import com.fulfillment.system.user.dao.UserReferenceDao;
 import com.fulfillment.system.user.dto.UserResponse;
@@ -72,16 +73,19 @@ public class UserService {
 
 	private final UserDao userDao;
 	private final UserReferenceDao referenceDao;
+	/** 소속 조직 확인 — 조직 기능과 같은 조회를 쓴다 */
+	private final OrgDao orgDao;
 	private final PermissionChecker permissionChecker;
 	private final PasswordPolicy passwordPolicy;
 	private final PasswordEncoder passwordEncoder;
 	private final AuditRecorder auditRecorder;
 
-	public UserService(UserDao userDao, UserReferenceDao referenceDao,
+	public UserService(UserDao userDao, UserReferenceDao referenceDao, OrgDao orgDao,
 			PermissionChecker permissionChecker, PasswordPolicy passwordPolicy,
 			PasswordEncoder passwordEncoder, AuditRecorder auditRecorder) {
 		this.userDao = userDao;
 		this.referenceDao = referenceDao;
+		this.orgDao = orgDao;
 		this.permissionChecker = permissionChecker;
 		this.passwordPolicy = passwordPolicy;
 		this.passwordEncoder = passwordEncoder;
@@ -344,7 +348,7 @@ public class UserService {
 	}
 
 	private Org mustFindOrg(String orgId) {
-		Org org = referenceDao.selectOrgByOrgId(orgId);
+		Org org = orgDao.selectByOrgId(orgId);
 		if (org == null) {
 			throw new BusinessException(ErrorCode.NOT_FOUND, "소속 조직을 찾을 수 없습니다. (%s)".formatted(orgId));
 		}

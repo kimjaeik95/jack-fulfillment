@@ -4,16 +4,10 @@
 
 <!--
   사용자 검증에 필요한 참조 조회.
-  조직·역할 기능이 만들어지면 그쪽 매퍼로 옮기고 이 파일은 지운다.
+  조직은 org-mapper 로 옮겼다. 역할 기능이 생기면 이 파일도 지운다.
 -->
 <mapper namespace="com.fulfillment.system.user.dao.UserReferenceDao">
 
-    <select id="selectOrgByOrgId" resultType="com.fulfillment.domain.Org">
-        SELECT org_seq, org_id, org_name, org_type, parent_seq,
-               manager_name, phone, address, sort_order, use_yn
-          FROM tb_org
-         WHERE org_id = #{orgId}
-    </select>
 
     <select id="selectRolesByIds" resultType="com.fulfillment.domain.Role">
         SELECT role_seq, role_id, role_name, description,
