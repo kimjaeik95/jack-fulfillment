@@ -32,5 +32,7 @@ public class Permission {
 
 	/* 조회 전용 파생 컬럼 -------------------------------------------------- */
 	private String moduleName;           // 모듈 코드명
+	/** 이 권한을 부여받은 역할 (삭제·사용중지 영향 안내용) */
+	private List<String> roleNames = new ArrayList<>();
 	private Integer roleCount;           // 이 권한을 부여받은 역할 수
 }

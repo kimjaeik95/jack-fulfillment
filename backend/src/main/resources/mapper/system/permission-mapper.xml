@@ -1,0 +1,168 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.fulfillment.system.permission.dao.PermissionDao">
+
+    <resultMap id="permissionMap" type="com.fulfillment.domain.Permission">
+        <id     property="permSeq"    column="perm_seq"/>
+        <result property="permId"     column="perm_id"/>
+        <result property="permName"   column="perm_name"/>
+        <result property="moduleCode" column="module_code"/>
+        <result property="menuPath"   column="menu_path"/>
+        <result property="sortOrder"  column="sort_order"/>
+        <result property="useYn"      column="use_yn"/>
+        <result property="createdBy"  column="created_by"/>
+        <result property="createdAt"  column="created_at"/>
+        <result property="updatedBy"  column="updated_by"/>
+        <result property="updatedAt"  column="updated_at"/>
+        <result property="roleCount"  column="role_count"/>
+        <result property="actions"    column="actions"
+                typeHandler="com.fulfillment.common.mybatis.CsvListTypeHandler"/>
+        <result property="roleNames"  column="role_names"
+                typeHandler="com.fulfillment.common.mybatis.CsvListTypeHandler"/>
+    </resultMap>
+
+    <!--
+      허용 액션과 매핑 역할은 권한 1건당 여러 개다. 조인하면 행이 늘어나
+      페이징이 깨지므로 string_agg 로 묶어 가져온 뒤 CsvListTypeHandler 가 나눈다.
+      N+1 조회도 함께 피한다.
+
+      role_count 는 역할 수다. tb_role_permission 은 권한×액션 단위라
+      DISTINCT 를 걸지 않으면 CRUD 를 모두 준 역할 하나가 4로 세어진다.
+    -->
+    <sql id="permissionColumns">
+        p.perm_seq, p.perm_id, p.perm_name, p.module_code, p.menu_path,
+        p.sort_order, p.use_yn,
+        p.created_by, p.created_at, p.updated_by, p.updated_at,
+        (SELECT string_agg(a.action_code, ',' ORDER BY a.action_code)
+           FROM tb_permission_action a
+          WHERE a.perm_seq = p.perm_seq) AS actions,
+        (SELECT COUNT(DISTINCT rp.role_seq)
+           FROM tb_role_permission rp
+          WHERE rp.perm_seq = p.perm_seq) AS role_count,
+        (SELECT string_agg(DISTINCT r.role_name, ',')
+           FROM tb_role_permission rp
+           JOIN tb_role r ON r.role_seq = rp.role_seq
+          WHERE rp.perm_seq = p.perm_seq) AS role_names
+    </sql>
+
+    <sql id="searchWhere">
+        <where>
+            <if test="moduleCode != null and moduleCode != ''">
+                AND p.module_code = #{moduleCode}
+            </if>
+            <if test="useYn != null and useYn != ''">
+                AND p.use_yn = #{useYn}
+            </if>
+            <if test="mapped == 'Y'.toString()">
+                AND EXISTS (SELECT 1 FROM tb_role_permission rp WHERE rp.perm_seq = p.perm_seq)
+            </if>
+            <if test="mapped == 'N'.toString()">
+                AND NOT EXISTS (SELECT 1 FROM tb_role_permission rp WHERE rp.perm_seq = p.perm_seq)
+            </if>
+            <if test="keyword != null and keyword != ''">
+                AND ( LOWER(p.perm_id)   LIKE '%' || LOWER(#{keyword}) || '%'
+                   OR LOWER(p.perm_name) LIKE '%' || LOWER(#{keyword}) || '%'
+                   OR LOWER(COALESCE(p.menu_path, '')) LIKE '%' || LOWER(#{keyword}) || '%' )
+            </if>
+        </where>
+    </sql>
+
+    <select id="selectList" resultMap="permissionMap">
+        SELECT <include refid="permissionColumns"/>
+          FROM tb_permission p
+        <include refid="searchWhere"/>
+        <!-- ${} 치환 자리다. PermissionSearch 가 화이트리스트로 걸러 SQL 인젝션을 막는다. -->
+         ORDER BY ${sortColumn} ${sortDirection}, p.perm_id ASC
+        <if test="size > 0">
+            LIMIT #{size} OFFSET #{offset}
+        </if>
+    </select>
+
+    <select id="countList" resultType="long">
+        SELECT COUNT(*) FROM tb_permission p
+        <include refid="searchWhere"/>
+    </select>
+
+    <select id="selectByPermId" resultMap="permissionMap">
+        SELECT <include refid="permissionColumns"/>
+          FROM tb_permission p
+         WHERE p.perm_id = #{permId}
+    </select>
+
+    <select id="countByPermId" resultType="int">
+        SELECT COUNT(*) FROM tb_permission WHERE perm_id = #{permId}
+    </select>
+
+    <insert id="insert" parameterType="com.fulfillment.domain.Permission"
+            useGeneratedKeys="true" keyProperty="permSeq" keyColumn="perm_seq">
+        INSERT INTO tb_permission (
+            perm_id, perm_name, module_code, menu_path, sort_order, use_yn, created_by
+        ) VALUES (
+            #{permId}, #{permName}, #{moduleCode}, #{menuPath}, #{sortOrder}, #{useYn}, #{createdBy}
+        )
+    </insert>
+
+    <!-- 권한코드는 바꾸지 않는다. 역할 매핑과 정책이 코드로 권한을 부른다. -->
+    <update id="update" parameterType="com.fulfillment.domain.Permission">
+        UPDATE tb_permission
+           SET perm_name   = #{permName},
+               module_code = #{moduleCode},
+               menu_path   = #{menuPath},
+               sort_order  = #{sortOrder},
+               use_yn      = #{useYn},
+               updated_by  = #{updatedBy},
+               updated_at  = CURRENT_TIMESTAMP
+         WHERE perm_seq = #{permSeq}
+    </update>
+
+    <!-- tb_permission_action 은 ON DELETE CASCADE 로 함께 지워진다 -->
+    <delete id="delete">
+        DELETE FROM tb_permission WHERE perm_seq = #{permSeq}
+    </delete>
+
+    <delete id="deleteActions">
+        DELETE FROM tb_permission_action WHERE perm_seq = #{permSeq}
+    </delete>
+
+    <insert id="insertActions">
+        INSERT INTO tb_permission_action (perm_seq, action_code, created_by)
+        VALUES
+        <foreach collection="actions" item="action" separator=",">
+            (#{permSeq}, #{action}, #{createdBy})
+        </foreach>
+    </insert>
+
+    <select id="countMappedRoles" resultType="int">
+        SELECT COUNT(DISTINCT role_seq) FROM tb_role_permission WHERE perm_seq = #{permSeq}
+    </select>
+
+    <select id="selectMappedRoleNames" resultType="string">
+        SELECT DISTINCT r.role_name
+          FROM tb_role_permission rp
+          JOIN tb_role r ON r.role_seq = rp.role_seq
+         WHERE rp.perm_seq = #{permSeq}
+         ORDER BY r.role_name
+    </select>
+
+    <!--
+      허용 목록에서 빼려는 액션을 이미 쓰고 있는 역할.
+      무엇을 정리해야 하는지 바로 보이도록 "역할명(액션)" 으로 돌려준다.
+    -->
+    <select id="selectRolesUsingActionsOutside" resultType="string">
+        SELECT r.role_name || '(' || string_agg(rp.action_code, ',' ORDER BY rp.action_code) || ')'
+          FROM tb_role_permission rp
+          JOIN tb_role r ON r.role_seq = rp.role_seq
+         WHERE rp.perm_seq = #{permSeq}
+        <if test="actions != null and actions.size() > 0">
+            AND rp.action_code NOT IN
+            <foreach collection="actions" item="action" open="(" separator="," close=")">
+                #{action}
+            </foreach>
+        </if>
+         GROUP BY r.role_name
+         ORDER BY r.role_name
+    </select>
+
+</mapper>
