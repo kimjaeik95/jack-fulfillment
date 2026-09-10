@@ -27,6 +27,11 @@ spring:
     locations: classpath:db/migration,classpath:db/demo
     baseline-on-migrate: false
     validate-on-migrate: true
+    # db/demo 를 V900 으로 번호매겨 뒤에 두었기 때문에, 이후 추가되는
+    # 업무 마이그레이션(V4, V5 ...)은 항상 V900 보다 앞 번호가 된다.
+    # 로컬에서만 순서 역전을 허용한다. dev/prod 는 db/demo 를 포함하지 않아
+    # V1..Vn 이 순서대로 적용되므로 엄격한 순서 검증을 그대로 유지한다.
+    out-of-order: true
 
 mybatis:
   mapper-locations: classpath*:mapper/**/*.xml
