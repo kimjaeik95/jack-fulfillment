@@ -100,22 +100,13 @@ public class RoleService {
 			throw new BusinessException(ErrorCode.DUPLICATE,
 					"이미 사용 중인 역할코드입니다. (%s)".formatted(request.roleId()));
 		}
-		if (roleDao.countByRoleName(request.roleName().trim(), null) > 0) {
+		if (roleDao.countByRoleName(request.roleName(), null) > 0) {
 			throw new BusinessException(ErrorCode.DUPLICATE,
-					"이미 사용 중인 역할명입니다. (%s)".formatted(request.roleName().trim()));
+					"이미 사용 중인 역할명입니다. (%s)".formatted(request.roleName()));
 		}
 		validateCodes(request);
 
-		Role role = new Role();
-		role.setRoleId(request.roleId());
-		role.setRoleName(request.roleName().trim());
-		role.setDescription(request.description().trim());
-		role.setOrgScope(request.orgScope());
-		role.setDefaultDataScope(request.defaultDataScope());
-		role.setRestrictionSummary(blankToNull(request.restrictionSummary()));
-		role.setSortOrder(request.sortOrderOrZero());
-		role.setUseYn(request.useYnOrDefault());
-		role.setCreatedBy(actorId(actor));
+		Role role = request.toNewRole(actorId(actor));
 
 		roleDao.insert(role);
 
@@ -135,24 +126,15 @@ public class RoleService {
 
 		Role before = mustFind(roleId);
 
-		if (roleDao.countByRoleName(request.roleName().trim(), roleId) > 0) {
+		if (roleDao.countByRoleName(request.roleName(), roleId) > 0) {
 			throw new BusinessException(ErrorCode.DUPLICATE,
-					"이미 사용 중인 역할명입니다. (%s)".formatted(request.roleName().trim()));
+					"이미 사용 중인 역할명입니다. (%s)".formatted(request.roleName()));
 		}
 		validateCodes(request);
 		validateScopeChange(before, request.orgScope());
 		String warning = validateDisable(actor, before, request);
 
-		Role target = new Role();
-		target.setRoleSeq(before.getRoleSeq());
-		target.setRoleName(request.roleName().trim());
-		target.setDescription(request.description().trim());
-		target.setOrgScope(request.orgScope());
-		target.setDefaultDataScope(request.defaultDataScope());
-		target.setRestrictionSummary(blankToNull(request.restrictionSummary()));
-		target.setSortOrder(request.sortOrderOrZero());
-		target.setUseYn(request.useYnOrDefault());
-		target.setUpdatedBy(actorId(actor));
+		Role target = request.toUpdatedRole(before.getRoleSeq(), actorId(actor));
 
 		roleDao.update(target);
 
@@ -312,12 +294,8 @@ public class RoleService {
 		return actor == null ? "system" : actor.getUserId();
 	}
 
-	private String blankToNull(String value) {
-		return (value == null || value.isBlank()) ? null : value;
-	}
-
 	private String defaultReason(String reason, String fallback) {
-		return (reason == null || reason.isBlank()) ? fallback : reason;
+		return reason == null ? fallback : reason;
 	}
 
 	/** 저장 결과와 함께, 막지는 않았지만 알려야 할 사항을 전달한다 */

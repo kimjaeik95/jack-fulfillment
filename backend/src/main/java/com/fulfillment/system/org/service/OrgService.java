@@ -94,24 +94,14 @@ public class OrgService {
 			throw new BusinessException(ErrorCode.DUPLICATE,
 					"이미 사용 중인 조직코드입니다. (%s)".formatted(request.orgId()));
 		}
-		if (orgDao.countByOrgName(request.orgName().trim(), null) > 0) {
+		if (orgDao.countByOrgName(request.orgName(), null) > 0) {
 			throw new BusinessException(ErrorCode.DUPLICATE,
-					"이미 사용 중인 조직명입니다. (%s)".formatted(request.orgName().trim()));
+					"이미 사용 중인 조직명입니다. (%s)".formatted(request.orgName()));
 		}
 
 		Org parent = resolveParent(request, null);
 
-		Org org = new Org();
-		org.setOrgId(request.orgId());
-		org.setOrgName(request.orgName().trim());
-		org.setOrgType(request.orgType());
-		org.setParentSeq(parent == null ? null : parent.getOrgSeq());
-		org.setManagerName(blankToNull(request.managerName()));
-		org.setPhone(blankToNull(request.phone()));
-		org.setAddress(blankToNull(request.address()));
-		org.setSortOrder(request.sortOrderOrZero());
-		org.setUseYn(request.useYnOrDefault());
-		org.setCreatedBy(actorId(actor));
+		Org org = request.toNewOrg(seqOf(parent), actorId(actor));
 
 		orgDao.insert(org);
 
@@ -131,26 +121,16 @@ public class OrgService {
 
 		Org before = mustFind(orgId);
 
-		if (orgDao.countByOrgName(request.orgName().trim(), orgId) > 0) {
+		if (orgDao.countByOrgName(request.orgName(), orgId) > 0) {
 			throw new BusinessException(ErrorCode.DUPLICATE,
-					"이미 사용 중인 조직명입니다. (%s)".formatted(request.orgName().trim()));
+					"이미 사용 중인 조직명입니다. (%s)".formatted(request.orgName()));
 		}
 
 		Org parent = resolveParent(request, before);
 		validateTypeChange(before, request.orgType());
 		String warning = warnOnDisable(before, request);
 
-		Org target = new Org();
-		target.setOrgSeq(before.getOrgSeq());
-		target.setOrgName(request.orgName().trim());
-		target.setOrgType(request.orgType());
-		target.setParentSeq(parent == null ? null : parent.getOrgSeq());
-		target.setManagerName(blankToNull(request.managerName()));
-		target.setPhone(blankToNull(request.phone()));
-		target.setAddress(blankToNull(request.address()));
-		target.setSortOrder(request.sortOrderOrZero());
-		target.setUseYn(request.useYnOrDefault());
-		target.setUpdatedBy(actorId(actor));
+		Org target = request.toUpdatedOrg(before.getOrgSeq(), seqOf(parent), actorId(actor));
 
 		orgDao.update(target);
 
@@ -214,7 +194,7 @@ public class OrgService {
 	 *   - 자기 자신과 자기 하위를 상위로 지정할 수 없다 (순환 참조)
 	 */
 	private Org resolveParent(OrgSaveRequest request, Org self) {
-		String parentId = blankToNull(request.parentId());
+		String parentId = request.parentId();
 
 		if (ROOT_ORG_TYPE.equals(request.orgType())) {
 			if (parentId != null) {
@@ -308,16 +288,17 @@ public class OrgService {
 		};
 	}
 
+	/** 최상위 조직은 상위가 없다 */
+	private Long seqOf(Org org) {
+		return org == null ? null : org.getOrgSeq();
+	}
+
 	private String actorId(LoginUser actor) {
 		return actor == null ? "system" : actor.getUserId();
 	}
 
-	private String blankToNull(String value) {
-		return (value == null || value.isBlank()) ? null : value;
-	}
-
 	private String defaultReason(String reason, String fallback) {
-		return (reason == null || reason.isBlank()) ? fallback : reason;
+		return reason == null ? fallback : reason;
 	}
 
 	/** 저장 결과와 함께, 막지는 않았지만 알려야 할 사항을 전달한다 */

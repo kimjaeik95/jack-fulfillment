@@ -48,7 +48,7 @@ public class UserService {
 	private static final String PROTECTED_USER_ID = "admin";
 
 	/**
-	 * 직무분리 — 요청자와 승인자를 한 사람이 겸할 수 없다.
+	 * 직무분리 — 요청자와 승인자를 한 사람이 겸할 수 없다. (동시에 부여하면 안될때)
 	 * 겸하면 본인이 올린 건을 본인이 승인할 수 있어 통제가 무력화된다.
 	 */
 	private static final List<String[]> SOD_PAIRS = List.of(
@@ -134,21 +134,8 @@ public class UserService {
 		Org org = mustFindOrg(request.orgId());
 		List<Role> roles = validateRoles(request.roleIds(), org);
 
-		User user = new User();
-		user.setUserId(request.userId());
-		user.setUserName(request.userName());
-		user.setPasswordHash(passwordEncoder.encode(request.password()));
-		user.setOrgSeq(org.getOrgSeq());
-		user.setEmail(blankToNull(request.email()));
-		user.setPhone(blankToNull(request.phone()));
-		user.setDeptName(blankToNull(request.deptName()));
-		user.setPositionName(blankToNull(request.positionName()));
-		user.setStatus(request.status());
-		user.setApprovalLimit(request.approvalLimitOrZero());
-		// 관리자와 담당자 두 사람이 같은 비밀번호를 아는 상태이므로 최초 로그인에서 반드시 바꾸게 한다
-		user.setMustChangePassword("Y");
-		user.setUseYn(request.useYnOrDefault());
-		user.setCreatedBy(actorId(actor));
+		User user = request.toNewUser(org.getOrgSeq(),
+				passwordEncoder.encode(request.password()), actorId(actor));
 
 		userDao.insert(user);
 		userDao.insertRoles(user.getUserSeq(), roleIdsOf(roles), actorId(actor));
@@ -181,18 +168,7 @@ public class UserService {
 					"본인의 시스템 관리자 역할은 스스로 해제할 수 없습니다. 다른 관리자에게 요청하세요.");
 		}
 
-		User target = new User();
-		target.setUserSeq(before.getUserSeq());
-		target.setUserName(request.userName());
-		target.setOrgSeq(org.getOrgSeq());
-		target.setEmail(blankToNull(request.email()));
-		target.setPhone(blankToNull(request.phone()));
-		target.setDeptName(blankToNull(request.deptName()));
-		target.setPositionName(blankToNull(request.positionName()));
-		target.setStatus(request.status());
-		target.setApprovalLimit(request.approvalLimitOrZero());
-		target.setUseYn(request.useYnOrDefault());
-		target.setUpdatedBy(actorId(actor));
+		User target = request.toUpdatedUser(before.getUserSeq(), org.getOrgSeq(), actorId(actor));
 
 		userDao.update(target);
 		userDao.deleteRoles(before.getUserSeq());
@@ -284,7 +260,7 @@ public class UserService {
 	/* ------------------------------------------------------------------ */
 
 	private void validateEmailUnique(String email, String exceptUserId) {
-		if (email == null || email.isBlank()) return;
+		if (email == null) return;
 		if (userDao.countByEmail(email, exceptUserId) > 0) {
 			throw new BusinessException(ErrorCode.DUPLICATE, "이미 사용 중인 이메일입니다. (%s)".formatted(email));
 		}
@@ -383,11 +359,7 @@ public class UserService {
 		return actor == null ? "system" : actor.getUserId();
 	}
 
-	private String blankToNull(String value) {
-		return (value == null || value.isBlank()) ? null : value;
-	}
-
 	private String defaultReason(String reason, String fallback) {
-		return (reason == null || reason.isBlank()) ? fallback : reason;
+		return reason == null ? fallback : reason;
 	}
 }
