@@ -5,6 +5,7 @@ import { menuGroups } from '@/router/index.js'
 import { useAdminStore } from '@/stores/admin.js'
 import { useOrgStore } from '@/stores/org.js'
 import { useRoleStore } from '@/stores/role.js'
+import { usePermissionStore } from '@/stores/permission.js'
 import { useSessionStore } from '@/stores/session.js'
 import { useToastStore } from '@/stores/toast.js'
 import ToastHost from '@/components/ToastHost.vue'
@@ -15,6 +16,7 @@ const router = useRouter()
 const admin = useAdminStore()
 const orgStore = useOrgStore()
 const roleStore = useRoleStore()
+const permStore = usePermissionStore()
 const session = useSessionStore()
 const toast = useToastStore()
 
@@ -39,7 +41,9 @@ watch(
     booting.value = true
     try {
       // 조직은 실서버, 나머지 기준정보는 아직 Mock — 둘 다 채워야 사이드바 건수가 맞는다
-      await Promise.all([admin.loadAll(true), orgStore.load(true), roleStore.load(true)])
+      await Promise.all([
+        admin.loadAll(true), orgStore.load(true), roleStore.load(true), permStore.load(true),
+      ])
     } catch (e) {
       toast.error(`기준정보를 불러오지 못했습니다. ${e.message}`)
     } finally {
@@ -65,7 +69,7 @@ const counts = computed(() => ({
   users: admin.users.length,
   orgs: orgStore.orgs.length,
   roles: roleStore.roles.length,
-  permissions: admin.permissions.length,
+  permissions: permStore.permissions.length,
   'role-permissions': admin.rolePermissions.length,
   policies: admin.policies.length,
   'audit-logs': admin.auditLogs.length,

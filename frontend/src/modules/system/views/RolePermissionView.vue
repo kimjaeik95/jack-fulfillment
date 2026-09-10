@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { CODE_GROUPS, codeLabel, codeOptions } from '@/api/codes.js'
 import { useAdminStore } from '@/stores/admin.js'
 import { useRoleStore } from '@/stores/role.js'
+import { usePermissionStore } from '@/stores/permission.js'
 import { useSessionStore } from '@/stores/session.js'
 import { useToastStore } from '@/stores/toast.js'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
@@ -14,6 +15,7 @@ const admin = useAdminStore()
 // 역할 목록만 실서버를 쓴다. 권한 매핑 자체는 아직 화면 임시 데이터라,
 // 목록까지 임시로 두면 역할 화면에서 새로 만든 역할이 여기 나타나지 않는다.
 const roleStore = useRoleStore()
+const permStore = usePermissionStore()
 const session = useSessionStore()
 const toast = useToastStore()
 const route = useRoute()
@@ -106,9 +108,9 @@ const changeCount = computed(() => {
 /* ---------------------------------------------------------------- */
 const visiblePerms = computed(() => {
   const kw = filters.keyword.trim().toLowerCase()
-  return admin.permissions
+  return permStore.permissions
     .filter((p) => p.useYn === 'Y')
-    .filter((p) => !filters.module || p.module === filters.module)
+    .filter((p) => !filters.module || p.moduleCode === filters.module)
     .filter((p) => !kw || [p.permId, p.permName, p.menuPath].some((v) => String(v ?? '').toLowerCase().includes(kw)))
     .filter((p) => !filters.onlyGranted || (draft[p.permId]?.length ?? 0) > 0)
 })
@@ -118,7 +120,7 @@ const matrixRows = computed(() => {
   const out = []
   for (const mod of CODE_GROUPS.PERM_MODULE) {
     const items = visiblePerms.value
-      .filter((p) => p.module === mod.code)
+      .filter((p) => p.moduleCode === mod.code)
       .sort((a, b) => a.permId.localeCompare(b.permId))
     if (!items.length) continue
     out.push({ type: 'module', code: mod.code, label: mod.label, color: mod.color, count: items.length })
@@ -297,7 +299,7 @@ function confirmLeave() {
             <span class="card-title">{{ selectedRole?.roleName ?? '역할을 선택하세요' }}</span>
             <CodeBadge v-if="selectedRole" group="ORG_TYPE" :code="selectedRole.orgScope" />
             <span v-if="selectedRole" class="dim small">
-              · 부여 {{ grantedCount }} / 전체 {{ admin.permissions.length }}
+              · 부여 {{ grantedCount }} / 전체 {{ permStore.permissions.length }}
             </span>
           </div>
           <div class="card-head-actions">
