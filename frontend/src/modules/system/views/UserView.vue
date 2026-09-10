@@ -391,7 +391,13 @@ async function doResetPassword() {
 
     <div class="card">
       <div class="toolbar">
-        <FormField v-model="filters.keyword" class="grow" label="검색어" placeholder="ID / 이름 / 이메일 / 부서" />
+        <FormField
+          v-model="filters.keyword"
+          class="grow"
+          label="검색어"
+          placeholder="ID / 이름 / 이메일 / 부서"
+          @enter="applySearch"
+        />
         <FormField v-model="filters.orgId" label="소속" type="select" empty-option="전체" :options="orgStore.orgOptions" />
         <FormField v-model="filters.roleId" label="역할" type="select" empty-option="전체" :options="roleStore.roleOptions" />
         <FormField

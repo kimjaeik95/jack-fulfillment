@@ -22,7 +22,9 @@ const props = defineProps({
   emptyOption: { type: String, default: '' }, // select 의 '전체'/'선택' 옵션 라벨
 })
 
-const emit = defineEmits(['update:modelValue'])
+// enter — 서버 조회 화면에서 검색을 실행하는 데 쓴다.
+// 검색어를 치고 Enter 를 누르는 것은 당연한 기대이고, 버튼만 두면 매번 마우스를 잡아야 한다.
+const emit = defineEmits(['update:modelValue', 'enter'])
 
 const cls = computed(() => ({ invalid: !!props.error, 'input-mono': props.mono }))
 
@@ -102,6 +104,7 @@ const checked = (v) => Array.isArray(props.modelValue) && props.modelValue.inclu
       :disabled="disabled"
       :readonly="readonly"
       @input="emit('update:modelValue', type === 'number' ? Number($event.target.value) : $event.target.value)"
+      @keyup.enter="emit('enter')"
     />
 
     <span v-if="error" class="field-error">{{ error }}</span>
