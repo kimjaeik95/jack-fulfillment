@@ -70,7 +70,7 @@ const counts = computed(() => ({
   orgs: orgStore.orgs.length,
   roles: roleStore.roles.length,
   permissions: permStore.permissions.length,
-  'role-permissions': admin.rolePermissions.length,
+  'role-permissions': roleStore.roles.reduce((n, r) => n + (r.permCount ?? 0), 0),
   policies: admin.policies.length,
   'audit-logs': admin.auditLogs.length,
 }))

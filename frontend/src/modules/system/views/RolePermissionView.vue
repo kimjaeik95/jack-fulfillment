@@ -2,8 +2,8 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { CODE_GROUPS, codeLabel, codeOptions } from '@/api/codes.js'
-import { useAdminStore } from '@/stores/admin.js'
 import { useRoleStore } from '@/stores/role.js'
+import * as rolePermApi from '@/api/rolePermission.js'
 import { usePermissionStore } from '@/stores/permission.js'
 import { useSessionStore } from '@/stores/session.js'
 import { useToastStore } from '@/stores/toast.js'
@@ -11,9 +11,6 @@ import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import FormField from '@/components/FormField.vue'
 import CodeBadge from '@/components/CodeBadge.vue'
 
-const admin = useAdminStore()
-// 역할 목록만 실서버를 쓴다. 권한 매핑 자체는 아직 화면 임시 데이터라,
-// 목록까지 임시로 두면 역할 화면에서 새로 만든 역할이 여기 나타나지 않는다.
 const roleStore = useRoleStore()
 const permStore = usePermissionStore()
 const session = useSessionStore()
@@ -36,13 +33,40 @@ const updateDenyReason = computed(() => session.denyReason('SYS_ROLE', 'U'))
 
 const selectedRole = computed(() => roleStore.roleMap[selectedRoleId.value] ?? null)
 
-/** 저장된 매핑 */
-const savedGrants = computed(() => (selectedRoleId.value ? admin.grantMapOf(selectedRoleId.value) : {}))
+/** 서버에 저장돼 있는 매핑: { permId: string[] } */
+const savedGrants = ref({})
+/**
+ * 권한별 데이터 범위: { permId: 'OWN_ORG' | null }
+ *
+ * 이 화면은 데이터 범위를 편집하지 않는다. 그런데 저장은 역할의 매핑을
+ * 통째로 교체하므로, 들고 있지 않으면 기존에 지정된 범위가 날아간다.
+ */
+const scopes = reactive({})
+const loading = ref(false)
+const loadError = ref('')
 
-function loadDraft(roleId) {
-  for (const k of Object.keys(draft)) delete draft[k]
-  const saved = admin.grantMapOf(roleId)
-  for (const [permId, actions] of Object.entries(saved)) draft[permId] = [...actions]
+async function loadDraft(roleId) {
+  loading.value = true
+  loadError.value = ''
+  try {
+    const result = await rolePermApi.fetchGrants(roleId)
+    const saved = {}
+    for (const k of Object.keys(scopes)) delete scopes[k]
+    for (const g of result.grants) {
+      saved[g.permId] = [...g.actions]
+      scopes[g.permId] = g.dataScope ?? null
+    }
+    savedGrants.value = saved
+    for (const k of Object.keys(draft)) delete draft[k]
+    for (const [permId, actions] of Object.entries(saved)) draft[permId] = [...actions]
+  } catch (e) {
+    // 권한 부족(403)도 여기로 온다. 사유를 그대로 보여준다.
+    loadError.value = e.message
+    savedGrants.value = {}
+    for (const k of Object.keys(draft)) delete draft[k]
+  } finally {
+    loading.value = false
+  }
 }
 
 function selectRole(roleId, force = false) {
@@ -57,13 +81,15 @@ function selectRole(roleId, force = false) {
   router.replace({ query: { ...route.query, roleId } })
 }
 
-onMounted(() => {
+onMounted(async () => {
+  await roleStore.load()
+  await permStore.load()
   const initial =
     (route.query.roleId && roleStore.roleMap[route.query.roleId] ? route.query.roleId : null) ??
     [...roleStore.roles].sort((a, b) => (a.sortOrder ?? 999) - (b.sortOrder ?? 999))[0]?.roleId
   if (initial) {
     selectedRoleId.value = initial
-    loadDraft(initial)
+    await loadDraft(initial)
   }
 })
 
@@ -196,10 +222,26 @@ async function save() {
   }
   saving.value = true
   try {
-    const payload = Object.fromEntries(Object.entries(draft).filter(([, v]) => v?.length))
-    await admin.saveRolePermissions(selectedRoleId.value, payload)
+    // 데이터 범위는 이 화면이 편집하지 않으므로 읽어온 값을 그대로 돌려보낸다
+    const grants = Object.entries(draft)
+      .filter(([, actions]) => actions?.length)
+      .map(([permId, actions]) => ({ permId, actions, dataScope: scopes[permId] ?? null }))
+
+    await rolePermApi.save(selectedRoleId.value, grants, '역할-권한 매핑 저장')
     toast.success(`'${selectedRole.value?.roleName}' 권한 매핑을 저장했습니다. (${grantedCount.value}개 권한)`)
+
+    await loadDraft(selectedRoleId.value)
+    // 역할 목록의 권한 건수도 서버 값이라 함께 다시 읽는다
+    await roleStore.load(true)
+
+    // 본인에게 배정된 역할을 고쳤다면 지금 세션의 판정 근거도 바뀌어야 한다.
+    // 다시 받지 않으면 화면은 옛 권한으로 버튼을 열어둔 채 서버만 거부한다.
+    if (session.myRoleIds.includes(selectedRoleId.value)) {
+      await session.refreshGrants()
+      toast.warn('본인에게 배정된 역할이라 현재 세션의 권한도 함께 갱신했습니다.')
+    }
   } catch (e) {
+    // 업무 규칙 위반(미지원 액션·관리 불능 등)은 사유가 곧 다음 행동이다
     toast.error(e.message)
   } finally {
     saving.value = false
@@ -211,22 +253,31 @@ function revert() {
   toast.info('저장 전 상태로 되돌렸습니다.')
 }
 
-function applyCopy() {
+async function applyCopy() {
   if (!copyFrom.value) return
   if (!canUpdate.value) {
     toast.error(updateDenyReason.value)
     return
   }
-  const src = admin.grantMapOf(copyFrom.value)
-  for (const k of Object.keys(draft)) delete draft[k]
-  for (const [permId, actions] of Object.entries(src)) draft[permId] = [...actions]
-  toast.warn(`'${roleStore.roleNameOf(copyFrom.value)}' 의 권한 구성을 복사했습니다. 저장 버튼을 눌러야 반영됩니다.`)
+  const sourceName = roleStore.roleNameOf(copyFrom.value)
+  try {
+    const src = await rolePermApi.fetchGrants(copyFrom.value)
+    for (const k of Object.keys(draft)) delete draft[k]
+    for (const k of Object.keys(scopes)) delete scopes[k]
+    for (const g of src.grants) {
+      draft[g.permId] = [...g.actions]
+      scopes[g.permId] = g.dataScope ?? null
+    }
+    toast.warn(`'${sourceName}' 의 권한 구성을 복사했습니다. 저장 버튼을 눌러야 반영됩니다.`)
+  } catch (e) {
+    toast.error(e.message)
+  }
 }
 
 const roleListRows = computed(() =>
   [...roleStore.roles]
     .sort((a, b) => (a.sortOrder ?? 999) - (b.sortOrder ?? 999))
-    .map((r) => ({ ...r, count: admin.grantsOf(r.roleId).length })),
+    .map((r) => ({ ...r, count: r.permCount ?? 0 })),
 )
 
 const copyOptions = computed(() => roleStore.roleOptions.filter((o) => o.value !== selectedRoleId.value))
@@ -264,7 +315,10 @@ function confirmLeave() {
       </div>
     </div>
 
-    <div v-if="updateDenyReason" class="alert alert-warn mb-2">
+    <div v-if="loadError" class="alert alert-danger mb-2">
+      <span class="alert-icon">⛔</span><span>{{ loadError }}</span>
+    </div>
+    <div v-else-if="updateDenyReason" class="alert alert-warn mb-2">
       <span class="alert-icon">⚠</span><span>{{ updateDenyReason }} (조회만 가능합니다)</span>
     </div>
 
