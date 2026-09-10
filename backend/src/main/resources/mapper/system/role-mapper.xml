@@ -1,0 +1,196 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.fulfillment.system.role.dao.RoleDao">
+
+    <resultMap id="roleMap" type="com.fulfillment.domain.Role">
+        <id     property="roleSeq"            column="role_seq"/>
+        <result property="roleId"             column="role_id"/>
+        <result property="roleName"           column="role_name"/>
+        <result property="description"        column="description"/>
+        <result property="orgScope"           column="org_scope"/>
+        <result property="defaultDataScope"   column="default_data_scope"/>
+        <result property="restrictionSummary" column="restriction_summary"/>
+        <result property="sortOrder"          column="sort_order"/>
+        <result property="useYn"              column="use_yn"/>
+        <result property="createdBy"          column="created_by"/>
+        <result property="createdAt"          column="created_at"/>
+        <result property="updatedBy"          column="updated_by"/>
+        <result property="updatedAt"          column="updated_at"/>
+        <result property="permCount"          column="perm_count"/>
+        <result property="policyCount"        column="policy_count"/>
+        <result property="userCount"          column="user_count"/>
+    </resultMap>
+
+    <!--
+      권한 · 정책 · 사용자 건수를 목록에서 함께 센다.
+      화면이 삭제·사용중지의 영향 범위를 미리 알아야, 버튼을 눌러 거부당한
+      뒤에야 이유를 알게 되는 흐름을 피할 수 있다.
+
+      perm_count 는 권한 종류 수다. tb_role_permission 은 권한×액션 단위라
+      DISTINCT 를 걸지 않으면 CRUD 를 모두 준 권한이 4건으로 세어진다.
+    -->
+    <sql id="roleColumns">
+        r.role_seq, r.role_id, r.role_name, r.description,
+        r.org_scope, r.default_data_scope, r.restriction_summary,
+        r.sort_order, r.use_yn,
+        r.created_by, r.created_at, r.updated_by, r.updated_at,
+        (SELECT COUNT(DISTINCT rp.perm_seq) FROM tb_role_permission rp
+          WHERE rp.role_seq = r.role_seq) AS perm_count,
+        (SELECT COUNT(*) FROM tb_policy pol
+          WHERE pol.role_seq = r.role_seq AND pol.use_yn = 'Y') AS policy_count,
+        (SELECT COUNT(*) FROM tb_user_role ur
+           JOIN tb_user u ON u.user_seq = ur.user_seq AND u.status &lt;&gt; 'RETIRED'
+          WHERE ur.role_seq = r.role_seq) AS user_count
+    </sql>
+
+    <sql id="searchWhere">
+        <where>
+            <if test="orgScope != null and orgScope != ''">
+                AND r.org_scope = #{orgScope}
+            </if>
+            <if test="useYn != null and useYn != ''">
+                AND r.use_yn = #{useYn}
+            </if>
+            <if test="keyword != null and keyword != ''">
+                AND ( LOWER(r.role_id)     LIKE '%' || LOWER(#{keyword}) || '%'
+                   OR LOWER(r.role_name)   LIKE '%' || LOWER(#{keyword}) || '%'
+                   OR LOWER(r.description) LIKE '%' || LOWER(#{keyword}) || '%'
+                   OR LOWER(COALESCE(r.restriction_summary, '')) LIKE '%' || LOWER(#{keyword}) || '%' )
+            </if>
+        </where>
+    </sql>
+
+    <select id="selectList" resultMap="roleMap">
+        SELECT <include refid="roleColumns"/>
+          FROM tb_role r
+        <include refid="searchWhere"/>
+        <!-- ${} 치환 자리다. RoleSearch 가 화이트리스트로 걸러 SQL 인젝션을 막는다. -->
+         ORDER BY ${sortColumn} ${sortDirection}, r.role_id ASC
+        <if test="size > 0">
+            LIMIT #{size} OFFSET #{offset}
+        </if>
+    </select>
+
+    <select id="countList" resultType="long">
+        SELECT COUNT(*) FROM tb_role r
+        <include refid="searchWhere"/>
+    </select>
+
+    <select id="selectByRoleId" resultMap="roleMap">
+        SELECT <include refid="roleColumns"/>
+          FROM tb_role r
+         WHERE r.role_id = #{roleId}
+    </select>
+
+    <!-- 사용자 저장 시 배정 역할을 한 번에 확인한다 (역할 수만큼 질의하지 않도록) -->
+    <select id="selectByRoleIds" resultMap="roleMap">
+        SELECT <include refid="roleColumns"/>
+          FROM tb_role r
+         WHERE r.role_id IN
+        <foreach collection="roleIds" item="rid" open="(" separator="," close=")">
+            #{rid}
+        </foreach>
+         ORDER BY r.sort_order
+    </select>
+
+    <select id="countByRoleId" resultType="int">
+        SELECT COUNT(*) FROM tb_role WHERE role_id = #{roleId}
+    </select>
+
+    <select id="countByRoleName" resultType="int">
+        SELECT COUNT(*) FROM tb_role
+         WHERE role_name = #{roleName}
+        <if test="exceptRoleId != null and exceptRoleId != ''">
+            AND role_id &lt;&gt; #{exceptRoleId}
+        </if>
+    </select>
+
+    <insert id="insert" parameterType="com.fulfillment.domain.Role"
+            useGeneratedKeys="true" keyProperty="roleSeq" keyColumn="role_seq">
+        INSERT INTO tb_role (
+            role_id, role_name, description, org_scope, default_data_scope,
+            restriction_summary, sort_order, use_yn, created_by
+        ) VALUES (
+            #{roleId}, #{roleName}, #{description}, #{orgScope}, #{defaultDataScope},
+            #{restrictionSummary}, #{sortOrder}, #{useYn}, #{createdBy}
+        )
+    </insert>
+
+    <!-- 역할코드는 바꾸지 않는다. 권한 매핑·정책·화면이 코드로 역할을 부른다. -->
+    <update id="update" parameterType="com.fulfillment.domain.Role">
+        UPDATE tb_role
+           SET role_name           = #{roleName},
+               description         = #{description},
+               org_scope           = #{orgScope},
+               default_data_scope  = #{defaultDataScope},
+               restriction_summary = #{restrictionSummary},
+               sort_order          = #{sortOrder},
+               use_yn              = #{useYn},
+               updated_by          = #{updatedBy},
+               updated_at          = CURRENT_TIMESTAMP
+         WHERE role_seq = #{roleSeq}
+    </update>
+
+    <!-- tb_role_permission 은 ON DELETE CASCADE 로 함께 지워진다 -->
+    <delete id="delete">
+        DELETE FROM tb_role WHERE role_seq = #{roleSeq}
+    </delete>
+
+    <!-- 퇴사자는 세지 않는다. 다시 로그인하지 않으므로 역할 정비를 막을 이유가 없다. -->
+    <select id="countUsers" resultType="int">
+        SELECT COUNT(*)
+          FROM tb_user_role ur
+          JOIN tb_user u ON u.user_seq = ur.user_seq
+         WHERE ur.role_seq = #{roleSeq}
+           AND u.status &lt;&gt; 'RETIRED'
+    </select>
+
+    <select id="countPolicies" resultType="int">
+        SELECT COUNT(*) FROM tb_policy WHERE role_seq = #{roleSeq}
+    </select>
+
+    <select id="countPermissions" resultType="int">
+        SELECT COUNT(DISTINCT perm_seq) FROM tb_role_permission WHERE role_seq = #{roleSeq}
+    </select>
+
+    <select id="selectAssignedUserNames" resultType="string">
+        SELECT u.user_name
+          FROM tb_user_role ur
+          JOIN tb_user u ON u.user_seq = ur.user_seq
+         WHERE ur.role_seq = #{roleSeq}
+           AND u.status &lt;&gt; 'RETIRED'
+         ORDER BY u.user_name
+    </select>
+
+    <!--
+      적용범위를 바꾸면 배정이 어긋나게 되는 사용자.
+      소속 조직유형이 새 적용범위와 다른 사람들이다.
+    -->
+    <select id="selectScopeViolatingUsers" resultType="string">
+        SELECT u.user_name
+          FROM tb_user_role ur
+          JOIN tb_user u ON u.user_seq = ur.user_seq
+          JOIN tb_org  o ON o.org_seq  = u.org_seq
+         WHERE ur.role_seq = #{roleSeq}
+           AND u.status &lt;&gt; 'RETIRED'
+           AND o.org_type &lt;&gt; #{orgScope}
+         ORDER BY u.user_name
+    </select>
+
+    <!--
+      이 역할 하나만 가진 사용자.
+      역할을 미사용으로 내리면 유효권한 계산에서 빠지므로 아무 권한도 남지 않는다.
+    -->
+    <select id="selectSoleRoleUserNames" resultType="string">
+        SELECT u.user_name
+          FROM tb_user_role ur
+          JOIN tb_user u ON u.user_seq = ur.user_seq
+         WHERE ur.role_seq = #{roleSeq}
+           AND u.status &lt;&gt; 'RETIRED'
+           AND (SELECT COUNT(*) FROM tb_user_role x WHERE x.user_seq = u.user_seq) = 1
+         ORDER BY u.user_name
+    </select>
+
+</mapper>

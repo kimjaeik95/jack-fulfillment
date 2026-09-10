@@ -13,8 +13,8 @@ import com.fulfillment.domain.Org;
 import com.fulfillment.domain.Role;
 import com.fulfillment.domain.User;
 import com.fulfillment.system.org.dao.OrgDao;
+import com.fulfillment.system.role.dao.RoleDao;
 import com.fulfillment.system.user.dao.UserDao;
-import com.fulfillment.system.user.dao.UserReferenceDao;
 import com.fulfillment.system.user.dto.UserResponse;
 import com.fulfillment.system.user.dto.UserSaveRequest;
 import com.fulfillment.system.user.dto.UserSearch;
@@ -72,7 +72,8 @@ public class UserService {
 			new Field<>("role_ids", u -> String.join(",", u.getRoleIds())));
 
 	private final UserDao userDao;
-	private final UserReferenceDao referenceDao;
+	/** 배정 역할 확인 — 역할 기능과 같은 조회를 쓴다 */
+	private final RoleDao roleDao;
 	/** 소속 조직 확인 — 조직 기능과 같은 조회를 쓴다 */
 	private final OrgDao orgDao;
 	private final PermissionChecker permissionChecker;
@@ -80,11 +81,11 @@ public class UserService {
 	private final PasswordEncoder passwordEncoder;
 	private final AuditRecorder auditRecorder;
 
-	public UserService(UserDao userDao, UserReferenceDao referenceDao, OrgDao orgDao,
+	public UserService(UserDao userDao, RoleDao roleDao, OrgDao orgDao,
 			PermissionChecker permissionChecker, PasswordPolicy passwordPolicy,
 			PasswordEncoder passwordEncoder, AuditRecorder auditRecorder) {
 		this.userDao = userDao;
-		this.referenceDao = referenceDao;
+		this.roleDao = roleDao;
 		this.orgDao = orgDao;
 		this.permissionChecker = permissionChecker;
 		this.passwordPolicy = passwordPolicy;
@@ -297,7 +298,7 @@ public class UserService {
 	 *   - 조회 전용 역할을 다른 역할과 섞지 않았는가
 	 */
 	private List<Role> validateRoles(List<String> roleIds, Org org) {
-		Map<String, Role> roleMap = referenceDao.selectRolesByIds(roleIds).stream()
+		Map<String, Role> roleMap = roleDao.selectByRoleIds(roleIds).stream()
 				.collect(Collectors.toMap(Role::getRoleId, r -> r));
 
 		List<String> missing = roleIds.stream().filter(id -> !roleMap.containsKey(id)).toList();
