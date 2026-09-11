@@ -6,6 +6,7 @@
 
     <resultMap id="orgMap" type="com.fulfillment.domain.Org">
         <id     property="orgSeq"        column="org_seq"/>
+        <result property="companySeq"    column="company_seq"/>
         <result property="orgId"         column="org_id"/>
         <result property="orgName"       column="org_name"/>
         <result property="orgType"       column="org_type"/>
@@ -14,35 +15,45 @@
         <result property="phone"         column="phone"/>
         <result property="address"       column="address"/>
         <result property="zipCode"       column="zip_code"/>
-        <result property="bizRegNo"      column="biz_reg_no"/>
-        <result property="ceoName"       column="ceo_name"/>
         <result property="sortOrder"     column="sort_order"/>
         <result property="useYn"         column="use_yn"/>
         <result property="createdBy"     column="created_by"/>
         <result property="createdAt"     column="created_at"/>
         <result property="updatedBy"     column="updated_by"/>
         <result property="updatedAt"     column="updated_at"/>
+        <result property="companyId"     column="company_id"/>
+        <result property="companyName"   column="company_name"/>
         <result property="parentOrgId"   column="parent_org_id"/>
         <result property="parentOrgName" column="parent_org_name"/>
         <result property="userCount"     column="user_count"/>
         <result property="childCount"    column="child_count"/>
+        <result property="plantCount"    column="plant_count"/>
     </resultMap>
 
     <!--
-      소속 인원과 하위 조직 수를 목록에서 함께 센다.
+      소속 인원 · 하위 조직 · 딸린 플랜트 수를 목록에서 함께 센다.
       화면이 삭제 가능 여부를 미리 알아야, 버튼을 눌러 거부당한 뒤에야
       이유를 알게 되는 흐름을 피할 수 있다. 조직은 수십 건 규모라
       상관 서브쿼리를 써도 비용이 문제되지 않는다.
     -->
     <sql id="orgColumns">
-        o.org_seq, o.org_id, o.org_name, o.org_type, o.parent_seq,
-        o.manager_name, o.phone, o.address, o.zip_code, o.biz_reg_no, o.ceo_name,
+        o.org_seq, o.company_seq, o.org_id, o.org_name, o.org_type, o.parent_seq,
+        o.manager_name, o.phone, o.address, o.zip_code,
         o.sort_order, o.use_yn,
         o.created_by, o.created_at, o.updated_by, o.updated_at,
-        p.org_id   AS parent_org_id,
-        p.org_name AS parent_org_name,
-        (SELECT COUNT(*) FROM tb_user u WHERE u.org_seq = o.org_seq) AS user_count,
-        (SELECT COUNT(*) FROM tb_org  c WHERE c.parent_seq = o.org_seq) AS child_count
+        cp.company_id   AS company_id,
+        cp.company_name AS company_name,
+        p.org_id        AS parent_org_id,
+        p.org_name      AS parent_org_name,
+        (SELECT COUNT(*) FROM tb_user  u WHERE u.org_seq    = o.org_seq) AS user_count,
+        (SELECT COUNT(*) FROM tb_org   c WHERE c.parent_seq = o.org_seq) AS child_count,
+        (SELECT COUNT(*) FROM tb_plant t WHERE t.org_seq    = o.org_seq) AS plant_count
+    </sql>
+
+    <sql id="orgFrom">
+        FROM tb_org o
+        JOIN tb_company cp ON cp.company_seq = o.company_seq
+        LEFT JOIN tb_org p ON p.org_seq = o.parent_seq
     </sql>
 
 
@@ -81,6 +92,9 @@
             <if test="useYn != null and useYn != ''">
                 AND o.use_yn = #{useYn}
             </if>
+            <if test="companyId != null and companyId != ''">
+                AND cp.company_id = #{companyId}
+            </if>
             <if test="parentId != null and parentId != ''">
                 AND p.org_id = #{parentId}
             </if>
@@ -94,8 +108,7 @@
 
     <select id="selectList" resultMap="orgMap">
         SELECT <include refid="orgColumns"/>
-          FROM tb_org o
-          LEFT JOIN tb_org p ON p.org_seq = o.parent_seq
+        <include refid="orgFrom"/>
         <include refid="searchWhere"/>
         <!-- ${} 치환 자리다. OrgSearch 가 화이트리스트로 걸러 SQL 인젝션을 막는다. -->
          ORDER BY ${sortColumn} ${sortDirection}, o.org_id ASC
@@ -106,28 +119,18 @@
 
     <select id="countList" resultType="long">
         SELECT COUNT(*)
-          FROM tb_org o
-          LEFT JOIN tb_org p ON p.org_seq = o.parent_seq
+        <include refid="orgFrom"/>
         <include refid="searchWhere"/>
     </select>
 
     <select id="selectByOrgId" resultMap="orgMap">
         SELECT <include refid="orgColumns"/>
-          FROM tb_org o
-          LEFT JOIN tb_org p ON p.org_seq = o.parent_seq
+        <include refid="orgFrom"/>
          WHERE o.org_id = #{orgId}
     </select>
 
     <select id="countByOrgId" resultType="int">
         SELECT COUNT(*) FROM tb_org WHERE org_id = #{orgId}
-    </select>
-
-    <!-- 회사(최상위) 수. 단일 법인 전제를 벗어났는지 알리는 데 쓴다. -->
-    <select id="countCompanies" resultType="int">
-        SELECT COUNT(*) FROM tb_org WHERE org_type = 'HQ'
-        <if test="exceptOrgId != null and exceptOrgId != ''">
-            AND org_id &lt;&gt; #{exceptOrgId}
-        </if>
     </select>
 
     <select id="countByOrgName" resultType="int">
@@ -141,12 +144,12 @@
     <insert id="insert" parameterType="com.fulfillment.domain.Org"
             useGeneratedKeys="true" keyProperty="orgSeq" keyColumn="org_seq">
         INSERT INTO tb_org (
-            org_id, org_name, org_type, parent_seq,
-            manager_name, phone, address, zip_code, biz_reg_no, ceo_name,
+            company_seq, org_id, org_name, org_type, parent_seq,
+            manager_name, phone, address, zip_code,
             sort_order, use_yn, created_by
         ) VALUES (
-            #{orgId}, #{orgName}, #{orgType}, #{parentSeq},
-            #{managerName}, #{phone}, #{address}, #{zipCode}, #{bizRegNo}, #{ceoName},
+            #{companySeq}, #{orgId}, #{orgName}, #{orgType}, #{parentSeq},
+            #{managerName}, #{phone}, #{address}, #{zipCode},
             #{sortOrder}, #{useYn}, #{createdBy}
         )
     </insert>
@@ -154,15 +157,14 @@
     <!-- 조직코드는 바꾸지 않는다. 다른 테이블과 화면이 코드로 조직을 부르기 때문이다. -->
     <update id="update" parameterType="com.fulfillment.domain.Org">
         UPDATE tb_org
-           SET org_name     = #{orgName},
+           SET company_seq  = #{companySeq},
+               org_name     = #{orgName},
                org_type     = #{orgType},
                parent_seq   = #{parentSeq},
                manager_name = #{managerName},
                phone        = #{phone},
                address      = #{address},
                zip_code     = #{zipCode},
-               biz_reg_no   = #{bizRegNo},
-               ceo_name     = #{ceoName},
                sort_order   = #{sortOrder},
                use_yn       = #{useYn},
                updated_by   = #{updatedBy},
@@ -187,6 +189,11 @@
 
     <select id="countChildren" resultType="int">
         SELECT COUNT(*) FROM tb_org WHERE parent_seq = #{orgSeq}
+    </select>
+
+    <!-- 딸린 플랜트. 있으면 조직을 지울 수 없다 — 재고의 원천이 떠 버린다. -->
+    <select id="countPlants" resultType="int">
+        SELECT COUNT(*) FROM tb_plant WHERE org_seq = #{orgSeq}
     </select>
 
     <!--

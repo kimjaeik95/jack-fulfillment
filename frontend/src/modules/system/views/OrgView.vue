@@ -13,6 +13,7 @@ import { computed, nextTick, onMounted, reactive, ref } from 'vue'
 import { codeOptions } from '@/api/codes.js'
 import * as orgApi from '@/api/org.js'
 import { useOrgStore } from '@/stores/org.js'
+import { useHierarchyStore } from '@/stores/hierarchy.js'
 import * as exportApi from '@/api/export.js'
 import { useSessionStore } from '@/stores/session.js'
 import { useToastStore } from '@/stores/toast.js'
@@ -24,6 +25,7 @@ import FormField from '@/components/FormField.vue'
 import CodeBadge from '@/components/CodeBadge.vue'
 
 const orgStore = useOrgStore()
+const hierarchy = useHierarchyStore()
 const session = useSessionStore()
 const toast = useToastStore()
 
@@ -31,15 +33,18 @@ const loadError = ref('')
 /** 등록 직후 새 행이 있는 페이지로 이동시키기 위한 참조 */
 const table = ref(null)
 
-const filters = reactive({ keyword: '', orgType: '', useYn: '' })
+const filters = reactive({ keyword: '', orgType: '', companyId: '', useYn: '' })
 
 function resetFilters() {
-  Object.assign(filters, { keyword: '', orgType: '', useYn: '' })
+  Object.assign(filters, { keyword: '', orgType: '', companyId: '', useYn: '' })
 }
 
 async function reload(force = true) {
   loadError.value = ''
   try {
+    // 소속 회사 드롭다운이 회사 목록을 쓴다. 회사를 못 읽는 역할도 조직
+    // 화면에 들어올 수 있으므로, 실패해도 화면은 계속 그린다.
+    await hierarchy.loadCompanies(force)
     await orgStore.load(force)
     if (orgStore.denyReason) loadError.value = orgStore.denyReason
   } catch (e) {
@@ -50,10 +55,19 @@ async function reload(force = true) {
 // 진입 시에는 App 이 이미 읽어둔 목록을 그대로 쓴다 (같은 요청을 두 번 보내지 않는다)
 onMounted(() => reload(false))
 
+/**
+ * 회사가 하나뿐이면 고르게 할 이유가 없다. 기본값으로 채워 둔다.
+ * 단일 법인 운영이 1차 범위이므로 대부분 이 경우다.
+ */
+function defaultCompanyId() {
+  return hierarchy.companies.length === 1 ? hierarchy.companies[0].companyId : ''
+}
+
 const rows = computed(() => {
   const kw = filters.keyword.trim().toLowerCase()
   return orgStore.orgs
     .filter((o) => !filters.orgType || o.orgType === filters.orgType)
+    .filter((o) => !filters.companyId || o.companyId === filters.companyId)
     .filter((o) => !filters.useYn || o.useYn === filters.useYn)
     .filter(
       (o) =>
@@ -69,10 +83,12 @@ const columns = [
   { key: 'orgId', label: '조직코드', width: '104px', sortable: true, cls: 'code' },
   { key: 'orgName', label: '조직명', width: '160px', sortable: true },
   { key: 'orgType', label: '유형', width: '92px', align: 'center', sortable: true },
-  { key: 'parentLabel', label: '상위 조직', width: '132px' },
-  { key: 'managerName', label: '책임자', width: '90px' },
-  { key: 'childCount', label: '하위', width: '60px', align: 'right', sortable: true },
-  { key: 'userCount', label: '소속 인원', width: '80px', align: 'right', sortable: true },
+  { key: 'companyName', label: '회사', width: '120px', sortable: true },
+  { key: 'parentLabel', label: '상위 조직', width: '128px' },
+  { key: 'managerName', label: '책임자', width: '86px' },
+  { key: 'childCount', label: '하위', width: '56px', align: 'right', sortable: true },
+  { key: 'userCount', label: '인원', width: '56px', align: 'right', sortable: true },
+  { key: 'plantCount', label: '플랜트', width: '64px', align: 'right', sortable: true },
   { key: 'useYn', label: '사용', width: '64px', align: 'center', sortable: true },
   { key: '_act', label: '', width: '112px', align: 'right' },
 ]
@@ -106,13 +122,12 @@ const {
     orgId: '',
     orgName: '',
     orgType: 'DC',
+    companyId: defaultCompanyId(),
     parentId: 'HQ001',
     managerName: '',
     phone: '',
     address: '',
     zipCode: '',
-    bizRegNo: '',
-    ceoName: '',
     sortOrder: 0,
     useYn: 'Y',
   }),
@@ -120,13 +135,12 @@ const {
     orgId: row.orgId,
     orgName: row.orgName,
     orgType: row.orgType,
+    companyId: row.companyId ?? '',
     parentId: row.parentId ?? '',
     managerName: row.managerName ?? '',
     phone: row.phone ?? '',
     address: row.address ?? '',
     zipCode: row.zipCode ?? '',
-    bizRegNo: row.bizRegNo ?? '',
-    ceoName: row.ceoName ?? '',
     sortOrder: row.sortOrder ?? 0,
     useYn: row.useYn,
   }),
@@ -135,9 +149,6 @@ const {
     // 본사는 상위를 가질 수 없다. 유형을 본사로 바꾸면 이전에 고른 상위가 남아 있으므로 지운다.
     parentId: f.orgType === 'HQ' ? null : f.parentId || null,
     zipCode: f.zipCode || null,
-    // 회사가 아니면 비워 보낸다. 유형을 바꿨을 때 옛 값이 따라가면 서버가 거절한다.
-    bizRegNo: f.orgType === 'HQ' ? f.bizRegNo || null : null,
-    ceoName: f.orgType === 'HQ' ? f.ceoName || null : null,
     sortOrder: Number(f.sortOrder) || 0,
   }),
   validate(f, ctx) {
@@ -150,12 +161,10 @@ const {
     else if (orgStore.orgs.some((o) => o.orgName === f.orgName.trim() && o.orgId !== f.orgId))
       e.orgName = '이미 사용 중인 조직명입니다.'
     if (!f.orgType) e.orgType = '조직유형을 선택하세요.'
+    if (!f.companyId) e.companyId = '소속 회사를 선택하세요.'
     if (f.orgType === 'HQ' && f.parentId) e.parentId = '회사는 상위 조직을 가질 수 없습니다.'
     if (f.orgType !== 'HQ' && !f.parentId) e.parentId = '회사가 아닌 조직은 상위 조직이 필요합니다.'
     if (f.zipCode && !/^\d{5}$/.test(f.zipCode)) e.zipCode = '우편번호는 숫자 5자리입니다.'
-    if (f.orgType === 'HQ' && f.bizRegNo && !/^\d{3}-\d{2}-\d{5}$/.test(f.bizRegNo)) {
-      e.bizRegNo = '000-00-00000 형식으로 입력하세요.'
-    }
     if (f.parentId && f.parentId === f.orgId) e.parentId = '자기 자신을 상위 조직으로 지정할 수 없습니다.'
     if (f.phone && !/^\d{2,3}-\d{3,4}-\d{4}$/.test(f.phone))
       e.phone = '02-1234-5678 형식으로 입력하세요.'
@@ -190,13 +199,12 @@ const deleteDetail = computed(() => {
   const blockers = []
   if (row.childCount) blockers.push(`하위 조직 ${row.childCount}개`)
   if (row.userCount) blockers.push(`소속 사용자 ${row.userCount}명`)
+  // 플랜트가 딸려 있으면 지울 수 없다 — 재고의 원천이 소속 조직을 잃는다
+  if (row.plantCount) blockers.push(`운영 플랜트 ${row.plantCount}개`)
   return blockers.length
     ? `${blockers.join(', ')}이(가) 있어 삭제할 수 없습니다. 더 이상 쓰지 않는 조직이라면 사용여부를 '미사용'으로 바꾸세요.`
-    : '소속 사용자나 하위 조직이 있으면 서버가 삭제를 거부합니다.'
+    : '소속 사용자 · 하위 조직 · 운영 플랜트가 있으면 서버가 삭제를 거부합니다.'
 })
-
-/** 회사 유형일 때만 사업자등록번호·대표자명을 다룬다 (MST-PG-001) */
-const isCompany = computed(() => form.value.orgType === 'HQ')
 
 const readDenyReason = computed(() => session.denyReason('SYS_COMPANY', 'R'))
 
@@ -243,7 +251,8 @@ async function downloadAs(format) {
       <div>
         <h1 class="page-title">조직 관리</h1>
         <p class="page-desc">
-          본사·물류센터 조직을 관리합니다. 조직유형은 역할 배정 범위(적용범위)와 데이터 범위 제한의 기준이 됩니다.
+          회사 아래의 본사·물류센터 조직을 관리합니다. 조직은 사람이 속하는 단위이고, 조직유형은 역할 배정 범위(적용범위)와 데이터 범위 제한의 기준이 됩니다.
+          물리적인 거점은 <strong>플랜트 관리</strong>에서 다룹니다.
         </p>
       </div>
       <div class="page-head-actions">
@@ -277,6 +286,13 @@ async function downloadAs(format) {
           type="select"
           empty-option="전체"
           :options="codeOptions('ORG_TYPE')"
+        />
+        <FormField
+          v-model="filters.companyId"
+          label="회사"
+          type="select"
+          empty-option="전체"
+          :options="hierarchy.companyOptions"
         />
         <FormField v-model="filters.useYn" label="사용" type="select" empty-option="전체" :options="codeOptions('USE_YN')" />
         <div class="toolbar-actions">
@@ -378,6 +394,16 @@ async function downloadAs(format) {
           help="역할 배정 가능 범위를 결정합니다."
         />
         <FormField
+          v-model="form.companyId"
+          label="소속 회사"
+          type="select"
+          required
+          empty-option="선택하세요"
+          :options="hierarchy.companyOptions"
+          :error="errors.companyId"
+          help="모든 조직은 어느 회사에 속합니다."
+        />
+        <FormField
           v-model="form.parentId"
           label="상위 조직"
           type="select"
@@ -396,20 +422,6 @@ async function downloadAs(format) {
           :error="errors.zipCode"
         />
 
-        <!--
-          사업자등록번호와 대표자명은 법인의 것이다. 물류센터에는 없는 항목이라
-          유형이 회사일 때만 보여준다. 서버와 DB 제약도 같은 규칙을 건다.
-        -->
-        <template v-if="isCompany">
-          <FormField
-            v-model="form.bizRegNo"
-            label="사업자등록번호"
-            placeholder="000-00-00000"
-            :error="errors.bizRegNo"
-            help="회사에만 입력하는 항목입니다."
-          />
-          <FormField v-model="form.ceoName" label="대표자명" placeholder="홍길동" />
-        </template>
         <FormField v-model="form.sortOrder" label="정렬순서" type="number" help="작을수록 위에 표시됩니다." />
         <FormField v-model="form.useYn" label="사용여부" type="switch" />
       </div>

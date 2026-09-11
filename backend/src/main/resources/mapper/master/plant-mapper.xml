@@ -1,0 +1,179 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.fulfillment.master.plant.dao.PlantDao">
+
+    <resultMap id="plantMap" type="com.fulfillment.domain.Plant">
+        <id     property="plantSeq"       column="plant_seq"/>
+        <result property="orgSeq"         column="org_seq"/>
+        <result property="plantId"        column="plant_id"/>
+        <result property="plantName"      column="plant_name"/>
+        <result property="plantType"      column="plant_type"/>
+        <result property="zipCode"        column="zip_code"/>
+        <result property="address"        column="address"/>
+        <result property="managerName"    column="manager_name"/>
+        <result property="phone"          column="phone"/>
+        <result property="sortOrder"      column="sort_order"/>
+        <result property="useYn"          column="use_yn"/>
+        <result property="createdBy"      column="created_by"/>
+        <result property="createdAt"      column="created_at"/>
+        <result property="updatedBy"      column="updated_by"/>
+        <result property="updatedAt"      column="updated_at"/>
+        <result property="orgId"          column="org_id"/>
+        <result property="orgName"        column="org_name"/>
+        <result property="companyId"      column="company_id"/>
+        <result property="companyName"    column="company_name"/>
+        <result property="warehouseCount" column="warehouse_count"/>
+        <result property="locationCount"  column="location_count"/>
+    </resultMap>
+
+    <!--
+      딸린 창고 수와 로케이션 수를 목록에서 함께 센다. 화면이 삭제 가능
+      여부를 미리 알아야, 버튼을 눌러 거부당한 뒤에야 이유를 알게 되는
+      흐름을 피할 수 있다. 플랜트는 수십 건 규모라 비용이 문제되지 않는다.
+
+      로케이션은 창고를 건너 세야 하므로 조인 서브쿼리를 쓴다.
+    -->
+    <sql id="plantColumns">
+        p.plant_seq, p.org_seq, p.plant_id, p.plant_name, p.plant_type,
+        p.zip_code, p.address, p.manager_name, p.phone,
+        p.sort_order, p.use_yn,
+        p.created_by, p.created_at, p.updated_by, p.updated_at,
+        o.org_id        AS org_id,
+        o.org_name      AS org_name,
+        c.company_id    AS company_id,
+        c.company_name  AS company_name,
+        (SELECT COUNT(*) FROM tb_warehouse w WHERE w.plant_seq = p.plant_seq) AS warehouse_count,
+        (SELECT COUNT(*) FROM tb_location l
+           JOIN tb_warehouse w2 ON w2.warehouse_seq = l.warehouse_seq
+          WHERE w2.plant_seq = p.plant_seq) AS location_count
+    </sql>
+
+    <sql id="plantFrom">
+        FROM tb_plant p
+        JOIN tb_org o     ON o.org_seq = p.org_seq
+        JOIN tb_company c ON c.company_seq = o.company_seq
+    </sql>
+
+    <!--
+      데이터 범위 (COM-PG-004).
+
+      플랜트는 조직에 속하므로 조직 범위가 그대로 적용된다. scope 를 넣지
+      않고 조회하면 ScopedSearch.getScope() 가 예외를 던진다 — 조용히
+      전체가 나가는 대신 터지게 해 둔 것이다.
+
+      닿을 수 있는 조직이 없으면 IN () 을 만들 수 없다. 조건을 빼면 오히려
+      전체가 나가므로, 본인이 등록한 것만 남기고 나머지를 모두 막는다.
+    -->
+    <sql id="scopeFilter">
+        <if test="!scope.unrestricted">
+            <choose>
+                <when test="scope.hasNoOrg">
+                    AND p.created_by = #{scope.ownerId}
+                </when>
+                <otherwise>
+                    AND ( p.org_seq IN
+                          <foreach collection="scope.orgSeqs" item="s" open="(" separator="," close=")">
+                              #{s}
+                          </foreach>
+                          OR p.created_by = #{scope.ownerId} )
+                </otherwise>
+            </choose>
+        </if>
+    </sql>
+
+    <sql id="searchWhere">
+        <where>
+            <include refid="scopeFilter"/>
+            <if test="plantType != null and plantType != ''">
+                AND p.plant_type = #{plantType}
+            </if>
+            <if test="orgId != null and orgId != ''">
+                AND o.org_id = #{orgId}
+            </if>
+            <if test="useYn != null and useYn != ''">
+                AND p.use_yn = #{useYn}
+            </if>
+            <if test="keyword != null and keyword != ''">
+                AND ( LOWER(p.plant_id)     LIKE '%' || LOWER(#{keyword}) || '%'
+                   OR LOWER(p.plant_name)   LIKE '%' || LOWER(#{keyword}) || '%'
+                   OR LOWER(p.manager_name) LIKE '%' || LOWER(#{keyword}) || '%' )
+            </if>
+        </where>
+    </sql>
+
+    <select id="selectList" resultMap="plantMap">
+        SELECT <include refid="plantColumns"/>
+        <include refid="plantFrom"/>
+        <include refid="searchWhere"/>
+        <!-- ${} 치환 자리다. PlantSearch 가 화이트리스트로 걸러 SQL 인젝션을 막는다. -->
+         ORDER BY ${sortColumn} ${sortDirection}, p.plant_id ASC
+        <if test="size > 0">
+            LIMIT #{size} OFFSET #{offset}
+        </if>
+    </select>
+
+    <select id="countList" resultType="long">
+        SELECT COUNT(*)
+        <include refid="plantFrom"/>
+        <include refid="searchWhere"/>
+    </select>
+
+    <select id="selectByPlantId" resultMap="plantMap">
+        SELECT <include refid="plantColumns"/>
+        <include refid="plantFrom"/>
+         WHERE p.plant_id = #{plantId}
+    </select>
+
+    <select id="countByPlantId" resultType="int">
+        SELECT COUNT(*) FROM tb_plant WHERE plant_id = #{plantId}
+    </select>
+
+    <select id="countByPlantName" resultType="int">
+        SELECT COUNT(*) FROM tb_plant
+         WHERE plant_name = #{plantName}
+        <if test="exceptPlantId != null and exceptPlantId != ''">
+            AND plant_id &lt;&gt; #{exceptPlantId}
+        </if>
+    </select>
+
+    <insert id="insert" parameterType="com.fulfillment.domain.Plant"
+            useGeneratedKeys="true" keyProperty="plantSeq" keyColumn="plant_seq">
+        INSERT INTO tb_plant (
+            org_seq, plant_id, plant_name, plant_type,
+            zip_code, address, manager_name, phone,
+            sort_order, use_yn, created_by
+        ) VALUES (
+            #{orgSeq}, #{plantId}, #{plantName}, #{plantType},
+            #{zipCode}, #{address}, #{managerName}, #{phone},
+            #{sortOrder}, #{useYn}, #{createdBy}
+        )
+    </insert>
+
+    <!-- 플랜트코드는 바꾸지 않는다. 창고와 재고가 코드로 플랜트를 부른다. -->
+    <update id="update" parameterType="com.fulfillment.domain.Plant">
+        UPDATE tb_plant
+           SET org_seq      = #{orgSeq},
+               plant_name   = #{plantName},
+               plant_type   = #{plantType},
+               zip_code     = #{zipCode},
+               address      = #{address},
+               manager_name = #{managerName},
+               phone        = #{phone},
+               sort_order   = #{sortOrder},
+               use_yn       = #{useYn},
+               updated_by   = #{updatedBy},
+               updated_at   = CURRENT_TIMESTAMP
+         WHERE plant_seq = #{plantSeq}
+    </update>
+
+    <delete id="delete">
+        DELETE FROM tb_plant WHERE plant_seq = #{plantSeq}
+    </delete>
+
+    <select id="countWarehouses" resultType="int">
+        SELECT COUNT(*) FROM tb_warehouse WHERE plant_seq = #{plantSeq}
+    </select>
+
+</mapper>

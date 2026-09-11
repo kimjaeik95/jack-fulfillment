@@ -6,28 +6,31 @@ import lombok.Setter;
 
 import java.time.LocalDateTime;
 
-/** 조직 — 회사 · 물류센터 · 창고 · 매장. tb_org */
+/**
+ * 조직 — 사람이 속하는 단위 (본사 · 센터조직). tb_org
+ *
+ * 물리적인 거점은 조직이 아니다. {@link Plant} · {@link Warehouse} ·
+ * {@link Location} 이 그 축을 맡고, 플랜트가 조직을 참조한다.
+ *
+ * 사업자등록번호 · 대표자명은 {@link Company} 로 옮겼다. 전에는 조직에
+ * 두고 "회사 유형일 때만 채운다" 를 CHECK 로 막았는데, 그건 테이블을
+ * 나눠서 푸는 문제였다.
+ */
 @Getter
 @Setter
 @NoArgsConstructor
 public class Org {
 
 	private Long orgSeq;
+	private Long companySeq;
 	private String orgId;
 	private String orgName;
-	private String orgType;          // 코드그룹 ORG_TYPE
+	private String orgType;          // 코드그룹 ORG_TYPE (HQ/DC)
 	private Long parentSeq;
 	private String managerName;
 	private String phone;
 	private String address;
 	private String zipCode;
-
-	/**
-	 * 사업자등록번호 · 대표자명은 회사(HQ)만 갖는다.
-	 * DB 의 ck_org_company_only 가 같은 규칙을 걸어 둔다.
-	 */
-	private String bizRegNo;
-	private String ceoName;
 	private Integer sortOrder;
 	private String useYn;
 
@@ -37,8 +40,11 @@ public class Org {
 	private LocalDateTime updatedAt;
 
 	/* 조회 전용 파생 컬럼 -------------------------------------------------- */
+	private String companyId;        // 소속 회사코드
+	private String companyName;      // 소속 회사명
 	private String parentOrgId;      // 상위 조직코드
 	private String parentOrgName;    // 상위 조직명
 	private Integer userCount;       // 소속 사용자 수
 	private Integer childCount;      // 하위 조직 수
+	private Integer plantCount;      // 딸린 플랜트 수
 }

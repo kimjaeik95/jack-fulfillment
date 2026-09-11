@@ -22,14 +22,6 @@ public interface OrgDao {
 
 	int countByOrgId(@Param("orgId") String orgId);
 
-	/**
-	 * 회사(최상위) 수 — 자기 자신 제외 (MST-PG-001).
-	 *
-	 * 요구사항은 단일 법인이면 1행 운영이라고 정한다. 두 번째 회사를 막지는
-	 * 않지만(다법인 확장 대비 NFR-OPS-04), 만들었다는 사실은 알려야 한다.
-	 */
-	int countCompanies(@Param("exceptOrgId") String exceptOrgId);
-
 	/** 조직명 중복 검사. 수정 시 자기 자신은 제외한다. */
 	int countByOrgName(@Param("orgName") String orgName, @Param("exceptOrgId") String exceptOrgId);
 
@@ -46,6 +38,9 @@ public interface OrgDao {
 	int countActiveUsers(@Param("orgSeq") Long orgSeq);
 
 	int countChildren(@Param("orgSeq") Long orgSeq);
+
+	/** 딸린 플랜트 수. 있으면 조직을 지울 수 없다 — 재고의 원천이 떠 버린다. */
+	int countPlants(@Param("orgSeq") Long orgSeq);
 
 	/**
 	 * 조직유형을 바꾸면 배정 범위를 벗어나게 되는 소속 사용자.

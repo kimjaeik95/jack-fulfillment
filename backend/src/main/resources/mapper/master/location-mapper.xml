@@ -1,0 +1,171 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.fulfillment.master.location.dao.LocationDao">
+
+    <resultMap id="locationMap" type="com.fulfillment.domain.Location">
+        <id     property="locationSeq"   column="location_seq"/>
+        <result property="warehouseSeq"  column="warehouse_seq"/>
+        <result property="locationId"    column="location_id"/>
+        <result property="sector"        column="sector"/>
+        <result property="zoneCode"      column="zone_code"/>
+        <result property="floorNo"       column="floor_no"/>
+        <result property="locationType"  column="location_type"/>
+        <result property="barcode"       column="barcode"/>
+        <result property="sortOrder"     column="sort_order"/>
+        <result property="useYn"         column="use_yn"/>
+        <result property="createdBy"     column="created_by"/>
+        <result property="createdAt"     column="created_at"/>
+        <result property="updatedBy"     column="updated_by"/>
+        <result property="updatedAt"     column="updated_at"/>
+        <result property="warehouseId"   column="warehouse_id"/>
+        <result property="warehouseName" column="warehouse_name"/>
+        <result property="warehouseType" column="warehouse_type"/>
+        <result property="plantId"       column="plant_id"/>
+        <result property="plantName"     column="plant_name"/>
+    </resultMap>
+
+    <!--
+      다른 기준정보와 달리 하위 건수를 세지 않는다. 로케이션은 잎이고,
+      아래에 오는 것은 재고(4차)다. 재고 건수를 목록마다 세면 수천 건
+      규모에서 비용이 드러난다 — 그때 별도 조회로 다룬다.
+    -->
+    <sql id="locationColumns">
+        l.location_seq, l.warehouse_seq, l.location_id,
+        l.sector, l.zone_code, l.floor_no, l.location_type, l.barcode,
+        l.sort_order, l.use_yn,
+        l.created_by, l.created_at, l.updated_by, l.updated_at,
+        w.warehouse_id   AS warehouse_id,
+        w.warehouse_name AS warehouse_name,
+        w.warehouse_type AS warehouse_type,
+        p.plant_id       AS plant_id,
+        p.plant_name     AS plant_name
+    </sql>
+
+    <sql id="locationFrom">
+        FROM tb_location l
+        JOIN tb_warehouse w ON w.warehouse_seq = l.warehouse_seq
+        JOIN tb_plant p     ON p.plant_seq = w.plant_seq
+    </sql>
+
+    <!--
+      데이터 범위 (COM-PG-004).
+
+      로케이션은 조직을 직접 갖지 않는다. 창고 → 플랜트 → 운영 조직으로
+      거슬러 판정한다. scope 를 넣지 않고 조회하면
+      ScopedSearch.getScope() 가 예외를 던진다.
+    -->
+    <sql id="scopeFilter">
+        <if test="!scope.unrestricted">
+            <choose>
+                <when test="scope.hasNoOrg">
+                    AND l.created_by = #{scope.ownerId}
+                </when>
+                <otherwise>
+                    AND ( p.org_seq IN
+                          <foreach collection="scope.orgSeqs" item="s" open="(" separator="," close=")">
+                              #{s}
+                          </foreach>
+                          OR l.created_by = #{scope.ownerId} )
+                </otherwise>
+            </choose>
+        </if>
+    </sql>
+
+    <sql id="searchWhere">
+        <where>
+            <include refid="scopeFilter"/>
+            <if test="plantId != null and plantId != ''">
+                AND p.plant_id = #{plantId}
+            </if>
+            <if test="warehouseId != null and warehouseId != ''">
+                AND w.warehouse_id = #{warehouseId}
+            </if>
+            <if test="locationType != null and locationType != ''">
+                AND l.location_type = #{locationType}
+            </if>
+            <if test="useYn != null and useYn != ''">
+                AND l.use_yn = #{useYn}
+            </if>
+            <if test="keyword != null and keyword != ''">
+                AND ( LOWER(l.location_id) LIKE '%' || LOWER(#{keyword}) || '%'
+                   OR LOWER(l.barcode)     LIKE '%' || LOWER(#{keyword}) || '%'
+                   OR LOWER(l.sector)      LIKE '%' || LOWER(#{keyword}) || '%'
+                   OR LOWER(l.zone_code)   LIKE '%' || LOWER(#{keyword}) || '%' )
+            </if>
+        </where>
+    </sql>
+
+    <select id="selectList" resultMap="locationMap">
+        SELECT <include refid="locationColumns"/>
+        <include refid="locationFrom"/>
+        <include refid="searchWhere"/>
+        <!-- ${} 치환 자리다. LocationSearch 가 화이트리스트로 걸러 SQL 인젝션을 막는다. -->
+         ORDER BY ${sortColumn} ${sortDirection}, l.location_id ASC
+        <if test="size > 0">
+            LIMIT #{size} OFFSET #{offset}
+        </if>
+    </select>
+
+    <select id="countList" resultType="long">
+        SELECT COUNT(*)
+        <include refid="locationFrom"/>
+        <include refid="searchWhere"/>
+    </select>
+
+    <!-- 로케이션코드는 전역 유일하므로 코드 하나로 찾는다 -->
+    <select id="selectByLocationId" resultMap="locationMap">
+        SELECT <include refid="locationColumns"/>
+        <include refid="locationFrom"/>
+         WHERE l.location_id = #{locationId}
+    </select>
+
+    <select id="countByLocationId" resultType="int">
+        SELECT COUNT(*) FROM tb_location WHERE location_id = #{locationId}
+    </select>
+
+    <select id="countByBarcode" resultType="int">
+        SELECT COUNT(*) FROM tb_location
+         WHERE barcode = #{barcode}
+        <if test="exceptLocationId != null and exceptLocationId != ''">
+            AND location_id &lt;&gt; #{exceptLocationId}
+        </if>
+    </select>
+
+    <insert id="insert" parameterType="com.fulfillment.domain.Location"
+            useGeneratedKeys="true" keyProperty="locationSeq" keyColumn="location_seq">
+        INSERT INTO tb_location (
+            warehouse_seq, location_id, sector, zone_code, floor_no,
+            location_type, barcode, sort_order, use_yn, created_by
+        ) VALUES (
+            #{warehouseSeq}, #{locationId}, #{sector}, #{zoneCode}, #{floorNo},
+            #{locationType}, #{barcode}, #{sortOrder}, #{useYn}, #{createdBy}
+        )
+    </insert>
+
+    <!--
+      로케이션코드는 바꾸지 않는다. 이미 인쇄된 라벨이 현장에 붙어 있으므로
+      코드를 바꾸면 그 라벨이 다른 곳을 가리킨다.
+      창고 이동(warehouse_seq)은 허용한다 — 구획 재편이 실제로 있다.
+    -->
+    <update id="update" parameterType="com.fulfillment.domain.Location">
+        UPDATE tb_location
+           SET warehouse_seq = #{warehouseSeq},
+               sector        = #{sector},
+               zone_code     = #{zoneCode},
+               floor_no      = #{floorNo},
+               location_type = #{locationType},
+               barcode       = #{barcode},
+               sort_order    = #{sortOrder},
+               use_yn        = #{useYn},
+               updated_by    = #{updatedBy},
+               updated_at    = CURRENT_TIMESTAMP
+         WHERE location_seq = #{locationSeq}
+    </update>
+
+    <delete id="delete">
+        DELETE FROM tb_location WHERE location_seq = #{locationSeq}
+    </delete>
+
+</mapper>

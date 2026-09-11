@@ -10,7 +10,7 @@ import jakarta.validation.constraints.Size;
 /**
  * 조직 등록 · 수정 요청.
  *
- * 형식 검증은 @Valid 가, 계층 규칙(상위 조직 · 순환 참조 · 역할 범위)은
+ * 형식 검증은 @Valid 가, 계층 규칙(회사 · 상위 조직 · 순환 참조 · 역할 범위)은
  * 서비스가 맡는다. 형식만으로는 판단할 수 없는 것들이기 때문이다.
  *
  * 도메인 객체로의 변환도 여기서 맡는다. 서비스가 필드를 하나씩 옮기면
@@ -31,6 +31,10 @@ public record OrgSaveRequest(
 		@NotBlank(message = "조직유형은 필수입니다.")
 		String orgType,
 
+		/** 소속 회사코드. 모든 조직은 어느 회사에 속한다. */
+		@NotBlank(message = "소속 회사는 필수입니다.")
+		String companyId,
+
 		/** 상위 조직코드. 최상위(본사)만 비울 수 있다. */
 		String parentId,
 
@@ -45,16 +49,6 @@ public record OrgSaveRequest(
 		@Pattern(regexp = "^\\d{5}$", message = "우편번호는 숫자 5자리여야 합니다.")
 		String zipCode,
 
-		/**
-		 * 사업자등록번호. 회사(HQ)만 가질 수 있다 — 그 검증은 서비스가 한다.
-		 * 형식만 여기서 본다.
-		 */
-		@Pattern(regexp = "^\\d{3}-\\d{2}-\\d{5}$",
-				message = "사업자등록번호는 000-00-00000 형식으로 입력하세요.")
-		String bizRegNo,
-
-		@Size(max = 50) String ceoName,
-
 		@PositiveOrZero(message = "정렬순서는 0 이상이어야 합니다.")
 		Integer sortOrder,
 
@@ -64,21 +58,20 @@ public record OrgSaveRequest(
 		String reason
 ) {
 
-	/** 사업자등록번호·대표자명을 가질 수 있는 유형 (코드그룹 ORG_TYPE) */
-	public static final String COMPANY_TYPE = "HQ";
+	/** 최상위가 될 수 있는 유형 (코드그룹 ORG_TYPE) */
+	public static final String ROOT_TYPE = "HQ";
 
 	/** 빈 문자열을 null 로 맞춰 둔다. 이유는 {@link Texts} 참고. */
 	public OrgSaveRequest {
 		orgId = Texts.trimToNull(orgId);
 		orgName = Texts.trimToNull(orgName);
 		orgType = Texts.trimToNull(orgType);
+		companyId = Texts.trimToNull(companyId);
 		parentId = Texts.trimToNull(parentId);
 		managerName = Texts.trimToNull(managerName);
 		phone = Texts.trimToNull(phone);
 		address = Texts.trimToNull(address);
 		zipCode = Texts.trimToNull(zipCode);
-		bizRegNo = Texts.trimToNull(bizRegNo);
-		ceoName = Texts.trimToNull(ceoName);
 		useYn = Texts.trimToNull(useYn);
 		reason = Texts.trimToNull(reason);
 	}
@@ -86,13 +79,14 @@ public record OrgSaveRequest(
 	/**
 	 * 신규 조직.
 	 *
-	 * @param parentSeq 검증을 마친 상위 조직의 순번. 최상위면 null
+	 * @param companySeq 검증을 마친 회사의 순번
+	 * @param parentSeq  검증을 마친 상위 조직의 순번. 최상위면 null
 	 */
-	public Org toNewOrg(Long parentSeq, String actorId) {
+	public Org toNewOrg(Long companySeq, Long parentSeq, String actorId) {
 		Org org = new Org();
 		org.setOrgId(orgId);
 		org.setCreatedBy(actorId);
-		applyEditableFields(org, parentSeq);
+		applyEditableFields(org, companySeq, parentSeq);
 		return org;
 	}
 
@@ -103,16 +97,17 @@ public record OrgSaveRequest(
 	 * 비교해야 하므로 before 를 그대로 남겨 두어야 하기 때문이다.
 	 * 조직코드는 바꾸지 않는다 — 다른 테이블과 화면이 코드로 조직을 부른다.
 	 */
-	public Org toUpdatedOrg(Long orgSeq, Long parentSeq, String actorId) {
+	public Org toUpdatedOrg(Long orgSeq, Long companySeq, Long parentSeq, String actorId) {
 		Org org = new Org();
 		org.setOrgSeq(orgSeq);
 		org.setUpdatedBy(actorId);
-		applyEditableFields(org, parentSeq);
+		applyEditableFields(org, companySeq, parentSeq);
 		return org;
 	}
 
 	/** 등록·수정이 공통으로 채우는 항목 */
-	private void applyEditableFields(Org org, Long parentSeq) {
+	private void applyEditableFields(Org org, Long companySeq, Long parentSeq) {
+		org.setCompanySeq(companySeq);
 		org.setOrgName(orgName);
 		org.setOrgType(orgType);
 		org.setParentSeq(parentSeq);
@@ -120,11 +115,6 @@ public record OrgSaveRequest(
 		org.setPhone(phone);
 		org.setAddress(address);
 		org.setZipCode(zipCode);
-		// 회사가 아니면 회사 전용 값을 비운다. 유형을 바꿨을 때 옛 값이
-		// 따라다니면 DB 의 ck_org_company_only 에 걸린다.
-		boolean company = COMPANY_TYPE.equals(orgType);
-		org.setBizRegNo(company ? bizRegNo : null);
-		org.setCeoName(company ? ceoName : null);
 		org.setSortOrder(sortOrder == null ? 0 : sortOrder);
 		org.setUseYn(useYnOrDefault());
 	}

@@ -11,6 +11,8 @@ import com.fulfillment.common.security.PermissionChecker;
 import com.fulfillment.common.security.ScopeFilter;
 import com.fulfillment.common.web.PageResponse;
 import com.fulfillment.domain.Org;
+import com.fulfillment.system.company.dao.CompanyDao;
+import com.fulfillment.domain.Company;
 import com.fulfillment.system.org.dao.OrgDao;
 import com.fulfillment.system.org.dto.OrgResponse;
 import com.fulfillment.system.org.dto.OrgSaveRequest;
@@ -51,21 +53,23 @@ public class OrgService {
 			new Field<>("phone", Org::getPhone),
 			new Field<>("address", Org::getAddress),
 			new Field<>("zip_code", Org::getZipCode),
-			new Field<>("biz_reg_no", Org::getBizRegNo),
-			new Field<>("ceo_name", Org::getCeoName),
+			new Field<>("company_id", Org::getCompanyId),
 			new Field<>("sort_order", Org::getSortOrder),
 			new Field<>("use_yn", Org::getUseYn));
 
 	private final OrgDao orgDao;
+	/** 소속 회사 확인 — 회사 기능과 같은 조회를 쓴다 */
+	private final CompanyDao companyDao;
 	private final PermissionChecker permissionChecker;
 	private final DataScopeResolver dataScopes;
 	private final AuditRecorder auditRecorder;
 	private final CodeLabels codeLabels;
 
-	public OrgService(OrgDao orgDao, PermissionChecker permissionChecker,
+	public OrgService(OrgDao orgDao, CompanyDao companyDao, PermissionChecker permissionChecker,
 			DataScopeResolver dataScopes, AuditRecorder auditRecorder,
 			CodeLabels codeLabels) {
 		this.orgDao = orgDao;
+		this.companyDao = companyDao;
 		this.permissionChecker = permissionChecker;
 		this.dataScopes = dataScopes;
 		this.auditRecorder = auditRecorder;
@@ -113,7 +117,7 @@ public class OrgService {
 					"이미 사용 중인 조직명입니다. (%s)".formatted(request.orgName()));
 		}
 
-		validateCompanyFields(request);
+		Company company = mustFindCompany(request.companyId());
 		Org parent = resolveParent(request, null);
 		// 범위 밖 조직 밑에 새 조직을 달면 그 조직은 만든 사람도 못 보게 된다.
 		// 더 중요한 건, 범위 밖 조직의 하위를 늘리는 것 자체가 범위 우회다.
@@ -126,14 +130,14 @@ public class OrgService {
 							.formatted(scope.scopeLabel()));
 		}
 
-		Org org = request.toNewOrg(seqOf(parent), actorId(actor));
+		Org org = request.toNewOrg(company.getCompanySeq(), seqOf(parent), actorId(actor));
 
 		orgDao.insert(org);
 
 		Org saved = mustFind(request.orgId());
 		auditRecorder.recordCreate(actor, TABLE, saved.getOrgId(), saved, AUDIT_FIELDS,
 				defaultReason(request.reason(), "조직 등록"));
-		return new Result(OrgResponse.of(saved), warnOnSecondCompany(request, saved.getOrgId()));
+		return new Result(OrgResponse.of(saved), null);
 	}
 
 	/* ------------------------------------------------------------------ */
@@ -152,7 +156,7 @@ public class OrgService {
 					"이미 사용 중인 조직명입니다. (%s)".formatted(request.orgName()));
 		}
 
-		validateCompanyFields(request);
+		Company company = mustFindCompany(request.companyId());
 		Org parent = resolveParent(request, before);
 		// 범위 밖으로 옮기면 저장한 본인이 그 조직을 다시 볼 수 없게 된다
 		if (parent != null) {
@@ -161,7 +165,8 @@ public class OrgService {
 		validateTypeChange(before, request.orgType());
 		String warning = warnOnDisable(before, request);
 
-		Org target = request.toUpdatedOrg(before.getOrgSeq(), seqOf(parent), actorId(actor));
+		Org target = request.toUpdatedOrg(before.getOrgSeq(), company.getCompanySeq(),
+				seqOf(parent), actorId(actor));
 
 		orgDao.update(target);
 
@@ -202,6 +207,13 @@ public class OrgService {
 					"하위 조직 %d개가 있어 삭제할 수 없습니다. 하위 조직을 먼저 옮기거나 삭제하세요."
 							.formatted(children));
 		}
+		// 플랜트가 딸려 있으면 지울 수 없다. 재고의 원천이 소속 조직을 잃는다.
+		int plants = orgDao.countPlants(before.getOrgSeq());
+		if (plants > 0) {
+			throw new BusinessException(ErrorCode.IN_USE,
+					("이 조직이 운영하는 플랜트 %d개가 있어 삭제할 수 없습니다. "
+							+ "플랜트를 다른 조직으로 옮긴 뒤 삭제하세요.").formatted(plants));
+		}
 		// 퇴사자도 센다. 계정이 남아 있는 한 소속 조직이 사라지면 이력을 읽을 수 없다.
 		int users = orgDao.countUsers(before.getOrgSeq());
 		if (users > 0) {
@@ -225,41 +237,22 @@ public class OrgService {
 	 *   - 자기 자신과 자기 하위를 상위로 지정할 수 없다 (순환 참조)
 	 */
 	/**
-	 * 회사 전용 속성 검증 (MST-PG-001).
+	 * 소속 회사 확인.
 	 *
-	 * 사업자등록번호와 대표자명은 법인의 것이다. 물류센터에 넣으면 DB 제약
-	 * (ck_org_company_only)에 걸리는데, 그 오류 메시지는 사용자가 읽을 수 없다.
-	 * 여기서 먼저 사람이 읽을 수 있는 사유로 막는다.
-	 */
-	private void validateCompanyFields(OrgSaveRequest request) {
-		if (OrgSaveRequest.COMPANY_TYPE.equals(request.orgType())) {
-			return;
-		}
-		if (request.bizRegNo() != null || request.ceoName() != null) {
-			throw new BusinessException(ErrorCode.INVALID_INPUT,
-					("사업자등록번호와 대표자명은 회사에만 입력할 수 있습니다. "
-							+ "%s은(는) 해당 항목을 가질 수 없습니다.")
-							.formatted(codeLabels.orgType(request.orgType())));
-		}
-	}
-
-	/**
-	 * 두 번째 회사 등록 안내.
+	 * 모든 조직은 어느 회사에 속한다. 없는 회사코드를 받으면 FK 위반으로
+	 * 터지는데, 그 오류 메시지는 사용자가 읽을 수 없다. 여기서 먼저 사람이
+	 * 읽을 수 있는 사유로 막는다.
 	 *
-	 * 막지 않는다 — 다법인 운영으로 넓힐 여지를 남겨 두라는 요구가 있다
-	 * (NFR-OPS-04). 다만 1차 범위는 단일 법인이고, 회사가 둘이 되면 조직
-	 * 트리가 둘로 갈려 사용자·데이터범위가 섞이므로 알려는 준다.
+	 * 사용중지된 회사도 받아준다. 회사를 잠시 중지한 채 조직을 정비하는
+	 * 경우가 있고, 그걸 막으면 순서를 강제하게 된다.
 	 */
-	private String warnOnSecondCompany(OrgSaveRequest request, String exceptOrgId) {
-		if (!OrgSaveRequest.COMPANY_TYPE.equals(request.orgType())) {
-			return null;
+	private Company mustFindCompany(String companyId) {
+		Company company = companyDao.selectByCompanyId(companyId);
+		if (company == null) {
+			throw new BusinessException(ErrorCode.NOT_FOUND,
+					"존재하지 않는 회사코드입니다. (%s)".formatted(companyId));
 		}
-		int others = orgDao.countCompanies(exceptOrgId);
-		if (others == 0) {
-			return null;
-		}
-		return ("이미 회사가 %d개 있습니다. 1차 범위는 단일 법인이라, 회사를 둘 이상 두면 "
-				+ "조직 트리가 갈리고 사용자·데이터 범위가 회사별로 나뉩니다.").formatted(others);
+		return company;
 	}
 
 	private Org resolveParent(OrgSaveRequest request, Org self) {

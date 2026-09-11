@@ -1,6 +1,10 @@
 -- ============================================================================
--- V1 : system 영역 스키마  (PostgreSQL)
---      사용자 · 조직 · 역할 · 권한 · 공통정책 · 공통코드 · 감사로그
+-- V1 : 전체 스키마  (PostgreSQL)
+--      공통코드 · 회사 · 조직 · 사용자 · 역할 · 권한 · 공통정책 · 감사로그
+--      · 메뉴 · 업로드이력 · 플랜트 · 창고 · 로케이션
+--
+-- 한 파일에 모아 둔 이유는 FK 의존 순서가 곧 읽는 순서이기 때문이다.
+-- 회사 -> 조직 -> 플랜트 -> 창고 -> 로케이션 이 그대로 파일 순서다.
 --
 -- 설계 규칙
 --   1) PK 는 대리키(*_seq, GENERATED ALWAYS AS IDENTITY). 업무코드는 UNIQUE.
@@ -80,19 +84,74 @@ COMMENT ON COLUMN tb_code.sort_order IS '정렬순서';
 
 
 -- ============================================================================
--- 2. 조직
---    최상위(회사) 아래에 센터 · 창고 · 매장이 계층으로 붙는다.
---    사용자의 소속이며 데이터 접근 범위 격리의 기준이 된다.
+-- 2. 회사
+--    단일 법인이면 1행으로 운영한다. 그런데도 별도 테이블을 두는 이유는
+--    NFR-OPS-04(다법인 · 다화주 확장 대비)다. 회사를 조직의 한 행으로
+--    합쳐 두면, 나중에 법인이 둘이 될 때 재고 · 주문까지 거슬러 올라가
+--    소유 법인을 심어야 한다. 지금은 테이블 하나로 끝난다.
+--
+--    사업자등록번호는 법인을 특정하는 값이라 중복을 막는다. 다만 등록
+--    직후에는 비어 있을 수 있으므로 NULL 을 허용하고, 부분 유니크 인덱스로
+--    "값이 있으면 유일" 만 강제한다.
+-- ============================================================================
+
+CREATE TABLE tb_company (
+    company_seq   bigint       GENERATED ALWAYS AS IDENTITY,
+    company_id    varchar(20)  NOT NULL,
+    company_name  varchar(100) NOT NULL,
+    biz_reg_no    varchar(20),
+    ceo_name      varchar(50),
+    zip_code      varchar(10),
+    address       varchar(300),
+    phone         varchar(30),
+    email         varchar(100),
+    sort_order    integer      NOT NULL DEFAULT 0,
+    use_yn        char(1)      NOT NULL DEFAULT 'Y',
+    created_by    varchar(30)  NOT NULL,
+    created_at    timestamp    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_by    varchar(30),
+    updated_at    timestamp,
+    CONSTRAINT pk_company          PRIMARY KEY (company_seq),
+    CONSTRAINT uk_company_id       UNIQUE (company_id),
+    CONSTRAINT uk_company_name     UNIQUE (company_name),
+    CONSTRAINT ck_company_use_yn   CHECK (use_yn IN ('Y', 'N')),
+    CONSTRAINT ck_company_biz_no   CHECK (biz_reg_no IS NULL
+                                          OR biz_reg_no ~ '^[0-9]{3}-[0-9]{2}-[0-9]{5}$')
+);
+
+-- 값이 있을 때만 유일. NULL 은 여러 행이 가질 수 있다.
+CREATE UNIQUE INDEX ux_company_biz_no ON tb_company (biz_reg_no)
+    WHERE biz_reg_no IS NOT NULL;
+
+COMMENT ON TABLE  tb_company              IS '회사 (법인) — MST-001';
+COMMENT ON COLUMN tb_company.company_seq  IS '회사 순번 (PK)';
+COMMENT ON COLUMN tb_company.company_id   IS '회사코드 (예: CO001)';
+COMMENT ON COLUMN tb_company.biz_reg_no   IS '사업자등록번호 000-00-00000. 값이 있으면 유일';
+COMMENT ON COLUMN tb_company.ceo_name     IS '대표자명';
+
+
+-- ============================================================================
+-- 3. 조직
+--    사람이 속하는 단위다. 회사 아래에 본사 · 센터조직이 트리로 붙고,
+--    사용자의 소속이며 데이터 접근 범위 격리의 기준이 된다(AUTH-007).
+--
+--    물리적인 거점(플랜트 · 창고 · 빈)은 조직이 아니다. 전에는 한 테이블에
+--    org_type 으로 섞어 두었는데, 유형마다 의미 있는 컬럼이 달라서
+--    "이 컬럼은 이 유형에서만 채운다" 를 CHECK 로 막아야 했다. 그건 테이블을
+--    나눠서 푸는 문제다. 지금은 조직(사람) 과 플랜트(물건) 를 분리하고,
+--    플랜트가 조직을 참조한다.
 -- ============================================================================
 
 CREATE TABLE tb_org (
     org_seq       bigint       GENERATED ALWAYS AS IDENTITY,
+    company_seq   bigint       NOT NULL,
     org_id        varchar(20)  NOT NULL,
     org_name      varchar(100) NOT NULL,
     org_type      varchar(20)  NOT NULL,
     parent_seq    bigint,
     manager_name  varchar(50),
     phone         varchar(30),
+    zip_code      varchar(10),
     address       varchar(300),
     sort_order    integer      NOT NULL DEFAULT 0,
     use_yn        char(1)      NOT NULL DEFAULT 'Y',
@@ -100,23 +159,27 @@ CREATE TABLE tb_org (
     created_at    timestamp    NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_by    varchar(30),
     updated_at    timestamp,
-    CONSTRAINT pk_org         PRIMARY KEY (org_seq),
-    CONSTRAINT uk_org_id      UNIQUE (org_id),
-    CONSTRAINT uk_org_name    UNIQUE (org_name),
+    CONSTRAINT pk_org          PRIMARY KEY (org_seq),
+    CONSTRAINT uk_org_id       UNIQUE (org_id),
+    CONSTRAINT uk_org_name     UNIQUE (org_name),
+    -- 소속 조직이 있는 회사는 삭제를 막는다
+    CONSTRAINT fk_org_company  FOREIGN KEY (company_seq) REFERENCES tb_company (company_seq),
     -- 하위 조직이 있으면 삭제를 막는다 (애플리케이션이 사유를 안내한다)
-    CONSTRAINT fk_org_parent  FOREIGN KEY (parent_seq) REFERENCES tb_org (org_seq),
-    CONSTRAINT ck_org_use_yn  CHECK (use_yn IN ('Y', 'N')),
+    CONSTRAINT fk_org_parent   FOREIGN KEY (parent_seq) REFERENCES tb_org (org_seq),
+    CONSTRAINT ck_org_use_yn   CHECK (use_yn IN ('Y', 'N')),
     -- 자기 자신을 상위로 지정할 수 없다
-    CONSTRAINT ck_org_parent  CHECK (parent_seq IS NULL OR parent_seq <> org_seq)
+    CONSTRAINT ck_org_parent   CHECK (parent_seq IS NULL OR parent_seq <> org_seq)
 );
 
-CREATE INDEX ix_org_parent ON tb_org (parent_seq);
-CREATE INDEX ix_org_type   ON tb_org (org_type);
+CREATE INDEX ix_org_company ON tb_org (company_seq);
+CREATE INDEX ix_org_parent  ON tb_org (parent_seq);
+CREATE INDEX ix_org_type    ON tb_org (org_type);
 
-COMMENT ON TABLE  tb_org              IS '조직 (회사 · 물류센터 · 창고 · 매장)';
+COMMENT ON TABLE  tb_org              IS '조직 — 사람이 속하는 단위 (본사 · 센터조직)';
 COMMENT ON COLUMN tb_org.org_seq      IS '조직 순번 (PK)';
-COMMENT ON COLUMN tb_org.org_id       IS '조직코드 (예: HQ001, DC001, ST001)';
-COMMENT ON COLUMN tb_org.org_type     IS '조직유형 — 코드그룹 ORG_TYPE (HQ/DC/WAREHOUSE/STORE)';
+COMMENT ON COLUMN tb_org.company_seq  IS '소속 회사 순번';
+COMMENT ON COLUMN tb_org.org_id       IS '조직코드 (예: HQ001, DC001)';
+COMMENT ON COLUMN tb_org.org_type     IS '조직유형 — 코드그룹 ORG_TYPE (HQ/DC)';
 COMMENT ON COLUMN tb_org.parent_seq   IS '상위 조직 순번. 최상위는 NULL';
 COMMENT ON COLUMN tb_org.manager_name IS '조직 책임자명';
 
@@ -141,6 +204,7 @@ CREATE TABLE tb_user (
     login_fail_count     integer      NOT NULL DEFAULT 0,
     last_login_at        timestamp,
     password_changed_at  timestamp,
+    must_change_password char(1)      NOT NULL DEFAULT 'Y',
     use_yn               char(1)      NOT NULL DEFAULT 'Y',
     created_by           varchar(30)  NOT NULL,
     created_at           timestamp    NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -153,7 +217,8 @@ CREATE TABLE tb_user (
     CONSTRAINT fk_user_org        FOREIGN KEY (org_seq) REFERENCES tb_org (org_seq),
     CONSTRAINT ck_user_use_yn     CHECK (use_yn IN ('Y', 'N')),
     CONSTRAINT ck_user_approval   CHECK (approval_limit >= 0),
-    CONSTRAINT ck_user_fail_count CHECK (login_fail_count >= 0)
+    CONSTRAINT ck_user_fail_count CHECK (login_fail_count >= 0),
+    CONSTRAINT ck_user_must_change CHECK (must_change_password IN ('Y', 'N'))
 );
 
 CREATE INDEX ix_user_org    ON tb_user (org_seq);
@@ -170,6 +235,8 @@ COMMENT ON COLUMN tb_user.status              IS '계정상태 — 코드그룹 
 COMMENT ON COLUMN tb_user.approval_limit      IS '승인 한도 금액(원). 0 = 승인 권한 없음';
 COMMENT ON COLUMN tb_user.login_fail_count    IS '연속 로그인 실패 횟수. 한도 초과 시 status=LOCKED';
 COMMENT ON COLUMN tb_user.password_changed_at IS '비밀번호 최종 변경일시 — 변경 주기 통제용';
+COMMENT ON COLUMN tb_user.must_change_password IS
+    '최초/초기화 후 비밀번호 변경 필요 여부 Y/N. Y 이면 변경 화면 외 접근을 차단한다';
 
 
 -- ============================================================================
@@ -435,3 +502,238 @@ CREATE INDEX ix_audit_log_detail_log ON tb_audit_log_detail (log_seq);
 COMMENT ON TABLE  tb_audit_log_detail              IS '감사로그 상세 — 변경된 컬럼당 한 행';
 COMMENT ON COLUMN tb_audit_log_detail.before_value IS '변경 전 값. 신규 등록이면 NULL';
 COMMENT ON COLUMN tb_audit_log_detail.after_value  IS '변경 후 값. 삭제면 NULL';
+
+
+-- ============================================================================
+-- 10. 메뉴 · 업로드이력
+--
+-- 메뉴
+--   지금까지 사이드바 메뉴는 프론트 routes.js 에 하드코딩되어 있었다. 그러면
+--   "역할별 메뉴 구성"을 바꿀 때마다 배포해야 한다. 메뉴를 데이터로 옮겨
+--   화면에서 순서 · 노출 · 필요권한을 관리한다.
+--
+--   라우트 자체(어떤 컴포넌트를 그릴지)는 코드가 계속 소유한다. 메뉴는
+--   "그 라우트를 사이드바 어디에 어떤 이름으로 걸지"만 정한다.
+--
+-- 업로드 이력
+--   대량 등록은 부분성공을 허용한다(CMN-004). 그러면 "몇 건 중 몇 건이
+--   들어갔고 어느 행이 왜 실패했는지"가 남아야 사용자가 고쳐서 다시 올린다.
+--   실패 행은 원문 그대로 보관해 오류 CSV 로 되돌려준다.
+--
+-- 다운로드 이력은 별도 테이블을 두지 않는다. tb_audit_log 의 DOWNLOAD 행위로
+-- 이미 남고 있고, 같은 성격의 기록을 두 곳에 두면 반드시 한쪽이 낡는다.
+-- ============================================================================
+
+
+-- ----------------------------------------------------------------------------
+-- 메뉴
+-- ----------------------------------------------------------------------------
+CREATE TABLE tb_menu (
+    menu_seq     bigint       GENERATED ALWAYS AS IDENTITY,
+    menu_id      varchar(30)  NOT NULL,
+    menu_name    varchar(100) NOT NULL,
+    parent_seq   bigint,
+    route_name   varchar(50),
+    icon         varchar(10),
+    perm_seq     bigint,
+    sort_order   integer      NOT NULL DEFAULT 0,
+    use_yn       char(1)      NOT NULL DEFAULT 'Y',
+    created_by   varchar(30)  NOT NULL,
+    created_at   timestamp    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_by   varchar(30),
+    updated_at   timestamp,
+    CONSTRAINT pk_menu            PRIMARY KEY (menu_seq),
+    CONSTRAINT uk_menu_id         UNIQUE (menu_id),
+    CONSTRAINT fk_menu_parent     FOREIGN KEY (parent_seq) REFERENCES tb_menu (menu_seq),
+    CONSTRAINT fk_menu_perm       FOREIGN KEY (perm_seq)   REFERENCES tb_permission (perm_seq),
+    CONSTRAINT ck_menu_use_yn     CHECK (use_yn IN ('Y', 'N')),
+    -- 최상위는 그룹 머리글이라 라우트가 없고, 하위는 반드시 이동할 화면이 있어야 한다.
+    CONSTRAINT ck_menu_route      CHECK ((parent_seq IS NULL) = (route_name IS NULL)),
+    -- 자기 자신을 부모로 지정할 수 없다 (2단 구조라 그 이상의 순환은 생기지 않는다)
+    CONSTRAINT ck_menu_not_self   CHECK (parent_seq IS NULL OR parent_seq <> menu_seq)
+);
+
+CREATE INDEX ix_menu_parent ON tb_menu (parent_seq, sort_order);
+-- 같은 라우트를 두 메뉴가 가리키면 어느 쪽이 활성인지 알 수 없다.
+CREATE UNIQUE INDEX ux_menu_route ON tb_menu (route_name) WHERE route_name IS NOT NULL;
+
+COMMENT ON TABLE  tb_menu            IS '사이드바 메뉴 (COM-PG-005)';
+COMMENT ON COLUMN tb_menu.menu_seq   IS '메뉴 순번 (PK)';
+COMMENT ON COLUMN tb_menu.menu_id    IS '메뉴코드 (예: SYS_USERS)';
+COMMENT ON COLUMN tb_menu.parent_seq IS '상위 메뉴. NULL 이면 그룹 머리글';
+COMMENT ON COLUMN tb_menu.route_name IS '프론트 라우트 이름. 그룹 머리글은 NULL';
+COMMENT ON COLUMN tb_menu.perm_seq   IS '노출에 필요한 권한. NULL 이면 로그인만 하면 보인다';
+COMMENT ON COLUMN tb_menu.icon       IS '사이드바 아이콘 (이모지 1~2자)';
+
+
+-- ----------------------------------------------------------------------------
+-- 업로드 이력
+-- ----------------------------------------------------------------------------
+CREATE TABLE tb_upload_history (
+    upload_seq    bigint       GENERATED ALWAYS AS IDENTITY,
+    target_type   varchar(30)  NOT NULL,
+    file_name     varchar(255) NOT NULL,
+    total_count   integer      NOT NULL DEFAULT 0,
+    success_count integer      NOT NULL DEFAULT 0,
+    fail_count    integer      NOT NULL DEFAULT 0,
+    status        varchar(20)  NOT NULL,
+    message       varchar(500),
+    uploaded_by   varchar(30)  NOT NULL,
+    uploaded_at   timestamp    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT pk_upload_history     PRIMARY KEY (upload_seq),
+    CONSTRAINT ck_upload_counts      CHECK (success_count + fail_count = total_count)
+);
+
+CREATE INDEX ix_upload_history_at ON tb_upload_history (uploaded_at DESC);
+
+COMMENT ON TABLE  tb_upload_history             IS '대량 업로드 이력 (COM-PG-010)';
+COMMENT ON COLUMN tb_upload_history.target_type IS '업로드 대상 — 코드그룹 UPLOAD_TARGET';
+COMMENT ON COLUMN tb_upload_history.status      IS '처리 결과 — 코드그룹 UPLOAD_STATUS';
+COMMENT ON COLUMN tb_upload_history.message     IS '전체 실패 시의 사유 (형식 오류 등)';
+
+-- 실패 행. 사용자가 이 행만 내려받아 고친 뒤 다시 올린다.
+CREATE TABLE tb_upload_error (
+    upload_seq  bigint       NOT NULL,
+    row_no      integer      NOT NULL,
+    column_name varchar(100),
+    message     varchar(500) NOT NULL,
+    raw_line    text         NOT NULL,
+    CONSTRAINT pk_upload_error    PRIMARY KEY (upload_seq, row_no),
+    CONSTRAINT fk_upload_error_up FOREIGN KEY (upload_seq)
+        REFERENCES tb_upload_history (upload_seq) ON DELETE CASCADE
+);
+
+COMMENT ON TABLE  tb_upload_error             IS '업로드 실패 행 (오류 CSV 재다운로드용)';
+COMMENT ON COLUMN tb_upload_error.row_no      IS '파일 기준 행 번호 (머리글 제외, 1부터)';
+COMMENT ON COLUMN tb_upload_error.raw_line    IS '실패한 행의 원문. 고쳐서 재업로드할 수 있게 그대로 보관';
+
+
+-- ============================================================================
+-- 11. 플랜트 · 창고 · 로케이션 — 물건이 있는 곳
+--
+--     재고주소는 이 세 단계로 정해진다.
+--       재고주소 = 플랜트 - 창고 - 빈 - 상품(SKU) - 거래처
+--
+--     조직(사람) 과 분리해 두는 이유는 둘의 수명이 다르기 때문이다. 조직은
+--     개편되지만 거점은 그대로 있고, 그 반대도 있다. 플랜트가 조직을
+--     참조하므로 조직개편은 플랜트의 org_seq 만 바꾸면 되고, 그 아래
+--     창고 · 빈 · 재고는 건드리지 않는다.
+--
+--     유형 컬럼(plant_type / warehouse_type / location_type)은 tb_code 를
+--     참조하지만 FK 는 걸지 않는다 — 위 설계규칙 4).
+-- ============================================================================
+
+-- ----------------------------------------------------------------------------
+-- 플랜트 (물류센터) — 재고의 원천
+-- ----------------------------------------------------------------------------
+CREATE TABLE tb_plant (
+    plant_seq     bigint       GENERATED ALWAYS AS IDENTITY,
+    org_seq       bigint       NOT NULL,
+    plant_id      varchar(20)  NOT NULL,
+    plant_name    varchar(100) NOT NULL,
+    plant_type    varchar(20)  NOT NULL,
+    zip_code      varchar(10),
+    address       varchar(300),
+    manager_name  varchar(50),
+    phone         varchar(30),
+    sort_order    integer      NOT NULL DEFAULT 0,
+    use_yn        char(1)      NOT NULL DEFAULT 'Y',
+    created_by    varchar(30)  NOT NULL,
+    created_at    timestamp    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_by    varchar(30),
+    updated_at    timestamp,
+    CONSTRAINT pk_plant         PRIMARY KEY (plant_seq),
+    CONSTRAINT uk_plant_id      UNIQUE (plant_id),
+    CONSTRAINT uk_plant_name    UNIQUE (plant_name),
+    -- 플랜트가 딸린 조직은 삭제를 막는다
+    CONSTRAINT fk_plant_org     FOREIGN KEY (org_seq) REFERENCES tb_org (org_seq),
+    CONSTRAINT ck_plant_use_yn  CHECK (use_yn IN ('Y', 'N'))
+);
+
+CREATE INDEX ix_plant_org  ON tb_plant (org_seq);
+CREATE INDEX ix_plant_type ON tb_plant (plant_type);
+
+COMMENT ON TABLE  tb_plant              IS '플랜트 (물류센터) — 재고의 원천. MST-001';
+COMMENT ON COLUMN tb_plant.plant_seq    IS '플랜트 순번 (PK)';
+COMMENT ON COLUMN tb_plant.org_seq      IS '운영 조직 순번. 조직개편 시 이 값만 바꾼다';
+COMMENT ON COLUMN tb_plant.plant_id     IS '플랜트코드 (예: PL001)';
+COMMENT ON COLUMN tb_plant.plant_type   IS '플랜트유형 — 코드그룹 PLANT_TYPE (DC/RC/XD)';
+
+
+-- ----------------------------------------------------------------------------
+-- 창고 — 플랜트 안의 구획 (양품 / 반품 / 불량)
+-- ----------------------------------------------------------------------------
+CREATE TABLE tb_warehouse (
+    warehouse_seq   bigint       GENERATED ALWAYS AS IDENTITY,
+    plant_seq       bigint       NOT NULL,
+    warehouse_id    varchar(20)  NOT NULL,
+    warehouse_name  varchar(100) NOT NULL,
+    warehouse_type  varchar(20)  NOT NULL,
+    position_desc   varchar(200),
+    sort_order      integer      NOT NULL DEFAULT 0,
+    use_yn          char(1)      NOT NULL DEFAULT 'Y',
+    created_by      varchar(30)  NOT NULL,
+    created_at      timestamp    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_by      varchar(30),
+    updated_at      timestamp,
+    CONSTRAINT pk_warehouse         PRIMARY KEY (warehouse_seq),
+    -- 코드는 플랜트 안에서만 유일하다. 센터마다 양품 창고가 있는 것이
+    -- 정상이고, 전역 유일로 두면 코드에 플랜트를 중복해 적어야 한다.
+    CONSTRAINT uk_warehouse_id      UNIQUE (plant_seq, warehouse_id),
+    CONSTRAINT uk_warehouse_name    UNIQUE (plant_seq, warehouse_name),
+    CONSTRAINT fk_warehouse_plant   FOREIGN KEY (plant_seq) REFERENCES tb_plant (plant_seq),
+    CONSTRAINT ck_warehouse_use_yn  CHECK (use_yn IN ('Y', 'N'))
+);
+
+CREATE INDEX ix_warehouse_plant ON tb_warehouse (plant_seq, sort_order);
+CREATE INDEX ix_warehouse_type  ON tb_warehouse (warehouse_type);
+
+COMMENT ON TABLE  tb_warehouse                IS '창고 — 플랜트 내 구획. MST-002';
+COMMENT ON COLUMN tb_warehouse.warehouse_seq  IS '창고 순번 (PK)';
+COMMENT ON COLUMN tb_warehouse.warehouse_id   IS '창고코드. 플랜트 안에서 유일 (예: GD, RT, DF)';
+COMMENT ON COLUMN tb_warehouse.warehouse_type IS '창고유형 — 코드그룹 WH_TYPE (GOOD/RETURN/DEFECT)';
+COMMENT ON COLUMN tb_warehouse.position_desc  IS '물리적 위치 설명. position 은 함수명과 겹쳐 회피';
+
+
+-- ----------------------------------------------------------------------------
+-- 로케이션 (빈) — 피킹 · 적치 단위
+-- ----------------------------------------------------------------------------
+CREATE TABLE tb_location (
+    location_seq   bigint       GENERATED ALWAYS AS IDENTITY,
+    warehouse_seq  bigint       NOT NULL,
+    location_id    varchar(30)  NOT NULL,
+    sector         varchar(20),
+    zone_code      varchar(20),
+    floor_no       varchar(20),
+    location_type  varchar(20)  NOT NULL,
+    barcode        varchar(50),
+    sort_order     integer      NOT NULL DEFAULT 0,
+    use_yn         char(1)      NOT NULL DEFAULT 'Y',
+    created_by     varchar(30)  NOT NULL,
+    created_at     timestamp    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_by     varchar(30),
+    updated_at     timestamp,
+    CONSTRAINT pk_location         PRIMARY KEY (location_seq),
+    -- 로케이션코드는 전역 유일이다. 라벨에 찍혀 현장에서 스캔되는 값이고,
+    -- 스캔 한 번으로 한 곳이 지목되어야 한다 (MST-PG-004 바코드 출력).
+    CONSTRAINT uk_location_id      UNIQUE (location_id),
+    CONSTRAINT fk_location_wh      FOREIGN KEY (warehouse_seq)
+        REFERENCES tb_warehouse (warehouse_seq),
+    CONSTRAINT ck_location_use_yn  CHECK (use_yn IN ('Y', 'N'))
+);
+
+CREATE INDEX ix_location_wh   ON tb_location (warehouse_seq, sort_order);
+CREATE INDEX ix_location_type ON tb_location (location_type);
+-- 바코드를 따로 부여한 경우에만 유일성을 본다. 비우면 location_id 를 쓴다.
+CREATE UNIQUE INDEX ux_location_barcode ON tb_location (barcode)
+    WHERE barcode IS NOT NULL;
+
+COMMENT ON TABLE  tb_location               IS '로케이션(빈) — 피킹 · 적치 단위. MST-003';
+COMMENT ON COLUMN tb_location.location_seq  IS '로케이션 순번 (PK)';
+COMMENT ON COLUMN tb_location.location_id   IS '로케이션코드. 전역 유일 (예: 1A-01-01)';
+COMMENT ON COLUMN tb_location.sector        IS '섹터';
+COMMENT ON COLUMN tb_location.zone_code     IS '구역. zone 은 AT TIME ZONE 과 겹쳐 회피';
+COMMENT ON COLUMN tb_location.floor_no      IS '층. floor 는 내장 함수명과 겹쳐 회피';
+COMMENT ON COLUMN tb_location.location_type IS '로케이션유형 — 코드그룹 LOC_TYPE (NORMAL/RETURN/DEFECT/TRANSIT)';
+COMMENT ON COLUMN tb_location.barcode       IS '라벨 바코드. 비우면 location_id 를 그대로 쓴다';
+

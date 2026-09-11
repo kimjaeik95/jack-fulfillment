@@ -15,7 +15,7 @@ public final class CodeGroups {
 	private CodeGroups() {
 	}
 
-	/** 권한 모듈 (SYS/MST/PUR/INB/OUT/INV/STR/QRY/AUD) */
+	/** 권한 모듈 (SYS/MST/PUR/INB/OUT/INV/QRY/AUD) */
 	public static final String PERM_MODULE = "PERM_MODULE";
 
 	/** 권한 액션 (R/C/U/D/A/X) */
@@ -30,8 +30,17 @@ public final class CodeGroups {
 	/** 정책 적용 강도 (BLOCK/APPROVAL/WARN/LOG) */
 	public static final String ENFORCE_LEVEL = "ENFORCE_LEVEL";
 
-	/** 조직 유형 (HQ/DC/WAREHOUSE/STORE) */
+	/** 조직 유형 (HQ/DC) — 사람이 속하는 단위 */
 	public static final String ORG_TYPE = "ORG_TYPE";
+
+	/** 플랜트 유형 (DC/RC/XD) — 거점의 역할 */
+	public static final String PLANT_TYPE = "PLANT_TYPE";
+
+	/** 창고 유형 (GOOD/RETURN/DEFECT) — 재고의 판매가능 여부를 가른다 */
+	public static final String WH_TYPE = "WH_TYPE";
+
+	/** 로케이션 유형 (NORMAL/RETURN/DEFECT/TRANSIT) */
+	public static final String LOC_TYPE = "LOC_TYPE";
 
 	/** 사용자 상태 (ACTIVE/LOCKED/DORMANT/RETIRED) */
 	public static final String USER_STATUS = "USER_STATUS";

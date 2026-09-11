@@ -26,14 +26,12 @@ public class OrgUploadTarget implements UploadTarget {
 	private static final String ORG_ID = "조직코드";
 	private static final String ORG_NAME = "조직명";
 	private static final String ORG_TYPE = "조직유형";
+	private static final String COMPANY_ID = "회사코드";
 	private static final String PARENT_ID = "상위조직코드";
 	private static final String MANAGER = "담당자";
 	private static final String PHONE = "연락처";
 	private static final String ADDRESS = "주소";
 	private static final String ZIP_CODE = "우편번호";
-	/** 회사(HQ)만 값을 가질 수 있다 */
-	private static final String BIZ_REG_NO = "사업자등록번호";
-	private static final String CEO_NAME = "대표자명";
 	private static final String SORT_ORDER = "정렬순서";
 	private static final String USE_YN = "사용여부";
 
@@ -42,12 +40,11 @@ public class OrgUploadTarget implements UploadTarget {
 			Map.entry("orgId", ORG_ID),
 			Map.entry("orgName", ORG_NAME),
 			Map.entry("orgType", ORG_TYPE),
+			Map.entry("companyId", COMPANY_ID),
 			Map.entry("managerName", MANAGER),
 			Map.entry("phone", PHONE),
 			Map.entry("address", ADDRESS),
 			Map.entry("zipCode", ZIP_CODE),
-			Map.entry("bizRegNo", BIZ_REG_NO),
-			Map.entry("ceoName", CEO_NAME),
 			Map.entry("sortOrder", SORT_ORDER));
 
 	private final OrgService orgService;
@@ -78,20 +75,21 @@ public class OrgUploadTarget implements UploadTarget {
 
 	@Override
 	public List<String> headers() {
-		return List.of(ORG_ID, ORG_NAME, ORG_TYPE, PARENT_ID, MANAGER, PHONE, ADDRESS,
-				ZIP_CODE, BIZ_REG_NO, CEO_NAME, SORT_ORDER, USE_YN);
+		return List.of(ORG_ID, ORG_NAME, ORG_TYPE, COMPANY_ID, PARENT_ID, MANAGER, PHONE,
+				ADDRESS, ZIP_CODE, SORT_ORDER, USE_YN);
 	}
 
 	@Override
 	public List<String> requiredHeaders() {
-		return List.of(ORG_ID, ORG_NAME, ORG_TYPE);
+		return List.of(ORG_ID, ORG_NAME, ORG_TYPE, COMPANY_ID);
 	}
 
 	@Override
 	public List<String> sampleRow() {
-		// 오프라인 매장은 범위 외다. 예시는 물류센터로 둔다.
-		return List.of("DC900", "예시물류센터", "DC", "HQ001", "홍길동", "031-1234-5678",
-				"경기도 이천시", "17325", "", "", "900", "Y");
+		// 예시에 넣은 값은 그대로 올려도 통해야 한다. 회사코드 CO001 과
+		// 상위조직 HQ001 은 시드가 만들어 두는 값이다.
+		return List.of("DC900", "예시센터조직", "DC", "CO001", "HQ001", "홍길동",
+				"031-1234-5678", "경기도 이천시", "17325", "900", "Y");
 	}
 
 	@Override
@@ -105,13 +103,12 @@ public class OrgUploadTarget implements UploadTarget {
 				orgId,
 				row.get(ORG_NAME),
 				row.get(ORG_TYPE),
+				row.get(COMPANY_ID),
 				row.get(PARENT_ID),
 				row.get(MANAGER),
 				row.get(PHONE),
 				row.get(ADDRESS),
 				row.get(ZIP_CODE),
-				row.get(BIZ_REG_NO),
-				row.get(CEO_NAME),
 				UploadValues.intOrNull(row.get(SORT_ORDER), SORT_ORDER),
 				UploadValues.useYn(row.get(USE_YN)),
 				"대량 등록");

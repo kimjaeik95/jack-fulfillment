@@ -1,0 +1,142 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.fulfillment.system.company.dao.CompanyDao">
+
+    <resultMap id="companyMap" type="com.fulfillment.domain.Company">
+        <id     property="companySeq"  column="company_seq"/>
+        <result property="companyId"   column="company_id"/>
+        <result property="companyName" column="company_name"/>
+        <result property="bizRegNo"    column="biz_reg_no"/>
+        <result property="ceoName"     column="ceo_name"/>
+        <result property="zipCode"     column="zip_code"/>
+        <result property="address"     column="address"/>
+        <result property="phone"       column="phone"/>
+        <result property="email"       column="email"/>
+        <result property="sortOrder"   column="sort_order"/>
+        <result property="useYn"       column="use_yn"/>
+        <result property="createdBy"   column="created_by"/>
+        <result property="createdAt"   column="created_at"/>
+        <result property="updatedBy"   column="updated_by"/>
+        <result property="updatedAt"   column="updated_at"/>
+        <result property="orgCount"    column="org_count"/>
+    </resultMap>
+
+    <!--
+      소속 조직 수를 목록에서 함께 센다. 화면이 삭제 가능 여부를 미리 알아야,
+      버튼을 눌러 거부당한 뒤에야 이유를 알게 되는 흐름을 피할 수 있다.
+      회사는 한두 건 규모라 상관 서브쿼리 비용이 문제되지 않는다.
+    -->
+    <sql id="companyColumns">
+        c.company_seq, c.company_id, c.company_name, c.biz_reg_no, c.ceo_name,
+        c.zip_code, c.address, c.phone, c.email,
+        c.sort_order, c.use_yn,
+        c.created_by, c.created_at, c.updated_by, c.updated_at,
+        (SELECT COUNT(*) FROM tb_org o WHERE o.company_seq = c.company_seq) AS org_count
+    </sql>
+
+    <sql id="searchWhere">
+        <where>
+            <if test="useYn != null and useYn != ''">
+                AND c.use_yn = #{useYn}
+            </if>
+            <if test="keyword != null and keyword != ''">
+                AND ( LOWER(c.company_id)   LIKE '%' || LOWER(#{keyword}) || '%'
+                   OR LOWER(c.company_name) LIKE '%' || LOWER(#{keyword}) || '%'
+                   OR LOWER(c.ceo_name)     LIKE '%' || LOWER(#{keyword}) || '%'
+                   OR c.biz_reg_no          LIKE '%' || #{keyword} || '%' )
+            </if>
+        </where>
+    </sql>
+
+    <select id="selectList" resultMap="companyMap">
+        SELECT <include refid="companyColumns"/>
+          FROM tb_company c
+        <include refid="searchWhere"/>
+        <!-- ${} 치환 자리다. CompanySearch 가 화이트리스트로 걸러 SQL 인젝션을 막는다. -->
+         ORDER BY ${sortColumn} ${sortDirection}, c.company_id ASC
+        <if test="size > 0">
+            LIMIT #{size} OFFSET #{offset}
+        </if>
+    </select>
+
+    <select id="countList" resultType="long">
+        SELECT COUNT(*) FROM tb_company c
+        <include refid="searchWhere"/>
+    </select>
+
+    <select id="selectByCompanyId" resultMap="companyMap">
+        SELECT <include refid="companyColumns"/>
+          FROM tb_company c
+         WHERE c.company_id = #{companyId}
+    </select>
+
+    <select id="countByCompanyId" resultType="int">
+        SELECT COUNT(*) FROM tb_company WHERE company_id = #{companyId}
+    </select>
+
+    <select id="countByCompanyName" resultType="int">
+        SELECT COUNT(*) FROM tb_company
+         WHERE company_name = #{companyName}
+        <if test="exceptCompanyId != null and exceptCompanyId != ''">
+            AND company_id &lt;&gt; #{exceptCompanyId}
+        </if>
+    </select>
+
+    <select id="countByBizRegNo" resultType="int">
+        SELECT COUNT(*) FROM tb_company
+         WHERE biz_reg_no = #{bizRegNo}
+        <if test="exceptCompanyId != null and exceptCompanyId != ''">
+            AND company_id &lt;&gt; #{exceptCompanyId}
+        </if>
+    </select>
+
+    <select id="countAll" resultType="int">
+        SELECT COUNT(*) FROM tb_company
+        <where>
+            <if test="exceptCompanyId != null and exceptCompanyId != ''">
+                company_id &lt;&gt; #{exceptCompanyId}
+            </if>
+        </where>
+    </select>
+
+    <insert id="insert" parameterType="com.fulfillment.domain.Company"
+            useGeneratedKeys="true" keyProperty="companySeq" keyColumn="company_seq">
+        INSERT INTO tb_company (
+            company_id, company_name, biz_reg_no, ceo_name,
+            zip_code, address, phone, email,
+            sort_order, use_yn, created_by
+        ) VALUES (
+            #{companyId}, #{companyName}, #{bizRegNo}, #{ceoName},
+            #{zipCode}, #{address}, #{phone}, #{email},
+            #{sortOrder}, #{useYn}, #{createdBy}
+        )
+    </insert>
+
+    <!-- 회사코드는 바꾸지 않는다. 조직이 코드로 회사를 부르기 때문이다. -->
+    <update id="update" parameterType="com.fulfillment.domain.Company">
+        UPDATE tb_company
+           SET company_name = #{companyName},
+               biz_reg_no   = #{bizRegNo},
+               ceo_name     = #{ceoName},
+               zip_code     = #{zipCode},
+               address      = #{address},
+               phone        = #{phone},
+               email        = #{email},
+               sort_order   = #{sortOrder},
+               use_yn       = #{useYn},
+               updated_by   = #{updatedBy},
+               updated_at   = CURRENT_TIMESTAMP
+         WHERE company_seq = #{companySeq}
+    </update>
+
+    <delete id="delete">
+        DELETE FROM tb_company WHERE company_seq = #{companySeq}
+    </delete>
+
+    <select id="countOrgs" resultType="int">
+        SELECT COUNT(*) FROM tb_org WHERE company_seq = #{companySeq}
+    </select>
+
+</mapper>

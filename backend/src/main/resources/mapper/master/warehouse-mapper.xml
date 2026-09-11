@@ -1,0 +1,158 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.fulfillment.master.warehouse.dao.WarehouseDao">
+
+    <resultMap id="warehouseMap" type="com.fulfillment.domain.Warehouse">
+        <id     property="warehouseSeq"  column="warehouse_seq"/>
+        <result property="plantSeq"      column="plant_seq"/>
+        <result property="warehouseId"   column="warehouse_id"/>
+        <result property="warehouseName" column="warehouse_name"/>
+        <result property="warehouseType" column="warehouse_type"/>
+        <result property="positionDesc"  column="position_desc"/>
+        <result property="sortOrder"     column="sort_order"/>
+        <result property="useYn"         column="use_yn"/>
+        <result property="createdBy"     column="created_by"/>
+        <result property="createdAt"     column="created_at"/>
+        <result property="updatedBy"     column="updated_by"/>
+        <result property="updatedAt"     column="updated_at"/>
+        <result property="plantId"       column="plant_id"/>
+        <result property="plantName"     column="plant_name"/>
+        <result property="locationCount" column="location_count"/>
+    </resultMap>
+
+    <sql id="warehouseColumns">
+        w.warehouse_seq, w.plant_seq, w.warehouse_id, w.warehouse_name, w.warehouse_type,
+        w.position_desc, w.sort_order, w.use_yn,
+        w.created_by, w.created_at, w.updated_by, w.updated_at,
+        p.plant_id   AS plant_id,
+        p.plant_name AS plant_name,
+        (SELECT COUNT(*) FROM tb_location l WHERE l.warehouse_seq = w.warehouse_seq)
+            AS location_count
+    </sql>
+
+    <sql id="warehouseFrom">
+        FROM tb_warehouse w
+        JOIN tb_plant p ON p.plant_seq = w.plant_seq
+    </sql>
+
+    <!--
+      데이터 범위 (COM-PG-004).
+
+      창고는 조직을 직접 갖지 않는다. 소속 플랜트의 운영 조직으로 판정한다.
+      scope 를 넣지 않고 조회하면 ScopedSearch.getScope() 가 예외를 던진다.
+    -->
+    <sql id="scopeFilter">
+        <if test="!scope.unrestricted">
+            <choose>
+                <when test="scope.hasNoOrg">
+                    AND w.created_by = #{scope.ownerId}
+                </when>
+                <otherwise>
+                    AND ( p.org_seq IN
+                          <foreach collection="scope.orgSeqs" item="s" open="(" separator="," close=")">
+                              #{s}
+                          </foreach>
+                          OR w.created_by = #{scope.ownerId} )
+                </otherwise>
+            </choose>
+        </if>
+    </sql>
+
+    <sql id="searchWhere">
+        <where>
+            <include refid="scopeFilter"/>
+            <if test="plantId != null and plantId != ''">
+                AND p.plant_id = #{plantId}
+            </if>
+            <if test="warehouseType != null and warehouseType != ''">
+                AND w.warehouse_type = #{warehouseType}
+            </if>
+            <if test="useYn != null and useYn != ''">
+                AND w.use_yn = #{useYn}
+            </if>
+            <if test="keyword != null and keyword != ''">
+                AND ( LOWER(w.warehouse_id)   LIKE '%' || LOWER(#{keyword}) || '%'
+                   OR LOWER(w.warehouse_name) LIKE '%' || LOWER(#{keyword}) || '%'
+                   OR LOWER(w.position_desc)  LIKE '%' || LOWER(#{keyword}) || '%' )
+            </if>
+        </where>
+    </sql>
+
+    <select id="selectList" resultMap="warehouseMap">
+        SELECT <include refid="warehouseColumns"/>
+        <include refid="warehouseFrom"/>
+        <include refid="searchWhere"/>
+        <!-- ${} 치환 자리다. WarehouseSearch 가 화이트리스트로 걸러 SQL 인젝션을 막는다. -->
+         ORDER BY ${sortColumn} ${sortDirection}, p.plant_id ASC, w.warehouse_id ASC
+        <if test="size > 0">
+            LIMIT #{size} OFFSET #{offset}
+        </if>
+    </select>
+
+    <select id="countList" resultType="long">
+        SELECT COUNT(*)
+        <include refid="warehouseFrom"/>
+        <include refid="searchWhere"/>
+    </select>
+
+    <!-- 창고코드는 플랜트 안에서만 유일하다. 그래서 둘을 짝으로 받는다. -->
+    <select id="selectByCode" resultMap="warehouseMap">
+        SELECT <include refid="warehouseColumns"/>
+        <include refid="warehouseFrom"/>
+         WHERE p.plant_id = #{plantId}
+           AND w.warehouse_id = #{warehouseId}
+    </select>
+
+    <select id="countByCode" resultType="int">
+        SELECT COUNT(*) FROM tb_warehouse
+         WHERE plant_seq = #{plantSeq}
+           AND warehouse_id = #{warehouseId}
+    </select>
+
+    <select id="countByName" resultType="int">
+        SELECT COUNT(*) FROM tb_warehouse
+         WHERE plant_seq = #{plantSeq}
+           AND warehouse_name = #{warehouseName}
+        <if test="exceptWarehouseSeq != null">
+            AND warehouse_seq &lt;&gt; #{exceptWarehouseSeq}
+        </if>
+    </select>
+
+    <insert id="insert" parameterType="com.fulfillment.domain.Warehouse"
+            useGeneratedKeys="true" keyProperty="warehouseSeq" keyColumn="warehouse_seq">
+        INSERT INTO tb_warehouse (
+            plant_seq, warehouse_id, warehouse_name, warehouse_type,
+            position_desc, sort_order, use_yn, created_by
+        ) VALUES (
+            #{plantSeq}, #{warehouseId}, #{warehouseName}, #{warehouseType},
+            #{positionDesc}, #{sortOrder}, #{useYn}, #{createdBy}
+        )
+    </insert>
+
+    <!--
+      창고코드와 소속 플랜트는 바꾸지 않는다. 로케이션과 재고가 그 조합으로
+      창고를 부르고, 플랜트를 옮기면 로케이션코드 체계가 어긋난다.
+    -->
+    <update id="update" parameterType="com.fulfillment.domain.Warehouse">
+        UPDATE tb_warehouse
+           SET warehouse_name = #{warehouseName},
+               warehouse_type = #{warehouseType},
+               position_desc  = #{positionDesc},
+               sort_order     = #{sortOrder},
+               use_yn         = #{useYn},
+               updated_by     = #{updatedBy},
+               updated_at     = CURRENT_TIMESTAMP
+         WHERE warehouse_seq = #{warehouseSeq}
+    </update>
+
+    <delete id="delete">
+        DELETE FROM tb_warehouse WHERE warehouse_seq = #{warehouseSeq}
+    </delete>
+
+    <select id="countLocations" resultType="int">
+        SELECT COUNT(*) FROM tb_location WHERE warehouse_seq = #{warehouseSeq}
+    </select>
+
+</mapper>

@@ -21,6 +21,13 @@ export const routes = [
     meta: { title: '사용자 관리', perm: 'SYS_USER' },
   },
   {
+    path: '/companies',
+    name: 'companies',
+    component: () => import('./views/CompanyView.vue'),
+    // 조직과 같은 화면 묶음(MST-PG-001)이라 권한도 같다
+    meta: { title: '회사 관리', perm: 'SYS_COMPANY' },
+  },
+  {
     path: '/orgs',
     name: 'orgs',
     component: () => import('./views/OrgView.vue'),

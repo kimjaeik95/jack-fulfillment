@@ -8,7 +8,7 @@ import lombok.Setter;
  * 조직 목록 조회 조건.
  *
  * 조직은 수십 건 규모의 기준정보라 화면은 보통 전체를 한 번에 받는다.
- * 그래도 페이징을 지원하는 이유는, 매장이 수백 개로 늘어난 뒤에
+ * 그래도 페이징을 지원하는 이유는, 조직이 수백 개로 늘어난 뒤에
  * 조회 방식을 바꾸려면 화면과 API 를 함께 고쳐야 하기 때문이다.
  */
 @Getter
@@ -18,6 +18,7 @@ public class OrgSearch extends ScopedSearch {
 	/** 조직코드 · 조직명 · 책임자명 부분일치 */
 	private String keyword;
 	private String orgType;
+	private String companyId;
 	private String parentId;
 	private String useYn;
 

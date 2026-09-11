@@ -16,6 +16,11 @@ const props = defineProps({
   selectedKey: { type: [String, Number], default: null },
   clickable: { type: Boolean, default: false },
   pageSize: { type: Number, default: 10 },
+  /**
+   * 자체 페이저를 그릴지. 서버에서 페이징해 한 페이지만 받는 화면은
+   * false 로 둔다 — 페이저가 둘이 되고 총 건수가 서로 다른 값을 말한다.
+   */
+  showPager: { type: Boolean, default: true },
   emptyText: { type: String, default: '조회된 데이터가 없습니다.' },
   mutedWhen: { type: Function, default: null },
   defaultSort: { type: Object, default: null }, // { key, dir }
@@ -161,7 +166,7 @@ defineExpose({ resetPage: () => (page.value = 1), goToKey })
       </table>
     </div>
 
-    <div v-if="total > 0" class="pager">
+    <div v-if="showPager && total > 0" class="pager">
       <span>총 <strong>{{ total.toLocaleString() }}</strong>건</span>
       <select v-model.number="size" class="select" style="width: 88px; min-height: 26px" @change="page = 1">
         <option :value="10">10건</option>
