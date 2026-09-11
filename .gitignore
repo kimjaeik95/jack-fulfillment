@@ -38,3 +38,9 @@ Thumbs.db
 
 # Claude Code 로컬 세션 설정 (개인 환경 전용)
 .claude/settings.local.json
+
+# 요구사항 원본 (docx · xlsx)
+# 내용에 민감정보는 없으나, 공개 저장소라 원본 배포는 별도 판단이 필요해 일단 제외한다.
+# 커밋하기로 하면 이 세 줄을 지우면 된다. 평문 사본(docs/*.md)은 커밋된다.
+docs/*.docx
+docs/*.xlsx
