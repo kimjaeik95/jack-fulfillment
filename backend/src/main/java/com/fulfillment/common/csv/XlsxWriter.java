@@ -65,7 +65,8 @@ public class XlsxWriter implements TableWriter {
 			cell.setCellStyle(headerStyle);
 		}
 		sheet.createFreezePane(0, 1);
-		sheet.setAutoFilter(new CellRangeAddress(0, 0, 0, Math.max(headers.length - 1, 0)));
+		// 자동 필터 범위는 행을 다 쓴 뒤 toBytes() 에서 잡는다 — 여기서는 아직
+		// 마지막 행을 모른다. 머리글만 범위로 잡으면 걸러지지 않는다.
 	}
 
 	/**
@@ -103,6 +104,11 @@ public class XlsxWriter implements TableWriter {
 
 	@Override
 	public byte[] toBytes() {
+		// 머리글 + 데이터 전체를 필터 범위로 잡는다. 머리글만 잡으면 드롭다운은
+		// 나오는데 아래 행이 걸러지지 않아, 받은 사람이 필터가 고장났다고 본다.
+		if (columnCount > 0 && rowIndex > 1) {
+			sheet.setAutoFilter(new CellRangeAddress(0, rowIndex - 1, 0, columnCount - 1));
+		}
 		for (int i = 0; i < columnCount; i++) {
 			sheet.autoSizeColumn(i);
 			int width = Math.min(sheet.getColumnWidth(i) + 512, MAX_WIDTH);
