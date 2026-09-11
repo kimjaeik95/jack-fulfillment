@@ -49,6 +49,45 @@
          WHERE ur.user_seq = #{userSeq}
     </select>
 
+    <!--
+      접근 가능한 조직 (COM-PG-004).
+
+      두 갈래를 합친다.
+        1) 소속 조직과 그 하위 — 센터 아래 창고가 생기면 함께 보여야 한다
+        2) 역할조직범위(tb_role_org_scope)에 등록된 조직. include_child_yn = 'Y' 면
+           그 하위까지. 한 사람이 두 센터를 겸해 맡는 경우가 여기로 들어온다
+
+      재귀 CTE 로 하위를 펼친다. 조직 계층은 깊지 않지만(회사 → 센터 → 창고)
+      깊이를 코드에 박아 두면 계층이 하나 늘 때 조용히 빠진다.
+    -->
+    <select id="selectAccessibleOrgSeqs" resultType="long">
+        WITH RECURSIVE seed AS (
+            -- 소속 조직
+            SELECT u.org_seq, 'Y'::char(1) AS include_child_yn
+              FROM tb_user u
+             WHERE u.user_seq = #{userSeq}
+               AND u.org_seq IS NOT NULL
+            UNION
+            -- 역할에 따라붙은 조직 범위
+            SELECT s.org_seq, s.include_child_yn
+              FROM tb_user_role ur
+              JOIN tb_role r            ON r.role_seq = ur.role_seq AND r.use_yn = 'Y'
+              JOIN tb_role_org_scope s  ON s.role_seq = r.role_seq
+             WHERE ur.user_seq = #{userSeq}
+        ),
+        tree AS (
+            SELECT o.org_seq, seed.include_child_yn
+              FROM seed
+              JOIN tb_org o ON o.org_seq = seed.org_seq
+            UNION
+            SELECT child.org_seq, tree.include_child_yn
+              FROM tree
+              JOIN tb_org child ON child.parent_seq = tree.org_seq
+             WHERE tree.include_child_yn = 'Y'
+        )
+        SELECT DISTINCT org_seq FROM tree
+    </select>
+
     <select id="selectPolicies" resultType="com.fulfillment.domain.Policy">
         SELECT pol.policy_seq, pol.policy_id, pol.policy_name,
                pol.role_seq, pol.perm_seq, pol.policy_type, pol.enforce_level,

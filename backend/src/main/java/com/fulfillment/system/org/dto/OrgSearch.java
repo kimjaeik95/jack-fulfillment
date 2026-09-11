@@ -1,5 +1,6 @@
 package com.fulfillment.system.org.dto;
 
+import com.fulfillment.common.web.ScopedSearch;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -12,7 +13,7 @@ import lombok.Setter;
  */
 @Getter
 @Setter
-public class OrgSearch {
+public class OrgSearch extends ScopedSearch {
 
 	/** 조직코드 · 조직명 · 책임자명 부분일치 */
 	private String keyword;

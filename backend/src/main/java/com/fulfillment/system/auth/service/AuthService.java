@@ -4,6 +4,7 @@ import com.fulfillment.common.audit.AuditAction;
 import com.fulfillment.common.audit.AuditRecorder;
 import com.fulfillment.common.exception.BusinessException;
 import com.fulfillment.common.exception.ErrorCode;
+import com.fulfillment.common.security.DataScope;
 import com.fulfillment.common.security.LoginUser;
 import com.fulfillment.common.security.PasswordPolicy;
 import com.fulfillment.domain.Policy;
@@ -194,15 +195,23 @@ public class AuthService {
 
 		// permId -> 액션 집합으로 접기 (보유 역할의 합집합)
 		Map<String, Set<String>> grants = new LinkedHashMap<>();
+		// permId -> 데이터 범위 (COM-PG-004). 같은 기능을 여러 역할로 받았으면 넓은 쪽.
+		Map<String, DataScope> dataScopes = new LinkedHashMap<>();
 		for (RolePermission g : authDao.selectGrants(user.getUserSeq())) {
 			grants.computeIfAbsent(g.getPermId(), k -> new LinkedHashSet<>()).add(g.getActionCode());
+			DataScope scope = DataScope.of(g.getEffectiveDataScope());
+			dataScopes.merge(g.getPermId(), scope, DataScope::widest);
 		}
+
+		// 닿을 수 있는 조직을 미리 펼쳐 둔다 — 요청마다 트리를 타지 않기 위해
+		Set<Long> accessibleOrgSeqs =
+				new LinkedHashSet<>(authDao.selectAccessibleOrgSeqs(user.getUserSeq()));
 
 		return new LoginUser(
 				user.getUserSeq(), user.getUserId(), user.getUserName(),
 				user.getOrgSeq(), user.getOrgId(), user.getOrgName(), user.getOrgType(),
 				user.getApprovalLimit(), "Y".equals(user.getMustChangePassword()),
-				roleIds, roleNames, grants, policies);
+				roleIds, roleNames, grants, policies, dataScopes, accessibleOrgSeqs);
 	}
 
 	/** 로그인은 됐지만 아무 기능도 쓸 수 없는 상태를 알려준다 */

@@ -182,6 +182,14 @@ const deleteDetail = computed(() => {
 })
 
 const readDenyReason = computed(() => session.denyReason('SYS_COMPANY', 'R'))
+
+/**
+ * 데이터 범위 안내 (COM-PG-004).
+ *
+ * 전사 범위가 아니면 목록에 일부만 나온다. 그게 설정 때문인지 고장인지
+ * 사용자는 구분할 수 없으므로 화면이 말해 준다.
+ */
+const scopeNotice = computed(() => session.scopeNotice('SYS_COMPANY'))
 /* ------------------------------------------------------------------ */
 /* CSV 다운로드 (COM-PG-011)                                           */
 /* ------------------------------------------------------------------ */
@@ -236,6 +244,11 @@ async function downloadAs(format) {
     </div>
     <div v-else-if="createDenyReason" class="alert alert-warn mb-2">
       <span class="alert-icon">⚠</span><span>{{ createDenyReason }}</span>
+    </div>
+
+    <!-- 목록이 왜 일부만 보이는지 알려준다 (COM-PG-004) -->
+    <div v-if="scopeNotice" class="alert alert-info mb-2">
+      <span class="alert-icon">ℹ</span><span>{{ scopeNotice }}</span>
     </div>
 
     <div class="card">

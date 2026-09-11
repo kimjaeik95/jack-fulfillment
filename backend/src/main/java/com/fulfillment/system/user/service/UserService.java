@@ -7,7 +7,9 @@ import com.fulfillment.common.exception.BusinessException;
 import com.fulfillment.common.exception.ErrorCode;
 import com.fulfillment.common.security.LoginUser;
 import com.fulfillment.common.security.PasswordPolicy;
+import com.fulfillment.common.security.DataScopeResolver;
 import com.fulfillment.common.security.PermissionChecker;
+import com.fulfillment.common.security.ScopeFilter;
 import com.fulfillment.common.web.PageResponse;
 import com.fulfillment.domain.Org;
 import com.fulfillment.domain.Role;
@@ -77,17 +79,20 @@ public class UserService {
 	/** 소속 조직 확인 — 조직 기능과 같은 조회를 쓴다 */
 	private final OrgDao orgDao;
 	private final PermissionChecker permissionChecker;
+	private final DataScopeResolver dataScopes;
 	private final PasswordPolicy passwordPolicy;
 	private final PasswordEncoder passwordEncoder;
 	private final AuditRecorder auditRecorder;
 
 	public UserService(UserDao userDao, RoleDao roleDao, OrgDao orgDao,
-			PermissionChecker permissionChecker, PasswordPolicy passwordPolicy,
+			PermissionChecker permissionChecker, DataScopeResolver dataScopes,
+			PasswordPolicy passwordPolicy,
 			PasswordEncoder passwordEncoder, AuditRecorder auditRecorder) {
 		this.userDao = userDao;
 		this.roleDao = roleDao;
 		this.orgDao = orgDao;
 		this.permissionChecker = permissionChecker;
+		this.dataScopes = dataScopes;
 		this.passwordPolicy = passwordPolicy;
 		this.passwordEncoder = passwordEncoder;
 		this.auditRecorder = auditRecorder;
@@ -100,6 +105,8 @@ public class UserService {
 	@Transactional(readOnly = true)
 	public PageResponse<UserResponse> search(LoginUser actor, UserSearch search) {
 		permissionChecker.require(actor, PERM, "R");
+		// 데이터 범위 (COM-PG-004). 넣지 않으면 매퍼가 예외를 던진다.
+		search.applyScope(dataScopes.forRead(actor, PERM));
 
 		long total = userDao.countList(search);
 		List<UserResponse> rows = userDao.selectList(search).stream()
@@ -111,7 +118,8 @@ public class UserService {
 	@Transactional(readOnly = true)
 	public UserResponse get(LoginUser actor, String userId) {
 		permissionChecker.require(actor, PERM, "R");
-		return UserResponse.of(mustFind(userId), actor);
+		// 목록만 거르면 구멍이 남는다 — 목록에 안 보이는 계정도 ID 를 알면 읽힌다
+		return UserResponse.of(mustFindInScope(actor, userId, "R"), actor);
 	}
 
 	/* ------------------------------------------------------------------ */
@@ -132,6 +140,9 @@ public class UserService {
 		passwordPolicy.validate(request.password(), request.userId(), request.userName());
 
 		Org org = mustFindOrg(request.orgId());
+		// 범위 밖 조직에 사람을 심으면 그 계정은 만든 사람도 관리할 수 없게 된다
+		dataScopes.forWrite(actor, PERM)
+				.requireOrg(org.getOrgSeq(), "소속 조직 " + org.getOrgName());
 		List<Role> roles = validateRoles(request.roleIds(), org);
 
 		User user = request.toNewUser(org.getOrgSeq(),
@@ -154,10 +165,13 @@ public class UserService {
 	public UserResponse update(LoginUser actor, String userId, UserSaveRequest request) {
 		permissionChecker.require(actor, PERM, "U");
 
-		User before = mustFind(userId);
+		User before = mustFindInScope(actor, userId, "U");
 		validateEmailUnique(request.email(), userId);
 
 		Org org = mustFindOrg(request.orgId());
+		// 범위 밖 조직으로 옮기면 저장한 본인이 그 계정을 다시 관리할 수 없다
+		dataScopes.forWrite(actor, PERM)
+				.requireOrg(org.getOrgSeq(), "소속 조직 " + org.getOrgName());
 		List<Role> roles = validateRoles(request.roleIds(), org);
 
 		// 자신의 역할을 스스로 낮추면 그 순간 관리 화면에서 나가지 못하게 될 수 있다.
@@ -194,7 +208,7 @@ public class UserService {
 	public void retire(LoginUser actor, String userId, String reason) {
 		permissionChecker.require(actor, PERM, "D");
 
-		User before = mustFind(userId);
+		User before = mustFindInScope(actor, userId, "D");
 
 		if (PROTECTED_USER_ID.equals(userId)) {
 			throw new BusinessException(ErrorCode.PROTECTED,
@@ -223,7 +237,7 @@ public class UserService {
 	public UserResponse unlock(LoginUser actor, String userId, String reason) {
 		permissionChecker.require(actor, PERM, "U");
 
-		User before = mustFind(userId);
+		User before = mustFindInScope(actor, userId, "U");
 		if (!"LOCKED".equals(before.getStatus())) {
 			throw new BusinessException(ErrorCode.INVALID_INPUT, "잠긴 계정이 아닙니다.");
 		}
@@ -245,7 +259,8 @@ public class UserService {
 	public void resetPassword(LoginUser actor, String userId, String newPassword, String reason) {
 		permissionChecker.require(actor, PERM, "U");
 
-		User target = mustFind(userId);
+		// 범위 밖 계정의 비밀번호를 바꾸는 것은 그 계정을 빼앗는 것과 같다
+		User target = mustFindInScope(actor, userId, "U");
 		passwordPolicy.validate(newPassword, target.getUserId(), target.getUserName());
 
 		userDao.updatePassword(target.getUserSeq(), passwordEncoder.encode(newPassword),
@@ -321,6 +336,28 @@ public class UserService {
 		if (user == null) {
 			throw new BusinessException(ErrorCode.NOT_FOUND, "사용자를 찾을 수 없습니다. (%s)".formatted(userId));
 		}
+		return user;
+	}
+
+	/**
+	 * 단건 조회 + 데이터 범위 확인 (COM-PG-004).
+	 *
+	 * 목록에서 거르는 것만으로는 부족하다. 목록에 안 보이는 계정도 ID 를 알면
+	 * 단건 조회·수정·퇴사·비밀번호 초기화로 닿을 수 있다.
+	 *
+	 * 본인 계정은 범위와 무관하게 통과시킨다. 소속 조직이 범위에서 빠져도
+	 * 자기 계정은 볼 수 있어야 하고, 실제로 본인 비밀번호 변경 경로가 있다.
+	 */
+	private User mustFindInScope(LoginUser actor, String userId, String action) {
+		User user = mustFind(userId);
+		if (actor != null && userId.equals(actor.getUserId())) {
+			return user;
+		}
+		ScopeFilter scope = "R".equals(action)
+				? dataScopes.forRead(actor, PERM)
+				: dataScopes.forWrite(actor, PERM);
+		scope.requireOrgOrOwner(user.getOrgSeq(), user.getCreatedBy(),
+				"사용자 " + user.getUserName());
 		return user;
 	}
 

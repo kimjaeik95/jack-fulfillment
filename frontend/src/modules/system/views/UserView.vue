@@ -127,6 +127,14 @@ const createDenyReason = computed(() => session.denyReason('SYS_USER', 'C'))
 const updateDenyReason = computed(() => session.denyReason('SYS_USER', 'U'))
 const deleteDenyReason = computed(() => session.denyReason('SYS_USER', 'D'))
 
+/**
+ * 데이터 범위 안내 (COM-PG-004).
+ *
+ * 전사 범위가 아니면 목록에 일부만 나온다. 그게 설정 때문인지 고장인지
+ * 사용자는 구분할 수 없으므로 화면이 말해 준다.
+ */
+const scopeNotice = computed(() => session.scopeNotice('SYS_USER'))
+
 const isSelf = (row) => row.userId === session.currentUserId
 
 /* ------------------------------------------------------------------ */
@@ -416,6 +424,11 @@ async function downloadAs(format) {
     <div v-if="session.isMasked" class="alert alert-info mb-2">
       <span class="alert-icon">ℹ</span>
       <span>개인정보 마스킹 정책이 적용된 계정입니다. 서버가 이름·이메일·연락처를 가려서 내려보냅니다.</span>
+    </div>
+
+    <!-- 목록이 왜 일부만 보이는지 알려준다 (COM-PG-004) -->
+    <div v-if="scopeNotice" class="alert alert-info mb-2">
+      <span class="alert-icon">ℹ</span><span>{{ scopeNotice }}</span>
     </div>
 
     <div class="card">

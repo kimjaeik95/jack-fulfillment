@@ -5,7 +5,9 @@ import com.fulfillment.common.audit.AuditRecorder.Field;
 import com.fulfillment.common.exception.BusinessException;
 import com.fulfillment.common.exception.ErrorCode;
 import com.fulfillment.common.security.LoginUser;
+import com.fulfillment.common.security.DataScopeResolver;
 import com.fulfillment.common.security.PermissionChecker;
+import com.fulfillment.common.security.ScopeFilter;
 import com.fulfillment.common.web.PageResponse;
 import com.fulfillment.domain.Org;
 import com.fulfillment.system.org.dao.OrgDao;
@@ -52,12 +54,14 @@ public class OrgService {
 
 	private final OrgDao orgDao;
 	private final PermissionChecker permissionChecker;
+	private final DataScopeResolver dataScopes;
 	private final AuditRecorder auditRecorder;
 
 	public OrgService(OrgDao orgDao, PermissionChecker permissionChecker,
-			AuditRecorder auditRecorder) {
+			DataScopeResolver dataScopes, AuditRecorder auditRecorder) {
 		this.orgDao = orgDao;
 		this.permissionChecker = permissionChecker;
+		this.dataScopes = dataScopes;
 		this.auditRecorder = auditRecorder;
 	}
 
@@ -68,6 +72,8 @@ public class OrgService {
 	@Transactional(readOnly = true)
 	public PageResponse<OrgResponse> search(LoginUser actor, OrgSearch search) {
 		permissionChecker.require(actor, PERM, "R");
+		// 데이터 범위 (COM-PG-004). 넣지 않으면 매퍼가 예외를 던진다.
+		search.applyScope(dataScopes.forRead(actor, PERM));
 
 		long total = orgDao.countList(search);
 		List<OrgResponse> rows = orgDao.selectList(search).stream()
@@ -79,7 +85,8 @@ public class OrgService {
 	@Transactional(readOnly = true)
 	public OrgResponse get(LoginUser actor, String orgId) {
 		permissionChecker.require(actor, PERM, "R");
-		return OrgResponse.of(mustFind(orgId));
+		// 목록만 거르면 구멍이 남는다 — 목록에 안 보이는 조직도 코드를 알면 읽힌다
+		return OrgResponse.of(mustFindInScope(actor, orgId, "R"));
 	}
 
 	/* ------------------------------------------------------------------ */
@@ -100,6 +107,16 @@ public class OrgService {
 		}
 
 		Org parent = resolveParent(request, null);
+		// 범위 밖 조직 밑에 새 조직을 달면 그 조직은 만든 사람도 못 보게 된다.
+		// 더 중요한 건, 범위 밖 조직의 하위를 늘리는 것 자체가 범위 우회다.
+		ScopeFilter scope = dataScopes.forWrite(actor, PERM);
+		if (parent != null) {
+			scope.requireOrg(parent.getOrgSeq(), "상위 조직 " + parent.getOrgName());
+		} else if (!scope.unrestricted()) {
+			throw new BusinessException(ErrorCode.SCOPE_VIOLATION,
+					("최상위 조직은 전사 범위에서만 등록할 수 있습니다. 현재 범위는 %s입니다.")
+							.formatted(scope.scopeLabel()));
+		}
 
 		Org org = request.toNewOrg(seqOf(parent), actorId(actor));
 
@@ -119,7 +136,8 @@ public class OrgService {
 	public Result update(LoginUser actor, String orgId, OrgSaveRequest request) {
 		permissionChecker.require(actor, PERM, "U");
 
-		Org before = mustFind(orgId);
+		Org before = mustFindInScope(actor, orgId, "U");
+		ScopeFilter scope = dataScopes.forWrite(actor, PERM);
 
 		if (orgDao.countByOrgName(request.orgName(), orgId) > 0) {
 			throw new BusinessException(ErrorCode.DUPLICATE,
@@ -127,6 +145,10 @@ public class OrgService {
 		}
 
 		Org parent = resolveParent(request, before);
+		// 범위 밖으로 옮기면 저장한 본인이 그 조직을 다시 볼 수 없게 된다
+		if (parent != null) {
+			scope.requireOrg(parent.getOrgSeq(), "상위 조직 " + parent.getOrgName());
+		}
 		validateTypeChange(before, request.orgType());
 		String warning = warnOnDisable(before, request);
 
@@ -154,7 +176,7 @@ public class OrgService {
 	public void delete(LoginUser actor, String orgId, String reason) {
 		permissionChecker.require(actor, PERM, "D");
 
-		Org before = mustFind(orgId);
+		Org before = mustFindInScope(actor, orgId, "D");
 
 		if (ROOT_ORG_ID.equals(orgId)) {
 			throw new BusinessException(ErrorCode.PROTECTED,
@@ -275,6 +297,22 @@ public class OrgService {
 		if (org == null) {
 			throw new BusinessException(ErrorCode.NOT_FOUND, "조직을 찾을 수 없습니다. (%s)".formatted(orgId));
 		}
+		return org;
+	}
+
+	/**
+	 * 단건 조회 + 데이터 범위 확인 (COM-PG-004).
+	 *
+	 * 목록에서 거르는 것만으로는 부족하다. 목록에 안 보이는 조직도 코드를
+	 * 알면 단건 조회·수정·삭제로 닿을 수 있기 때문이다. 그 경로를 막는다.
+	 */
+	private Org mustFindInScope(LoginUser actor, String orgId, String action) {
+		Org org = mustFind(orgId);
+		ScopeFilter scope = "R".equals(action)
+				? dataScopes.forRead(actor, PERM)
+				: dataScopes.forWrite(actor, PERM);
+		scope.requireOrgOrOwner(org.getOrgSeq(), org.getCreatedBy(),
+				"조직 " + org.getOrgName());
 		return org;
 	}
 

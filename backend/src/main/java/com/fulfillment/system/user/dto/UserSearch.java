@@ -1,5 +1,6 @@
 package com.fulfillment.system.user.dto;
 
+import com.fulfillment.common.web.ScopedSearch;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -11,7 +12,7 @@ import lombok.Setter;
  */
 @Getter
 @Setter
-public class UserSearch {
+public class UserSearch extends ScopedSearch {
 
 	/** 사용자ID · 이름 · 이메일 · 부서 부분일치 */
 	private String keyword;

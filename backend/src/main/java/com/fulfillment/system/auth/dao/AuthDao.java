@@ -25,6 +25,14 @@ public interface AuthDao {
 	/** 적용 중인 정책 (use_yn = 'Y') */
 	List<Policy> selectPolicies(@Param("userSeq") Long userSeq);
 
+	/**
+	 * 이 사용자가 닿을 수 있는 조직 순번 (COM-PG-004).
+	 *
+	 * 소속 조직과 그 하위 + 역할조직범위에 등록된 조직(하위 포함 설정 시 그 하위까지).
+	 * 요청마다 트리를 타지 않도록 로그인 시점에 한 번 펼쳐 세션에 담는다.
+	 */
+	List<Long> selectAccessibleOrgSeqs(@Param("userSeq") Long userSeq);
+
 	/** 로그인 실패 횟수 증가. 반환값은 증가 후 횟수 */
 	int increaseLoginFail(@Param("userSeq") Long userSeq);
 

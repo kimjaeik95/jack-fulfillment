@@ -137,6 +137,14 @@ export const useSessionStore = defineStore('session', () => {
   const myGrants = computed(() => me.value?.grants ?? {})
   const myPolicies = computed(() => me.value?.policies ?? [])
 
+  /**
+   * 기능별 데이터 범위 (COM-PG-004). { permId: 'ALL' | 'OWN_ORG' | 'OWN_DATA' }
+   *
+   * 화면이 이걸로 목록을 거르지는 않는다 — 거르는 것은 서버다.
+   * 쓰는 곳은 "왜 적게 보이는가"를 사용자에게 알려주는 안내문뿐이다.
+   */
+  const myDataScopes = computed(() => me.value?.dataScopes ?? {})
+
   const isReadOnly = computed(() => me.value?.readOnly === true)
   const isMasked = computed(() => me.value?.masked === true)
   /** 초기 비밀번호를 아직 바꾸지 않아 다른 기능이 막힌 상태 */
@@ -201,6 +209,25 @@ export const useSessionStore = defineStore('session', () => {
 
   const can = (permId, action = 'R') => check(permId, action).allowed
 
+  /** 그 기능의 데이터 범위. 모르면 전사로 보지 않고 가장 좁게 본다. */
+  const scopeOf = (permId) => myDataScopes.value[permId] ?? 'OWN_DATA'
+
+  /**
+   * 목록이 일부만 보이는 이유를 알려줄 문구. 전사 범위면 빈 문자열.
+   *
+   * 보이는 건수가 적은 것이 설정 때문인지 고장인지 사용자는 구분할 수 없다.
+   * 그 차이를 화면이 말해 준다.
+   */
+  const scopeNotice = (permId) => {
+    const scope = scopeOf(permId)
+    if (scope === 'ALL') return ''
+    if (scope === 'OWN_ORG') {
+      const org = currentUser.value?.orgName ?? '-'
+      return `소속 조직(${org}) 및 하위 조직의 데이터만 표시됩니다.`
+    }
+    return '본인이 등록한 데이터만 표시됩니다.'
+  }
+
   const denyReason = (permId, action = 'R') => {
     const result = check(permId, action)
     return result.allowed ? null : result.reason
@@ -239,5 +266,6 @@ export const useSessionStore = defineStore('session', () => {
     // 액션
     ensureReady, restore, loadDemoAccounts, login, logout, refreshGrants, changePassword,
     check, can, denyReason, mask, lastLoginId,
+    myDataScopes, scopeOf, scopeNotice,
   }
 })

@@ -52,8 +52,36 @@
           WHERE ur.user_seq = u.user_seq) AS role_names
     </sql>
 
+
+    <!--
+      데이터 범위 (COM-PG-004).
+
+      scope 를 넣지 않고 조회하면 ScopedSearch.getScope() 가 예외를 던진다.
+      조용히 전체가 나가는 대신 터지게 해 둔 것이다.
+
+      닿을 수 있는 조직이 없으면 IN () 을 만들 수 없다. 조건을 빼면 오히려
+      전체가 나가므로, 본인이 등록한 것만 남기고 나머지를 모두 막는다.
+    -->
+    <sql id="scopeFilter">
+        <if test="!scope.unrestricted">
+            <choose>
+                <when test="scope.hasNoOrg">
+                    AND u.user_id = #{scope.ownerId}
+                </when>
+                <otherwise>
+                    AND ( u.org_seq IN
+                          <foreach collection="scope.orgSeqs" item="s" open="(" separator="," close=")">
+                              #{s}
+                          </foreach>
+                          OR u.user_id = #{scope.ownerId} )
+                </otherwise>
+            </choose>
+        </if>
+    </sql>
+
     <sql id="searchWhere">
         <where>
+            <include refid="scopeFilter"/>
             <if test="orgId != null and orgId != ''">
                 AND o.org_id = #{orgId}
             </if>

@@ -25,6 +25,14 @@ public record MeResponse(
 		List<String> roleIds,
 		List<String> roleNames,
 		Map<String, List<String>> grants,
+		/**
+		 * permId -> 데이터 범위 (COM-PG-004). ALL / OWN_ORG / OWN_DATA.
+		 *
+		 * 화면이 이걸로 거르지는 않는다 — 거르는 것은 서버다. 내려주는 이유는
+		 * "목록이 왜 이렇게 적은가"를 사용자가 알 수 있게 하기 위해서다.
+		 * 6개 센터 중 1개만 보이는 것이 설정 때문인지 고장인지는 구분되어야 한다.
+		 */
+		Map<String, String> dataScopes,
 		List<PolicyBrief> policies,
 		boolean readOnly,
 		boolean mustChangePassword,
@@ -51,6 +59,9 @@ public record MeResponse(
 			grants.put(e.getKey(), e.getValue().stream().sorted().toList());
 		}
 
+		Map<String, String> scopes = new TreeMap<>();
+		u.getDataScopes().forEach((permId, scope) -> scopes.put(permId, scope.name()));
+
 		List<PolicyBrief> policies = u.getPolicies().stream()
 				.map(p -> new PolicyBrief(
 						p.getPolicyId(), p.getPolicyName(), p.getPolicyType(), p.getEnforceLevel(),
@@ -63,7 +74,7 @@ public record MeResponse(
 				u.getOrgId(), u.getOrgName(), u.getOrgType(), deptName,
 				u.getApprovalLimit(),
 				u.getRoleIds(), u.getRoleNames(),
-				grants, policies,
+				grants, scopes, policies,
 				u.isReadOnly(), u.isMustChangePassword(), u.isMasked());
 	}
 }
