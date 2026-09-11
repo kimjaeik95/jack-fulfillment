@@ -13,7 +13,9 @@ import { computed, nextTick, onMounted, reactive, ref } from 'vue'
 import { codeOptions } from '@/api/codes.js'
 import * as orgApi from '@/api/org.js'
 import { useOrgStore } from '@/stores/org.js'
+import * as exportApi from '@/api/export.js'
 import { useSessionStore } from '@/stores/session.js'
+import { useToastStore } from '@/stores/toast.js'
 import { useCrud } from '@/composables/useCrud.js'
 import DataTable from '@/components/DataTable.vue'
 import ModalDialog from '@/components/ModalDialog.vue'
@@ -23,6 +25,7 @@ import CodeBadge from '@/components/CodeBadge.vue'
 
 const orgStore = useOrgStore()
 const session = useSessionStore()
+const toast = useToastStore()
 
 const loadError = ref('')
 /** 등록 직후 새 행이 있는 페이지로 이동시키기 위한 참조 */
@@ -179,6 +182,29 @@ const deleteDetail = computed(() => {
 })
 
 const readDenyReason = computed(() => session.denyReason('SYS_COMPANY', 'R'))
+/* ------------------------------------------------------------------ */
+/* CSV 다운로드 (COM-PG-011)                                           */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 조회할 수 있다고 내려받아도 되는 것은 아니다. 파일로 나간 데이터는
+ * 회수할 수 없어 서버가 다운로드 액션(X)을 따로 판정한다.
+ */
+const downloadDenyReason = computed(() => session.denyReason('SYS_COMPANY', 'X'))
+const downloading = ref(false)
+
+/** 화면이 보고 있는 검색 조건 그대로 내보낸다 — 화면과 파일이 달라지면 안 된다 */
+async function downloadCsv() {
+  downloading.value = true
+  try {
+    await exportApi.orgs({ ...filters })
+    toast.success('현재 검색 조건으로 내려받았습니다. 다운로드 사실은 감사 기록 대상입니다.')
+  } catch (e) {
+    toast.error(e.message)
+  } finally {
+    downloading.value = false
+  }
+}
 </script>
 
 <template>
@@ -219,6 +245,15 @@ const readDenyReason = computed(() => session.denyReason('SYS_COMPANY', 'R'))
         />
         <FormField v-model="filters.useYn" label="사용" type="select" empty-option="전체" :options="codeOptions('USE_YN')" />
         <div class="toolbar-actions">
+          <button
+            class="btn"
+            :disabled="downloading || !!downloadDenyReason"
+            :title="downloadDenyReason ?? '현재 검색 조건으로 CSV 내려받기'"
+            @click="downloadCsv"
+          >
+            <span v-if="downloading" class="spinner"></span>
+            ⬇ CSV
+          </button>
           <button class="btn" @click="resetFilters">초기화</button>
           <button class="btn" :disabled="orgStore.loading" @click="reload(true)">
             <span v-if="orgStore.loading" class="spinner"></span>

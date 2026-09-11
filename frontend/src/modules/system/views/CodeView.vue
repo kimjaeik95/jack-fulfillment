@@ -15,6 +15,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { loadCodes } from '@/api/codes.js'
 import * as codeApi from '@/api/code.js'
+import * as exportApi from '@/api/export.js'
 import { useSessionStore } from '@/stores/session.js'
 import { useToastStore } from '@/stores/toast.js'
 import ModalDialog from '@/components/ModalDialog.vue'
@@ -278,6 +279,31 @@ async function doCodeDelete() {
     codeDeleting.value = false
   }
 }
+/* ------------------------------------------------------------------ */
+/* CSV 다운로드 (COM-PG-011)                                           */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 조회할 수 있다고 내려받아도 되는 것은 아니다. 파일로 나간 데이터는
+ * 회수할 수 없어 서버가 다운로드 액션(X)을 따로 판정한다.
+ *
+ * 그룹 안에 코드가 들어 있는 구조지만 파일은 평면으로 받는다 —
+ * 업로드 템플릿과 열이 같아야 내려받아 고친 뒤 그대로 올릴 수 있다.
+ */
+const downloadDenyReason = computed(() => session.denyReason('SYS_CODE', 'X'))
+const downloading = ref(false)
+
+async function downloadCsv() {
+  downloading.value = true
+  try {
+    await exportApi.codes({ ...filters })
+    toast.success('현재 검색 조건으로 내려받았습니다. 다운로드 사실은 감사 기록 대상입니다.')
+  } catch (e) {
+    toast.error(e.message)
+  } finally {
+    downloading.value = false
+  }
+}
 </script>
 
 <template>
@@ -291,6 +317,15 @@ async function doCodeDelete() {
         </p>
       </div>
       <div class="page-head-actions">
+        <button
+          class="btn"
+          :disabled="downloading || !!downloadDenyReason"
+          :title="downloadDenyReason ?? '현재 검색 조건으로 CSV 내려받기'"
+          @click="downloadCsv"
+        >
+          <span v-if="downloading" class="spinner"></span>
+          ⬇ CSV
+        </button>
         <button
           class="btn btn-primary"
           :disabled="!canCreate"

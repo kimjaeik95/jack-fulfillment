@@ -14,7 +14,9 @@ import { codeOptions } from '@/api/codes.js'
 import * as roleApi from '@/api/role.js'
 import { useRoleStore } from '@/stores/role.js'
 import { useAdminStore } from '@/stores/admin.js'
+import * as exportApi from '@/api/export.js'
 import { useSessionStore } from '@/stores/session.js'
+import { useToastStore } from '@/stores/toast.js'
 import { useCrud } from '@/composables/useCrud.js'
 import DataTable from '@/components/DataTable.vue'
 import ModalDialog from '@/components/ModalDialog.vue'
@@ -26,6 +28,7 @@ const roleStore = useRoleStore()
 // 권한·정책 목록은 아직 Mock — 모달 하단 '연결 정보'에서만 쓴다
 const admin = useAdminStore()
 const session = useSessionStore()
+const toast = useToastStore()
 const router = useRouter()
 
 const DATA_SCOPES = [
@@ -192,6 +195,29 @@ const readDenyReason = computed(() => session.denyReason('SYS_ROLE', 'R'))
 function goMapping(row) {
   router.push({ name: 'role-permissions', query: { roleId: row.roleId } })
 }
+/* ------------------------------------------------------------------ */
+/* CSV 다운로드 (COM-PG-011)                                           */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 조회할 수 있다고 내려받아도 되는 것은 아니다. 파일로 나간 데이터는
+ * 회수할 수 없어 서버가 다운로드 액션(X)을 따로 판정한다.
+ */
+const downloadDenyReason = computed(() => session.denyReason('SYS_ROLE', 'X'))
+const downloading = ref(false)
+
+/** 화면이 보고 있는 검색 조건 그대로 내보낸다 — 화면과 파일이 달라지면 안 된다 */
+async function downloadCsv() {
+  downloading.value = true
+  try {
+    await exportApi.roles({ ...filters })
+    toast.success('현재 검색 조건으로 내려받았습니다. 다운로드 사실은 감사 기록 대상입니다.')
+  } catch (e) {
+    toast.error(e.message)
+  } finally {
+    downloading.value = false
+  }
+}
 </script>
 
 <template>
@@ -250,6 +276,15 @@ function goMapping(row) {
           :options="codeOptions('USE_YN')"
         />
         <div class="toolbar-actions">
+          <button
+            class="btn"
+            :disabled="downloading || !!downloadDenyReason"
+            :title="downloadDenyReason ?? '현재 검색 조건으로 CSV 내려받기'"
+            @click="downloadCsv"
+          >
+            <span v-if="downloading" class="spinner"></span>
+            ⬇ CSV
+          </button>
           <button class="btn" @click="resetFilters">초기화</button>
           <button class="btn" :disabled="roleStore.loading" @click="reload(true)">
             <span v-if="roleStore.loading" class="spinner"></span>

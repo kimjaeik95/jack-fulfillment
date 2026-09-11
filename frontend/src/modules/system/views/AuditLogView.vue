@@ -13,6 +13,7 @@
  */
 import { computed, onMounted, reactive, ref } from 'vue'
 import * as auditApi from '@/api/audit.js'
+import * as exportApi from '@/api/export.js'
 import { useSessionStore } from '@/stores/session.js'
 import { useToastStore } from '@/stores/toast.js'
 import ModalDialog from '@/components/ModalDialog.vue'
@@ -187,12 +188,18 @@ function shown(value) {
 const canDownload = computed(() => session.can('AUD_DOWNLOAD', 'X'))
 const downloadDenyReason = computed(() => session.denyReason('AUD_DOWNLOAD', 'X'))
 
+const downloading = ref(false)
+
 /**
  * 서버가 만든 파일을 받는다.
  * 화면이 CSV 를 조립하면 서버가 적용한 마스킹과 어긋날 수 있고,
  * 다운로드 사실을 감사로그에 남기는 것도 서버 쪽에서만 할 수 있다.
+ *
+ * 주소창으로 여는 대신 받아서 저장한다. 권한이 없으면 서버가 JSON 을
+ * 내려주는데, 링크였다면 그 JSON 이 파일로 저장되고 사용자는 무엇이
+ * 잘못됐는지 알 수 없다.
  */
-function download() {
+async function download() {
   const result = session.check('AUD_DOWNLOAD', 'X')
   if (!result.allowed) {
     toast.error(result.reason)
@@ -200,8 +207,15 @@ function download() {
   }
   if (result.reason) toast.warn(result.reason)
 
-  window.location.href = auditApi.exportUrl(filters)
-  toast.success('현재 검색 조건으로 내려받습니다. 다운로드 사실은 감사 기록 대상입니다.')
+  downloading.value = true
+  try {
+    await exportApi.auditLogs({ ...filters })
+    toast.success('현재 검색 조건으로 내려받았습니다. 다운로드 사실은 감사 기록 대상입니다.')
+  } catch (e) {
+    toast.error(e.message)
+  } finally {
+    downloading.value = false
+  }
 }
 
 const readDenyReason = computed(() => session.denyReason('AUD_HISTORY', 'R'))
@@ -220,11 +234,12 @@ const readDenyReason = computed(() => session.denyReason('AUD_HISTORY', 'R'))
       <div class="page-head-actions">
         <button
           class="btn"
-          :disabled="!canDownload || loading"
+          :disabled="downloading || loading || !canDownload"
           :title="downloadDenyReason ?? '현재 검색 조건으로 CSV 내려받기'"
           @click="download"
         >
-          ↓ CSV 다운로드
+          <span v-if="downloading" class="spinner"></span>
+          ⬇ CSV 다운로드
         </button>
       </div>
     </div>

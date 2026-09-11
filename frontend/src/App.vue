@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { RouterView, useRoute, useRouter } from 'vue-router'
 import { loadCodes } from '@/api/codes.js'
-import { menuGroups } from '@/router/index.js'
+import { useMenuStore } from '@/stores/menu.js'
 import { useAdminStore } from '@/stores/admin.js'
 import { useOrgStore } from '@/stores/org.js'
 import { useRoleStore } from '@/stores/role.js'
@@ -20,6 +20,7 @@ const orgStore = useOrgStore()
 const roleStore = useRoleStore()
 const permStore = usePermissionStore()
 const policyStore = usePolicyStore()
+const menuStore = useMenuStore()
 const session = useSessionStore()
 const toast = useToastStore()
 
@@ -49,6 +50,8 @@ watch(
       // 정책·감사이력 등 남은 Mock 화면 때문에 admin 스토어도 함께 채운다.
       await Promise.all([
         loadCodes(true),
+        // 사이드바 구성. 이게 없으면 어떤 화면으로도 이동할 수 없다.
+        menuStore.load(true),
         admin.loadAll(true), orgStore.load(true), roleStore.load(true), permStore.load(true),
         policyStore.load(true),
       ])
@@ -72,7 +75,7 @@ function toggleTheme() {
   localStorage.setItem('wms-admin-theme', theme.value)
 }
 
-/** 사이드바 항목별 건수 표시 */
+/** 사이드바 항목별 건수 표시 — 키는 라우트 이름이다 (메뉴가 라우트를 가리킨다) */
 const counts = computed(() => ({
   users: admin.users.length,
   orgs: orgStore.orgs.length,
@@ -87,13 +90,39 @@ const routeByName = computed(() =>
   Object.fromEntries(router.getRoutes().filter((r) => r.name).map((r) => [r.name, r])),
 )
 
-function permOf(name) {
-  return routeByName.value[name]?.meta?.perm ?? null
+/**
+ * 메뉴가 가리키는 라우트가 실제로 있는가.
+ *
+ * 메뉴는 데이터고 라우트는 코드라, 화면을 지우거나 이름을 바꾸면 갈 곳 없는
+ * 메뉴가 남는다. 그걸 눌렀을 때 아무 일도 일어나지 않으면 고장으로 보이므로,
+ * 사이드바에서 미리 표시하고 이동을 막는다.
+ */
+function routeExists(name) {
+  return Boolean(name && routeByName.value[name])
 }
 
-function menuAllowed(name) {
-  const perm = permOf(name)
+/** 메뉴에 걸린 권한 — 서버가 함께 내려준다 (없으면 라우트 meta 로 되짚는다) */
+function permOf(menu) {
+  return menu.permId ?? routeByName.value[menu.routeName]?.meta?.perm ?? null
+}
+
+/**
+ * 보이는 메뉴는 서버가 이미 걸렀다. 그래도 한 번 더 보는 이유는, 권한이
+ * 세션 중에 바뀔 수 있고(역할-권한 매핑 저장 후 refresh) 그때 사이드바가
+ * 바로 흐려져야 하기 때문이다.
+ */
+function menuAllowed(menu) {
+  const perm = permOf(menu)
   return !perm || session.can(perm, 'R')
+}
+
+function menuTitle(menu) {
+  if (!routeExists(menu.routeName)) {
+    return `${menu.menuName} — 연결된 화면(${menu.routeName})이 없습니다. 메뉴 관리에서 확인하세요.`
+  }
+  return menuAllowed(menu)
+    ? menu.menuName
+    : `${menu.menuName} — 현재 계정에 조회 권한이 없습니다(${permOf(menu)})`
 }
 
 async function doLogout() {
@@ -164,31 +193,44 @@ async function doReset() {
       <button class="btn btn-sm" title="로그아웃" @click="logoutAsk = true">로그아웃</button>
     </header>
 
+    <!-- 메뉴 구성은 서버(tb_menu)가 소유한다. 메뉴 관리 화면에서 바꾼다. -->
     <nav class="sidenav">
-      <template v-for="g in menuGroups" :key="g.label">
-        <div class="nav-group-label">{{ collapsed ? '·' : g.label }}</div>
-        <RouterLink
-          v-for="m in g.items"
-          :key="m.name"
-          v-slot="{ isActive, navigate }"
-          :to="{ name: m.name }"
-          custom
-        >
+      <template v-for="g in menuStore.groups" :key="g.menuId">
+        <div class="nav-group-label">{{ collapsed ? '·' : g.menuName }}</div>
+        <template v-for="m in g.children" :key="m.menuId">
+          <!-- 가리키는 화면이 없는 메뉴는 눌러도 이동할 수 없으므로 링크로 만들지 않는다 -->
           <div
+            v-if="!routeExists(m.routeName)"
             class="nav-item"
-            :class="{ active: isActive }"
-            :style="menuAllowed(m.name) ? null : { opacity: 0.45 }"
-            :title="menuAllowed(m.name) ? m.label : `${m.label} — 현재 계정에 조회 권한이 없습니다(${permOf(m.name)})`"
-            @click="navigate"
+            style="opacity: 0.45; cursor: not-allowed"
+            :title="menuTitle(m)"
           >
-            <span class="nav-icon">{{ m.icon }}</span>
-            <template v-if="!collapsed">
-              <span>{{ m.label }}</span>
-              <span v-if="counts[m.name] !== undefined" class="nav-count">{{ counts[m.name] }}</span>
-            </template>
+            <span class="nav-icon">⚠</span>
+            <template v-if="!collapsed"><span>{{ m.menuName }}</span></template>
           </div>
-        </RouterLink>
+          <RouterLink v-else v-slot="{ isActive, navigate }" :to="{ name: m.routeName }" custom>
+            <div
+              class="nav-item"
+              :class="{ active: isActive }"
+              :style="menuAllowed(m) ? null : { opacity: 0.45 }"
+              :title="menuTitle(m)"
+              @click="navigate"
+            >
+              <span class="nav-icon">{{ m.icon }}</span>
+              <template v-if="!collapsed">
+                <span>{{ m.menuName }}</span>
+                <span v-if="counts[m.routeName] !== undefined" class="nav-count">
+                  {{ counts[m.routeName] }}
+                </span>
+              </template>
+            </div>
+          </RouterLink>
+        </template>
       </template>
+
+      <div v-if="menuStore.loadError && !collapsed" class="nav-note" :title="menuStore.loadError">
+        ⚠ {{ menuStore.fallback ? '기본 메뉴로 표시 중' : menuStore.loadError }}
+      </div>
     </nav>
 
     <main class="main">

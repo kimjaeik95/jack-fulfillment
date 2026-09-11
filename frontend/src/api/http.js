@@ -119,6 +119,118 @@ async function readJson(response) {
   }
 }
 
+/**
+ * 파일 내려받기 (COM-PG-011).
+ *
+ * 링크(<a href>)로 바로 열지 않고 fetch 로 받는 이유는 오류 때문이다.
+ * 권한이 없으면 서버가 JSON 을 내려주는데, 링크였다면 그 JSON 이 파일로
+ * 저장되고 사용자는 무엇이 잘못됐는지 알 수 없다. 여기서는 실패를
+ * ApiError 로 던져 화면이 사유를 그대로 띄운다.
+ *
+ * 파일 이름은 서버의 Content-Disposition 을 따른다 — 한글 이름을 위해
+ * filename* (RFC 5987) 을 먼저 본다.
+ */
+export async function download(path, query) {
+  let url = BASE + path
+  if (query) {
+    const params = new URLSearchParams()
+    for (const [key, value] of Object.entries(query)) {
+      if (value === '' || value === null || value === undefined) continue
+      params.append(key, String(value))
+    }
+    const qs = params.toString()
+    if (qs) url += `?${qs}`
+  }
+
+  let response
+  try {
+    response = await fetch(url, { credentials: 'include' })
+  } catch {
+    throw new ApiError('서버에 연결할 수 없습니다.', 'NETWORK_ERROR', 0)
+  }
+
+  if (!response.ok) {
+    // 실패 응답은 파일이 아니라 JSON 껍데기다
+    const payload = await readJson(response)
+    throw new ApiError(
+      payload?.message ?? `내려받지 못했습니다. (HTTP ${response.status})`,
+      payload?.code ?? `HTTP_${response.status}`,
+      response.status,
+    )
+  }
+
+  const blob = await response.blob()
+  saveBlob(blob, filenameOf(response.headers.get('Content-Disposition')))
+  return blob.size
+}
+
+/**
+ * 파일 올리기 (COM-PG-010).
+ *
+ * Content-Type 을 직접 넣지 않는다. multipart 는 경계 문자열(boundary)이
+ * 헤더에 들어가야 하는데 그건 브라우저가 FormData 를 보고 정한다.
+ */
+export async function upload(path, file) {
+  await ensureCsrfToken()
+  const form = new FormData()
+  form.append('file', file)
+
+  const headers = { Accept: 'application/json' }
+  const token = readCsrfToken()
+  if (token) headers['X-XSRF-TOKEN'] = token
+
+  let response
+  try {
+    response = await fetch(BASE + path, {
+      method: 'POST',
+      headers,
+      credentials: 'include',
+      body: form,
+    })
+  } catch {
+    throw new ApiError('서버에 연결할 수 없습니다.', 'NETWORK_ERROR', 0)
+  }
+
+  const payload = await readJson(response)
+  if (!response.ok || payload?.success === false) {
+    throw new ApiError(
+      payload?.message ?? `업로드에 실패했습니다. (HTTP ${response.status})`,
+      payload?.code ?? `HTTP_${response.status}`,
+      response.status,
+    )
+  }
+  return { data: payload?.data ?? null, warning: payload?.warning ?? null }
+}
+
+/** Content-Disposition 에서 파일 이름을 꺼낸다 */
+function filenameOf(header) {
+  if (!header) return 'download.csv'
+  // filename*=UTF-8''%ED%95%9C%EA%B8%80.csv — 한글 이름은 이쪽에만 온전히 있다
+  const encoded = header.match(/filename\*=UTF-8''([^;]+)/i)
+  if (encoded) {
+    try {
+      return decodeURIComponent(encoded[1])
+    } catch {
+      // 인코딩이 깨졌으면 아래 평문 이름으로 넘어간다
+    }
+  }
+  const plain = header.match(/filename="?([^";]+)"?/i)
+  return plain ? plain[1] : 'download.csv'
+}
+
+/** 받은 내용을 파일로 저장시킨다 */
+function saveBlob(blob, filename) {
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  // 즉시 해제하면 일부 브라우저에서 저장이 취소된다
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
+
 export const get = (path, query) => request(path, { method: 'GET', query })
 export const post = (path, body) => request(path, { method: 'POST', body })
 export const put = (path, body) => request(path, { method: 'PUT', body })
