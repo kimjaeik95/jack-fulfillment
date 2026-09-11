@@ -2,6 +2,7 @@ package com.fulfillment.system.permission.service;
 
 import com.fulfillment.common.audit.AuditRecorder;
 import com.fulfillment.common.audit.AuditRecorder.Field;
+import com.fulfillment.common.code.CodeGroups;
 import com.fulfillment.common.exception.BusinessException;
 import com.fulfillment.common.exception.ErrorCode;
 import com.fulfillment.common.security.LoginUser;
@@ -39,8 +40,8 @@ public class PermissionService {
 	private static final String PERM = "SYS_ROLE";
 	private static final String TABLE = "tb_permission";
 
-	private static final String MODULE_GROUP = "PERM_MODULE";
-	private static final String ACTION_GROUP = "PERM_ACTION";
+	private static final String MODULE_GROUP = CodeGroups.PERM_MODULE;
+	private static final String ACTION_GROUP = CodeGroups.PERM_ACTION;
 
 	/**
 	 * 지우거나 끄면 스스로를 관리할 수 없게 되는 권한.

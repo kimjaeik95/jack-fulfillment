@@ -1,7 +1,24 @@
 <script setup>
-import { computed, reactive } from 'vue'
+/**
+ * 공통정책 관리 (COM-PG-007) — 실제 서버 API 연동.
+ *
+ * 역할·권한이 "무엇을 할 수 있는가"라면, 정책은 "할 수 있는데 이런 조건에서는
+ * 막거나 승인을 받아라"다. 요구사항 표의 3열(제한/승인)이 이 화면이다.
+ *
+ * 로그인 시 사용중인 정책이 세션에 실려 판정에 쓰인다. 즉 여기서 저장한
+ * 규칙이 곧 그 사람이 실제로 막히는 지점이 된다.
+ *
+ * 유형별 필수값(LIMIT 은 한도, CONDITION 은 조건식 …)은 서버가 최종 판정한다.
+ * 빠진 채 저장되면 판정 시점에 조용히 아무 일도 하지 않는 정책이 되기 때문이다.
+ */
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { codeItem, codeOptions } from '@/api/codes.js'
-import { useAdminStore } from '@/stores/admin.js'
+import * as rolePermApi from '@/api/rolePermission.js'
+import * as policyApi from '@/api/policy.js'
+import { usePolicyStore } from '@/stores/policy.js'
+import { useRoleStore } from '@/stores/role.js'
+import { usePermissionStore } from '@/stores/permission.js'
+import { useSessionStore } from '@/stores/session.js'
 import { useCrud } from '@/composables/useCrud.js'
 import DataTable from '@/components/DataTable.vue'
 import ModalDialog from '@/components/ModalDialog.vue'
@@ -9,17 +26,36 @@ import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import FormField from '@/components/FormField.vue'
 import CodeBadge from '@/components/CodeBadge.vue'
 
-const admin = useAdminStore()
+const policyStore = usePolicyStore()
+const roleStore = useRoleStore()
+const permStore = usePermissionStore()
+const session = useSessionStore()
 
+const table = ref(null)
+// 목록은 스토어가 들고 있다. 사이드바 건수도 같은 출처를 읽는다.
+const policies = computed(() => policyStore.policies)
+const loading = computed(() => policyStore.loading)
+const loadError = computed(() => policyStore.denyReason)
 const filters = reactive({ keyword: '', roleId: '', policyType: '', enforceLevel: '', useYn: '' })
 
 function resetFilters() {
   Object.assign(filters, { keyword: '', roleId: '', policyType: '', enforceLevel: '', useYn: '' })
 }
 
+/** 항상 서버에서 다시 받는다. 방금 저장한 결과를 보려고 부르는 함수다. */
+const reload = () => policyStore.load(true)
+
+onMounted(async () => {
+  await Promise.all([roleStore.load(), permStore.load(), policyStore.load()])
+})
+
+/**
+ * 정책은 수십 건 규모라 전체를 받아 화면에서 거른다.
+ * 서버도 검색·페이징을 지원하므로 늘어나면 화면만 바꾸면 된다.
+ */
 const rows = computed(() => {
   const kw = filters.keyword.trim().toLowerCase()
-  return admin.policies
+  return policies.value
     .filter((p) => !filters.roleId || p.roleId === filters.roleId)
     .filter((p) => !filters.policyType || p.policyType === filters.policyType)
     .filter((p) => !filters.enforceLevel || p.enforceLevel === filters.enforceLevel)
@@ -31,8 +67,7 @@ const rows = computed(() => {
           String(v ?? '').toLowerCase().includes(kw),
         ),
     )
-    .map((p) => ({ ...p, roleName: admin.roleNameOf(p.roleId), permName: p.permId ? admin.permNameOf(p.permId) : '전체' }))
-    .sort((a, b) => String(a.policyId).localeCompare(String(b.policyId)))
+    .map((p) => ({ ...p, permName: p.permId ? p.permName : '전체' }))
 })
 
 const columns = [
@@ -55,11 +90,26 @@ const {
   createDenyReason, updateDenyReason, deleteDenyReason,
   openCreate, openEdit, close, submit, confirmDelete, doDelete,
 } = useCrud({
-  entity: 'policies',
   perm: 'SYS_POLICY',
   pk: 'policyId',
   label: '공통정책',
   nameOf: (p) => `${p.policyId} ${p.policyName}`,
+  api: {
+    // 정책ID 는 서버가 채번한다 (P011, P012 …)
+    create: (payload) => policyApi.create(payload),
+    update: (policyId, payload) => policyApi.update(policyId, payload),
+    remove: (policyId) => policyApi.remove(policyId, '공통정책 삭제'),
+  },
+  // 등록 직후 새 행이 정렬상 뒤로 밀려 1페이지에 안 보이면, 저장했는데도
+  // 아무 일도 없었던 것처럼 보인다. 해당 페이지로 옮겨준다.
+  // 정책ID 는 서버가 채번하므로 폼이 아니라 응답에서 꺼낸다.
+  async afterChange({ action, result }) {
+    await reload()
+    if (action === 'create' && result?.policy?.policyId) {
+      await nextTick()
+      table.value?.goToKey(result.policy.policyId)
+    }
+  },
   blank: () => ({
     policyId: '',
     policyName: '',
@@ -76,12 +126,35 @@ const {
     remark: '',
     useYn: 'Y',
   }),
-  toForm: (row) => ({ ...row, permId: row.permId ?? '', limitAmount: row.limitAmount ?? 0, limitQty: row.limitQty ?? 0 }),
+  toForm: (row) => ({
+    ...row,
+    permId: row.permId ?? '',
+    conditionExpr: row.conditionExpr ?? '',
+    targetField: row.targetField ?? '',
+    altProcess: row.altProcess ?? '',
+    remark: row.remark ?? '',
+    limitAmount: row.limitAmount ?? 0,
+    limitQty: row.limitQty ?? 0,
+  }),
+  // 서버가 받는 항목만 담는다. 조회용으로 따라온 roleName·granted 등을 되돌려
+  // 보내면 서버가 무시하긴 해도, 무엇이 편집 대상인지가 코드에서 흐려진다.
   toPayload: (f) => ({
-    ...f,
+    // 등록이면 비워 보낸다 — 서버가 채번한다 (P011, P012 …)
+    policyId: f.policyId || null,
+    policyName: f.policyName,
+    roleId: f.roleId,
     permId: f.permId || null,
+    policyType: f.policyType,
+    enforceLevel: f.enforceLevel,
+    conditionExpr: f.conditionExpr || null,
+    targetField: f.targetField || null,
+    message: f.message,
+    altProcess: f.altProcess || null,
+    // LIMIT 이 아니면 한도는 의미가 없다. 서버도 같은 판단으로 비워 저장한다.
     limitAmount: f.policyType === 'LIMIT' ? Number(f.limitAmount) : null,
     limitQty: f.policyType === 'LIMIT' ? Number(f.limitQty) : null,
+    remark: f.remark || null,
+    useYn: f.useYn,
   }),
   validate(f) {
     const e = {}
@@ -96,6 +169,10 @@ const {
       e.conditionExpr = '조건충족 정책은 조건식이 필요합니다.'
     if (f.policyType === 'LIMIT' && Number(f.limitAmount) <= 0 && Number(f.limitQty) <= 0)
       e.limitAmount = '한도금액 또는 한도수량 중 하나는 0보다 커야 합니다.'
+    if (f.enforceLevel === 'APPROVAL' && !f.altProcess?.trim())
+      e.altProcess = '상위승인 정책은 누구의 승인을 받는지 적어야 합니다.'
+    if (f.policyType === 'READONLY' && f.permId)
+      e.permId = '읽기전용은 대상 기능을 비워 역할 전체에 적용하세요.'
     return e
   },
 })
@@ -104,22 +181,48 @@ const typeHelp = computed(() => codeItem('POLICY_TYPE', form.value.policyType)?.
 const levelHelp = computed(() => codeItem('ENFORCE_LEVEL', form.value.enforceLevel)?.desc ?? '')
 const isLimit = computed(() => form.value.policyType === 'LIMIT')
 
-/** 선택한 역할이 대상 기능 권한을 실제로 보유하는지 점검 (정책 실효성 확인) */
+/** 목록의 ⚠ 표시 설명 — 서버의 granted=false 와 같은 뜻이다 */
+const NOT_GRANTED_HELP =
+  '해당 역할에 이 기능 권한이 매핑되어 있지 않아 이 정책은 실제로 평가되지 않습니다.'
+
+/**
+ * 선택한 역할이 보유한 권한 목록.
+ *
+ * 정책은 역할이 그 기능 권한을 가지고 있을 때만 평가된다. 없는 채로 두면
+ * 규칙은 저장되지만 아무 일도 하지 않는다. 그래서 대상 기능을 고를 때
+ * 보유 여부를 함께 보여준다. 역할이 바뀌면 그 역할의 매핑을 다시 읽는다.
+ */
+const ownedPerms = ref(new Set())
+
+watch(
+  () => form.value.roleId,
+  async (roleId) => {
+    ownedPerms.value = new Set()
+    if (!roleId) return
+    try {
+      const result = await rolePermApi.fetchGrants(roleId)
+      ownedPerms.value = new Set(result.grants.map((g) => g.permId))
+    } catch {
+      // 매핑을 못 읽어도 정책 등록 자체는 막지 않는다. 보유 표시만 사라진다.
+    }
+  },
+  { immediate: true },
+)
+
+/** 권한이 없으면 이 정책은 평가되지 않는다 — 서버도 저장 시 같은 경고를 준다 */
 const grantWarning = computed(() => {
   const { roleId, permId } = form.value
-  if (!roleId || !permId) return ''
-  const has = admin.rolePermissions.some((m) => m.roleId === roleId && m.permId === permId)
-  return has
-    ? ''
-    : `'${admin.roleNameOf(roleId)}' 역할에는 '${admin.permNameOf(permId)}' 권한이 매핑되어 있지 않습니다. ` +
-        '권한이 없으면 이 정책은 실제로 평가되지 않습니다.'
+  if (!roleId || !permId || !ownedPerms.value.size) return ''
+  if (ownedPerms.value.has(permId)) return ''
+  return `'${roleStore.roleNameOf(roleId)}' 역할에는 '${permStore.permNameOf(permId)}' 권한이 매핑되어 있지 않습니다. `
+    + '권한이 없으면 이 정책은 실제로 평가되지 않습니다.'
 })
 
 /** 대상 기능 옵션: 역할이 보유한 권한을 위로 정렬 */
 const permOptionsForRole = computed(() => {
-  const roleId = form.value.roleId
-  const owned = new Set(admin.rolePermissions.filter((m) => m.roleId === roleId).map((m) => m.permId))
-  return [...admin.permissions]
+  const owned = ownedPerms.value
+  return [...permStore.permissions]
+    .filter((p) => p.useYn === 'Y')
     .map((p) => ({
       value: p.permId,
       label: `${owned.has(p.permId) ? '● ' : '○ '}${p.permName} (${p.permId})`,
@@ -128,27 +231,32 @@ const permOptionsForRole = computed(() => {
     .sort((a, b) => Number(b.owned) - Number(a.owned) || a.label.localeCompare(b.label, 'ko'))
 })
 
-/** 역할별 정책 커버리지 (제한사항이 적혀 있는데 정책이 없는 역할 찾기) */
+/**
+ * 제한사항이 적혀 있는데 정책이 없는 역할.
+ * 역할 화면의 '제한/승인 사항'은 글일 뿐이고, 실제 통제는 여기 등록해야 동작한다.
+ */
 const coverage = computed(() =>
-  admin.roles
-    .filter((r) => r.useYn === 'Y')
+  roleStore.roles
+    .filter((r) => r.useYn === 'Y' && r.restrictionSummary)
     .map((r) => ({
       roleId: r.roleId,
       roleName: r.roleName,
-      restriction: r.restriction,
-      count: admin.policiesOf(r.roleId).filter((p) => p.useYn === 'Y').length,
+      restriction: r.restrictionSummary,
+      count: policies.value.filter((p) => p.roleId === r.roleId && p.useYn === 'Y').length,
     }))
-    .filter((r) => r.count === 0 && r.restriction),
+    .filter((r) => r.count === 0),
 )
 
 function addFor(roleId) {
-  const role = admin.roleMap[roleId]
+  const role = roleStore.roleMap[roleId]
   openCreate({
     roleId,
-    policyName: role?.restriction ?? '',
-    message: role?.restriction ? `${role.restriction} — 정책에 따라 제한됩니다.` : '',
+    policyName: role?.restrictionSummary ?? '',
+    message: role?.restrictionSummary ? `${role.restrictionSummary} — 정책에 따라 제한됩니다.` : '',
   })
 }
+
+const readDenyReason = computed(() => session.denyReason('SYS_POLICY', 'R'))
 </script>
 
 <template>
@@ -192,10 +300,17 @@ function addFor(roleId) {
       </div>
     </div>
 
+    <div v-if="readDenyReason" class="alert alert-danger mb-2">
+      <span class="alert-icon">⛔</span><span>{{ readDenyReason }}</span>
+    </div>
+    <div v-else-if="loadError" class="alert alert-danger mb-2">
+      <span class="alert-icon">⛔</span><span>{{ loadError }}</span>
+    </div>
+
     <div class="card">
       <div class="toolbar">
         <FormField v-model="filters.keyword" class="grow" label="검색어" placeholder="정책명 / 메시지 / 조건식" />
-        <FormField v-model="filters.roleId" label="적용 역할" type="select" empty-option="전체" :options="admin.roleOptions" />
+        <FormField v-model="filters.roleId" label="적용 역할" type="select" empty-option="전체" :options="roleStore.roleOptions" />
         <FormField
           v-model="filters.policyType"
           label="유형"
@@ -213,10 +328,15 @@ function addFor(roleId) {
         <FormField v-model="filters.useYn" label="사용" type="select" empty-option="전체" :options="codeOptions('USE_YN')" />
         <div class="toolbar-actions">
           <button class="btn" @click="resetFilters">초기화</button>
+          <button class="btn" :disabled="loading" @click="reload()">
+            <span v-if="loading" class="spinner"></span>
+            새로고침
+          </button>
         </div>
       </div>
 
       <DataTable
+        ref="table"
         :columns="columns"
         :rows="rows"
         row-key="policyId"
@@ -232,6 +352,7 @@ function addFor(roleId) {
         <template #cell-permName="{ row, value }">
           <span v-if="row.permId" class="small">{{ value }}</span>
           <span v-else class="badge badge-slate plain">전체 기능</span>
+          <div v-if="row.granted === false" class="small text-warn" :title="NOT_GRANTED_HELP">⚠ 권한 미매핑</div>
         </template>
 
         <template #cell-policyType="{ value }">
@@ -305,7 +426,7 @@ function addFor(roleId) {
           type="select"
           required
           empty-option="선택하세요"
-          :options="admin.roleOptions"
+          :options="roleStore.roleOptions"
           :error="errors.roleId"
         />
         <FormField

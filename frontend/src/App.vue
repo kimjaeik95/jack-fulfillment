@@ -7,6 +7,7 @@ import { useAdminStore } from '@/stores/admin.js'
 import { useOrgStore } from '@/stores/org.js'
 import { useRoleStore } from '@/stores/role.js'
 import { usePermissionStore } from '@/stores/permission.js'
+import { usePolicyStore } from '@/stores/policy.js'
 import { useSessionStore } from '@/stores/session.js'
 import { useToastStore } from '@/stores/toast.js'
 import ToastHost from '@/components/ToastHost.vue'
@@ -18,6 +19,7 @@ const admin = useAdminStore()
 const orgStore = useOrgStore()
 const roleStore = useRoleStore()
 const permStore = usePermissionStore()
+const policyStore = usePolicyStore()
 const session = useSessionStore()
 const toast = useToastStore()
 
@@ -48,6 +50,7 @@ watch(
       await Promise.all([
         loadCodes(true),
         admin.loadAll(true), orgStore.load(true), roleStore.load(true), permStore.load(true),
+        policyStore.load(true),
       ])
     } catch (e) {
       toast.error(`기준정보를 불러오지 못했습니다. ${e.message}`)
@@ -76,7 +79,7 @@ const counts = computed(() => ({
   roles: roleStore.roles.length,
   permissions: permStore.permissions.length,
   'role-permissions': roleStore.roles.reduce((n, r) => n + (r.permCount ?? 0), 0),
-  policies: admin.policies.length,
+  policies: policyStore.policies.length,
   'audit-logs': admin.auditLogs.length,
 }))
 

@@ -1,0 +1,189 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.fulfillment.system.policy.dao.PolicyDao">
+
+    <resultMap id="policyMap" type="com.fulfillment.domain.Policy">
+        <id     property="policySeq"     column="policy_seq"/>
+        <result property="policyId"      column="policy_id"/>
+        <result property="policyName"    column="policy_name"/>
+        <result property="roleSeq"       column="role_seq"/>
+        <result property="permSeq"       column="perm_seq"/>
+        <result property="policyType"    column="policy_type"/>
+        <result property="enforceLevel"  column="enforce_level"/>
+        <result property="conditionExpr" column="condition_expr"/>
+        <result property="targetField"   column="target_field"/>
+        <result property="message"       column="message"/>
+        <result property="altProcess"    column="alt_process"/>
+        <result property="limitAmount"   column="limit_amount"/>
+        <result property="limitQty"      column="limit_qty"/>
+        <result property="remark"        column="remark"/>
+        <result property="useYn"         column="use_yn"/>
+        <result property="createdBy"     column="created_by"/>
+        <result property="createdAt"     column="created_at"/>
+        <result property="updatedBy"     column="updated_by"/>
+        <result property="updatedAt"     column="updated_at"/>
+        <result property="roleId"        column="role_id"/>
+        <result property="roleName"      column="role_name"/>
+        <result property="permId"        column="perm_id"/>
+        <result property="permName"      column="perm_name"/>
+    </resultMap>
+
+    <!-- 대상 기능은 NULL 일 수 있다 (역할 전체 적용) 이라 LEFT JOIN -->
+    <sql id="policyColumns">
+        p.policy_seq, p.policy_id, p.policy_name, p.role_seq, p.perm_seq,
+        p.policy_type, p.enforce_level, p.condition_expr, p.target_field,
+        p.message, p.alt_process, p.limit_amount, p.limit_qty, p.remark, p.use_yn,
+        p.created_by, p.created_at, p.updated_by, p.updated_at,
+        r.role_id, r.role_name,
+        pm.perm_id, pm.perm_name
+    </sql>
+
+    <sql id="fromPolicy">
+        FROM tb_policy p
+        JOIN tb_role r        ON r.role_seq = p.role_seq
+        LEFT JOIN tb_permission pm ON pm.perm_seq = p.perm_seq
+    </sql>
+
+    <sql id="searchWhere">
+        <where>
+            <if test="roleId != null and roleId != ''">
+                AND r.role_id = #{roleId}
+            </if>
+            <if test="permId != null and permId != ''">
+                AND pm.perm_id = #{permId}
+            </if>
+            <if test="policyType != null and policyType != ''">
+                AND p.policy_type = #{policyType}
+            </if>
+            <if test="enforceLevel != null and enforceLevel != ''">
+                AND p.enforce_level = #{enforceLevel}
+            </if>
+            <if test="useYn != null and useYn != ''">
+                AND p.use_yn = #{useYn}
+            </if>
+            <if test="keyword != null and keyword != ''">
+                AND ( LOWER(p.policy_id)   LIKE '%' || LOWER(#{keyword}) || '%'
+                   OR LOWER(p.policy_name) LIKE '%' || LOWER(#{keyword}) || '%'
+                   OR LOWER(p.message)     LIKE '%' || LOWER(#{keyword}) || '%'
+                   OR LOWER(COALESCE(p.condition_expr, '')) LIKE '%' || LOWER(#{keyword}) || '%'
+                   OR LOWER(COALESCE(p.target_field, ''))   LIKE '%' || LOWER(#{keyword}) || '%'
+                   OR LOWER(COALESCE(p.remark, ''))         LIKE '%' || LOWER(#{keyword}) || '%' )
+            </if>
+        </where>
+    </sql>
+
+    <select id="selectList" resultMap="policyMap">
+        SELECT <include refid="policyColumns"/>
+        <include refid="fromPolicy"/>
+        <include refid="searchWhere"/>
+        <!-- ${} 치환 자리다. PolicySearch 가 화이트리스트로 걸러 SQL 인젝션을 막는다. -->
+         ORDER BY ${sortColumn} ${sortDirection}, p.policy_id ASC
+        <if test="size > 0">
+            LIMIT #{size} OFFSET #{offset}
+        </if>
+    </select>
+
+    <select id="countList" resultType="long">
+        SELECT COUNT(*)
+        <include refid="fromPolicy"/>
+        <include refid="searchWhere"/>
+    </select>
+
+    <select id="selectByPolicyId" resultMap="policyMap">
+        SELECT <include refid="policyColumns"/>
+        <include refid="fromPolicy"/>
+         WHERE p.policy_id = #{policyId}
+    </select>
+
+    <select id="countByPolicyId" resultType="int">
+        SELECT COUNT(*) FROM tb_policy WHERE policy_id = #{policyId}
+    </select>
+
+    <!--
+      다음 정책번호. 'P' + 숫자 형태만 세고 그 외 형태(직접 지정한 코드)는 건너뛴다.
+      시드가 P001~P010 이므로 다음은 11 이 된다.
+    -->
+    <select id="selectNextPolicyNumber" resultType="int">
+        SELECT COALESCE(MAX(CAST(SUBSTRING(policy_id FROM 2) AS INTEGER)), 0) + 1
+          FROM tb_policy
+         WHERE policy_id ~ '^P[0-9]+$'
+    </select>
+
+    <insert id="insert" parameterType="com.fulfillment.domain.Policy"
+            useGeneratedKeys="true" keyProperty="policySeq" keyColumn="policy_seq">
+        INSERT INTO tb_policy (
+            policy_id, policy_name, role_seq, perm_seq, policy_type, enforce_level,
+            condition_expr, target_field, message, alt_process,
+            limit_amount, limit_qty, remark, use_yn, created_by
+        ) VALUES (
+            #{policyId}, #{policyName}, #{roleSeq}, #{permSeq}, #{policyType}, #{enforceLevel},
+            #{conditionExpr}, #{targetField}, #{message}, #{altProcess},
+            #{limitAmount}, #{limitQty}, #{remark}, #{useYn}, #{createdBy}
+        )
+    </insert>
+
+    <!-- 정책ID 는 바꾸지 않는다. 감사로그와 운영 문서가 코드로 정책을 부른다. -->
+    <update id="update" parameterType="com.fulfillment.domain.Policy">
+        UPDATE tb_policy
+           SET policy_name    = #{policyName},
+               role_seq       = #{roleSeq},
+               perm_seq       = #{permSeq},
+               policy_type    = #{policyType},
+               enforce_level  = #{enforceLevel},
+               condition_expr = #{conditionExpr},
+               target_field   = #{targetField},
+               message        = #{message},
+               alt_process    = #{altProcess},
+               limit_amount   = #{limitAmount},
+               limit_qty      = #{limitQty},
+               remark         = #{remark},
+               use_yn         = #{useYn},
+               updated_by     = #{updatedBy},
+               updated_at     = CURRENT_TIMESTAMP
+         WHERE policy_seq = #{policySeq}
+    </update>
+
+    <delete id="delete">
+        DELETE FROM tb_policy WHERE policy_seq = #{policySeq}
+    </delete>
+
+    <!--
+      역할이 그 기능 권한을 실제로 부여받았는지.
+      권한이 없으면 정책이 평가될 일이 없어 사실상 빈 규칙이 된다.
+    -->
+    <select id="countGrant" resultType="int">
+        SELECT COUNT(*)
+          FROM tb_role_permission rp
+          JOIN tb_role r       ON r.role_seq = rp.role_seq
+          JOIN tb_permission p ON p.perm_seq = rp.perm_seq
+         WHERE r.role_id = #{roleId}
+           AND p.perm_id = #{permId}
+    </select>
+
+    <!--
+      같은 역할·기능·유형의 정책이 이미 있는지.
+      대상 기능이 NULL(역할 전체)인 경우도 같은 대상으로 본다.
+    -->
+    <select id="countSameTarget" resultType="int">
+        SELECT COUNT(*)
+          FROM tb_policy p
+          JOIN tb_role r ON r.role_seq = p.role_seq
+          LEFT JOIN tb_permission pm ON pm.perm_seq = p.perm_seq
+         WHERE r.role_id = #{roleId}
+           AND p.policy_type = #{policyType}
+        <choose>
+            <when test="permId != null and permId != ''">
+                AND pm.perm_id = #{permId}
+            </when>
+            <otherwise>
+                AND p.perm_seq IS NULL
+            </otherwise>
+        </choose>
+        <if test="exceptPolicyId != null and exceptPolicyId != ''">
+            AND p.policy_id &lt;&gt; #{exceptPolicyId}
+        </if>
+    </select>
+
+</mapper>

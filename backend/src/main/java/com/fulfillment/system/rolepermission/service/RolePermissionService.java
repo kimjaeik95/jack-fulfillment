@@ -2,6 +2,7 @@ package com.fulfillment.system.rolepermission.service;
 
 import com.fulfillment.common.audit.AuditRecorder;
 import com.fulfillment.common.audit.AuditRecorder.Field;
+import com.fulfillment.common.code.CodeGroups;
 import com.fulfillment.common.exception.BusinessException;
 import com.fulfillment.common.exception.ErrorCode;
 import com.fulfillment.common.security.LoginUser;
@@ -45,8 +46,8 @@ public class RolePermissionService {
 	private static final String PERM = "SYS_ROLE";
 	private static final String TABLE = "tb_role_permission";
 
-	private static final String ACTION_GROUP = "PERM_ACTION";
-	private static final String SCOPE_GROUP = "DATA_SCOPE";
+	private static final String ACTION_GROUP = CodeGroups.PERM_ACTION;
+	private static final String SCOPE_GROUP = CodeGroups.DATA_SCOPE;
 
 	private static final String ACTION_READ = "R";
 	private static final String ACTION_DOWNLOAD = "X";

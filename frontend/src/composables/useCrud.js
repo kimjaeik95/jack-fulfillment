@@ -27,7 +27,9 @@ import { useToastStore } from '@/stores/toast.js'
  *  nameOf(row)  삭제 확인 문구에 쓸 표시명
  *  api      실서버 연동 시 { create, update, remove }.
  *           update 는 { warning } 을 함께 돌려줄 수 있다.
- *  afterChange({action, key})  등록·수정·삭제 성공 후 호출 (목록 재조회용)
+ *  afterChange({action, key, result})  등록·수정·삭제 성공 후 호출 (목록 재조회용).
+ *           key 는 폼의 PK — 서버가 채번하는 화면에서는 등록 시 비어 있으므로
+ *           그런 화면은 result(응답 본문)에서 실제 키를 꺼내 쓴다.
  */
 export function useCrud(cfg) {
   const admin = useAdminStore()
@@ -109,20 +111,21 @@ export function useCrud(cfg) {
     busy.value = true
     try {
       const payload = cfg.toPayload ? cfg.toPayload(form.value) : { ...form.value }
+      let result
       if (mode.value === 'create') {
-        if (cfg.api) await cfg.api.create(payload)
+        if (cfg.api) result = await cfg.api.create(payload)
         else await admin.createRow(cfg.entity, payload)
         toast.success(`${cfg.label}을(를) 등록했습니다.`)
       } else {
-        let result
         if (cfg.api) result = await cfg.api.update(form.value[cfg.pk], payload)
         else await admin.updateRow(cfg.entity, form.value[cfg.pk], payload)
         toast.success(`${cfg.label} 정보를 수정했습니다.`)
-        // 막지는 않았지만 알려야 할 사항 — 저장 자체는 끝난 뒤에 보여준다
-        if (result?.warning) toast.warn(result.warning)
       }
+      // 막지는 않았지만 알려야 할 사항 — 저장이 끝난 뒤에 보여준다.
+      // 등록·수정 어느 쪽이든 올 수 있다 (예: 역할에 대상 기능 권한이 없는 정책)
+      if (result?.warning) toast.warn(result.warning)
       if (cfg.afterChange) {
-        await cfg.afterChange({ action: mode.value, key: form.value[cfg.pk] })
+        await cfg.afterChange({ action: mode.value, key: form.value[cfg.pk], result })
       }
       open.value = false
       return true
