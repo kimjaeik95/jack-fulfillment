@@ -13,6 +13,7 @@ import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.util.Set;
@@ -75,6 +76,22 @@ public class GlobalExceptionHandler {
 		return ResponseEntity.status(ErrorCode.NOT_FOUND.getStatus())
 				.body(ApiResponse.fail(ErrorCode.NOT_FOUND.name(),
 						"요청한 경로를 찾을 수 없습니다. (%s)".formatted(e.getResourcePath())));
+	}
+
+	/**
+	 * 업로드 파일이 너무 큰 경우 (COM-PG-010).
+	 *
+	 * 톰캣이 요청 본문을 읽는 도중에 끊으므로 컨트롤러까지 오지 않는다.
+	 * 잡지 않으면 500 이 나가고, 사용자는 파일을 나눠야 한다는 사실을 모른다.
+	 */
+	@ExceptionHandler(MaxUploadSizeExceededException.class)
+	public ResponseEntity<ApiResponse<Void>> handleUploadTooLarge(
+			MaxUploadSizeExceededException e) {
+		log.warn("업로드 파일 크기 초과: {}", e.getMessage());
+		// 413. PAYLOAD_TOO_LARGE 는 RFC 9110 에서 CONTENT_TOO_LARGE 로 이름이 바뀌었다.
+		return ResponseEntity.status(HttpStatus.CONTENT_TOO_LARGE)
+				.body(ApiResponse.fail("FILE_TOO_LARGE",
+						"파일이 너무 큽니다. 행 수를 줄여 나눠 올려 주세요. (최대 10MB)"));
 	}
 
 	/**

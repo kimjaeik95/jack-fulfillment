@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.fulfillment.common.upload.dao.UploadDao">
+
+    <resultMap id="historyMap" type="com.fulfillment.common.upload.domain.UploadHistory">
+        <id     property="uploadSeq"    column="upload_seq"/>
+        <result property="targetType"   column="target_type"/>
+        <result property="fileName"     column="file_name"/>
+        <result property="totalCount"   column="total_count"/>
+        <result property="successCount" column="success_count"/>
+        <result property="failCount"    column="fail_count"/>
+        <result property="status"       column="status"/>
+        <result property="message"      column="message"/>
+        <result property="uploadedBy"   column="uploaded_by"/>
+        <result property="uploadedAt"   column="uploaded_at"/>
+        <result property="uploaderName" column="uploader_name"/>
+        <result property="targetLabel"  column="target_label"/>
+        <result property="statusName"   column="status_name"/>
+    </resultMap>
+
+    <resultMap id="errorMap" type="com.fulfillment.common.upload.domain.UploadError">
+        <result property="uploadSeq"  column="upload_seq"/>
+        <result property="rowNo"      column="row_no"/>
+        <result property="columnName" column="column_name"/>
+        <result property="message"    column="message"/>
+        <result property="rawLine"    column="raw_line"/>
+    </resultMap>
+
+    <!--
+      업로더 이름과 코드명을 조인해서 준다.
+      사용자는 지워지지 않지만 코드는 사용중지될 수 있으므로 전부 LEFT JOIN.
+    -->
+    <sql id="historyColumns">
+        h.upload_seq, h.target_type, h.file_name, h.total_count, h.success_count,
+        h.fail_count, h.status, h.message, h.uploaded_by, h.uploaded_at,
+        u.user_name AS uploader_name,
+        tc.code_name AS target_label,
+        sc.code_name AS status_name
+    </sql>
+
+    <sql id="fromHistory">
+        FROM tb_upload_history h
+        LEFT JOIN tb_user u ON u.user_id = h.uploaded_by
+        LEFT JOIN (SELECT c.code_id, c.code_name
+                     FROM tb_code c JOIN tb_code_group g USING (code_group_seq)
+                    WHERE g.code_group_id = 'UPLOAD_TARGET') tc ON tc.code_id = h.target_type
+        LEFT JOIN (SELECT c.code_id, c.code_name
+                     FROM tb_code c JOIN tb_code_group g USING (code_group_seq)
+                    WHERE g.code_group_id = 'UPLOAD_STATUS') sc ON sc.code_id = h.status
+    </sql>
+
+    <sql id="historyWhere">
+        <where>
+            <if test="targetType != null and targetType != ''">
+                AND h.target_type = #{targetType}
+            </if>
+            <!-- null 이면 전체. 권한 판정은 서비스가 이미 끝냈다. -->
+            <if test="uploadedBy != null and uploadedBy != ''">
+                AND h.uploaded_by = #{uploadedBy}
+            </if>
+        </where>
+    </sql>
+
+    <insert id="insertHistory" parameterType="com.fulfillment.common.upload.domain.UploadHistory"
+            useGeneratedKeys="true" keyProperty="uploadSeq" keyColumn="upload_seq">
+        INSERT INTO tb_upload_history (
+            target_type, file_name, total_count, success_count, fail_count,
+            status, message, uploaded_by
+        ) VALUES (
+            #{targetType}, #{fileName}, #{totalCount}, #{successCount}, #{failCount},
+            #{status}, #{message}, #{uploadedBy}
+        )
+    </insert>
+
+    <insert id="insertErrors">
+        INSERT INTO tb_upload_error (upload_seq, row_no, column_name, message, raw_line)
+        VALUES
+        <foreach collection="errors" item="e" separator=",">
+            (#{e.uploadSeq}, #{e.rowNo}, #{e.columnName}, #{e.message}, #{e.rawLine})
+        </foreach>
+    </insert>
+
+    <select id="selectHistory" resultMap="historyMap">
+        SELECT <include refid="historyColumns"/>
+        <include refid="fromHistory"/>
+         WHERE h.upload_seq = #{uploadSeq}
+    </select>
+
+    <select id="selectErrors" resultMap="errorMap">
+        SELECT upload_seq, row_no, column_name, message, raw_line
+          FROM tb_upload_error
+         WHERE upload_seq = #{uploadSeq}
+         ORDER BY row_no
+    </select>
+
+    <select id="selectHistories" resultMap="historyMap">
+        SELECT <include refid="historyColumns"/>
+        <include refid="fromHistory"/>
+        <include refid="historyWhere"/>
+         ORDER BY h.uploaded_at DESC, h.upload_seq DESC
+        <if test="size > 0">
+            LIMIT #{size} OFFSET #{offset}
+        </if>
+    </select>
+
+    <select id="countHistories" resultType="long">
+        SELECT COUNT(*)
+        <include refid="fromHistory"/>
+        <include refid="historyWhere"/>
+    </select>
+
+</mapper>

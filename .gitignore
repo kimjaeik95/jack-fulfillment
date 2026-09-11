@@ -8,7 +8,11 @@ out/
 .vite/
 
 # 백엔드 (Java/Gradle)
-target/
+# target/ 은 Maven 산출물이다. 이 프로젝트는 Gradle(build/)을 쓰므로 거의
+# 쓰이지 않지만, 앞에 / 를 붙여 최상위로 못박아 둔다. / 가 없으면 어느 깊이의
+# target 폴더든 걸려서 target 이라는 이름의 자바 패키지가 통째로 커밋에서
+# 빠진다 — 실제로 common/upload/target 이 그렇게 사라졌다.
+/target/
 .gradle/
 *.class
 *.jar

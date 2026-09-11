@@ -1,0 +1,152 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.fulfillment.system.menu.dao.MenuDao">
+
+    <resultMap id="menuMap" type="com.fulfillment.domain.Menu">
+        <id     property="menuSeq"    column="menu_seq"/>
+        <result property="menuId"     column="menu_id"/>
+        <result property="menuName"   column="menu_name"/>
+        <result property="parentSeq"  column="parent_seq"/>
+        <result property="routeName"  column="route_name"/>
+        <result property="icon"       column="icon"/>
+        <result property="permSeq"    column="perm_seq"/>
+        <result property="sortOrder"  column="sort_order"/>
+        <result property="useYn"      column="use_yn"/>
+        <result property="createdBy"  column="created_by"/>
+        <result property="createdAt"  column="created_at"/>
+        <result property="updatedBy"  column="updated_by"/>
+        <result property="updatedAt"  column="updated_at"/>
+        <result property="parentId"   column="parent_id"/>
+        <result property="parentName" column="parent_name"/>
+        <result property="permId"     column="perm_id"/>
+        <result property="permName"   column="perm_name"/>
+    </resultMap>
+
+    <!-- 상위 메뉴와 권한은 없을 수 있다 (그룹 머리글 · 무권한 메뉴) -->
+    <sql id="menuColumns">
+        m.menu_seq, m.menu_id, m.menu_name, m.parent_seq, m.route_name, m.icon,
+        m.perm_seq, m.sort_order, m.use_yn,
+        m.created_by, m.created_at, m.updated_by, m.updated_at,
+        g.menu_id AS parent_id, g.menu_name AS parent_name,
+        p.perm_id, p.perm_name
+    </sql>
+
+    <sql id="fromMenu">
+        FROM tb_menu m
+        LEFT JOIN tb_menu g       ON g.menu_seq = m.parent_seq
+        LEFT JOIN tb_permission p ON p.perm_seq = m.perm_seq
+    </sql>
+
+    <!--
+      정렬은 "그룹 순서 → 그룹 안 순서" 다. 그룹 자신은 자기 그룹의 머리이므로
+      COALESCE 로 자기 sort_order 를 그룹 순서 자리에 넣고 맨 앞에 오게 한다.
+    -->
+    <sql id="menuOrder">
+        ORDER BY COALESCE(g.sort_order, m.sort_order),
+                 COALESCE(g.menu_seq, m.menu_seq),
+                 m.parent_seq NULLS FIRST,
+                 m.sort_order, m.menu_id
+    </sql>
+
+    <select id="selectAll" resultMap="menuMap">
+        SELECT <include refid="menuColumns"/>
+        <include refid="fromMenu"/>
+        <where>
+            <if test="useYn != null and useYn != ''">
+                AND m.use_yn = #{useYn}
+            </if>
+            <if test="keyword != null and keyword != ''">
+                AND ( LOWER(m.menu_id)   LIKE '%' || LOWER(#{keyword}) || '%'
+                   OR LOWER(m.menu_name) LIKE '%' || LOWER(#{keyword}) || '%'
+                   OR LOWER(COALESCE(m.route_name, '')) LIKE '%' || LOWER(#{keyword}) || '%' )
+            </if>
+        </where>
+        <include refid="menuOrder"/>
+    </select>
+
+    <select id="selectByMenuId" resultMap="menuMap">
+        SELECT <include refid="menuColumns"/>
+        <include refid="fromMenu"/>
+         WHERE m.menu_id = #{menuId}
+    </select>
+
+    <select id="countByMenuId" resultType="int">
+        SELECT COUNT(*) FROM tb_menu WHERE menu_id = #{menuId}
+    </select>
+
+    <select id="countByRouteName" resultType="int">
+        SELECT COUNT(*)
+          FROM tb_menu
+         WHERE route_name = #{routeName}
+        <if test="exceptMenuId != null and exceptMenuId != ''">
+            AND menu_id &lt;&gt; #{exceptMenuId}
+        </if>
+    </select>
+
+    <select id="countChildren" resultType="int">
+        SELECT COUNT(*) FROM tb_menu WHERE parent_seq = #{menuSeq}
+    </select>
+
+    <!--
+      사용자에게 보이는 메뉴.
+
+      그룹은 보이는 하위가 하나라도 있을 때만 내보낸다. 빈 그룹 머리글만
+      남으면 사용자는 "뭔가 있는데 안 보인다"고 읽는다.
+    -->
+    <select id="selectVisible" resultMap="menuMap">
+        WITH granted AS (
+            SELECT DISTINCT rp.perm_seq
+              FROM tb_user_role ur
+              JOIN tb_role r            ON r.role_seq = ur.role_seq AND r.use_yn = 'Y'
+              JOIN tb_role_permission rp ON rp.role_seq = r.role_seq
+             WHERE ur.user_seq = #{userSeq}
+               AND rp.action_code = 'R'
+        ),
+        visible_item AS (
+            SELECT m.*
+              FROM tb_menu m
+             WHERE m.use_yn = 'Y'
+               AND m.parent_seq IS NOT NULL
+               AND ( m.perm_seq IS NULL OR m.perm_seq IN (SELECT perm_seq FROM granted) )
+        )
+        SELECT <include refid="menuColumns"/>
+        <include refid="fromMenu"/>
+         WHERE m.use_yn = 'Y'
+           AND ( m.menu_seq IN (SELECT menu_seq FROM visible_item)
+              OR m.menu_seq IN (SELECT parent_seq FROM visible_item) )
+        <include refid="menuOrder"/>
+    </select>
+
+    <insert id="insert" parameterType="com.fulfillment.domain.Menu"
+            useGeneratedKeys="true" keyProperty="menuSeq" keyColumn="menu_seq">
+        INSERT INTO tb_menu (
+            menu_id, menu_name, parent_seq, route_name, icon, perm_seq,
+            sort_order, use_yn, created_by
+        ) VALUES (
+            #{menuId}, #{menuName}, #{parentSeq}, #{routeName}, #{icon}, #{permSeq},
+            #{sortOrder}, #{useYn}, #{createdBy}
+        )
+    </insert>
+
+    <!-- 메뉴코드는 바꾸지 않는다. 감사로그가 코드로 메뉴를 부른다. -->
+    <update id="update" parameterType="com.fulfillment.domain.Menu">
+        UPDATE tb_menu
+           SET menu_name  = #{menuName},
+               parent_seq = #{parentSeq},
+               route_name = #{routeName},
+               icon       = #{icon},
+               perm_seq   = #{permSeq},
+               sort_order = #{sortOrder},
+               use_yn     = #{useYn},
+               updated_by = #{updatedBy},
+               updated_at = CURRENT_TIMESTAMP
+         WHERE menu_seq = #{menuSeq}
+    </update>
+
+    <delete id="delete">
+        DELETE FROM tb_menu WHERE menu_seq = #{menuSeq}
+    </delete>
+
+</mapper>
