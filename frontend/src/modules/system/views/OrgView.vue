@@ -105,11 +105,14 @@ const {
   blank: () => ({
     orgId: '',
     orgName: '',
-    orgType: 'STORE',
+    orgType: 'DC',
     parentId: 'HQ001',
     managerName: '',
     phone: '',
     address: '',
+    zipCode: '',
+    bizRegNo: '',
+    ceoName: '',
     sortOrder: 0,
     useYn: 'Y',
   }),
@@ -121,6 +124,9 @@ const {
     managerName: row.managerName ?? '',
     phone: row.phone ?? '',
     address: row.address ?? '',
+    zipCode: row.zipCode ?? '',
+    bizRegNo: row.bizRegNo ?? '',
+    ceoName: row.ceoName ?? '',
     sortOrder: row.sortOrder ?? 0,
     useYn: row.useYn,
   }),
@@ -128,20 +134,28 @@ const {
     ...f,
     // 본사는 상위를 가질 수 없다. 유형을 본사로 바꾸면 이전에 고른 상위가 남아 있으므로 지운다.
     parentId: f.orgType === 'HQ' ? null : f.parentId || null,
+    zipCode: f.zipCode || null,
+    // 회사가 아니면 비워 보낸다. 유형을 바꿨을 때 옛 값이 따라가면 서버가 거절한다.
+    bizRegNo: f.orgType === 'HQ' ? f.bizRegNo || null : null,
+    ceoName: f.orgType === 'HQ' ? f.ceoName || null : null,
     sortOrder: Number(f.sortOrder) || 0,
   }),
   validate(f, ctx) {
     const e = {}
     if (!f.orgId?.trim()) e.orgId = '조직코드는 필수입니다.'
-    else if (!/^[A-Z]{2}\d{3}$/.test(f.orgId)) e.orgId = '영문 대문자 2자 + 숫자 3자 형식. 예) ST004'
+    else if (!/^[A-Z]{2}\d{3}$/.test(f.orgId)) e.orgId = '영문 대문자 2자 + 숫자 3자 형식. 예) DC003'
     else if (ctx.mode === 'create' && orgStore.orgs.some((o) => o.orgId === f.orgId))
       e.orgId = '이미 사용 중인 조직코드입니다.'
     if (!f.orgName?.trim()) e.orgName = '조직명은 필수입니다.'
     else if (orgStore.orgs.some((o) => o.orgName === f.orgName.trim() && o.orgId !== f.orgId))
       e.orgName = '이미 사용 중인 조직명입니다.'
     if (!f.orgType) e.orgType = '조직유형을 선택하세요.'
-    if (f.orgType === 'HQ' && f.parentId) e.parentId = '본사는 상위 조직을 가질 수 없습니다.'
-    if (f.orgType !== 'HQ' && !f.parentId) e.parentId = '본사가 아닌 조직은 상위 조직이 필요합니다.'
+    if (f.orgType === 'HQ' && f.parentId) e.parentId = '회사는 상위 조직을 가질 수 없습니다.'
+    if (f.orgType !== 'HQ' && !f.parentId) e.parentId = '회사가 아닌 조직은 상위 조직이 필요합니다.'
+    if (f.zipCode && !/^\d{5}$/.test(f.zipCode)) e.zipCode = '우편번호는 숫자 5자리입니다.'
+    if (f.orgType === 'HQ' && f.bizRegNo && !/^\d{3}-\d{2}-\d{5}$/.test(f.bizRegNo)) {
+      e.bizRegNo = '000-00-00000 형식으로 입력하세요.'
+    }
     if (f.parentId && f.parentId === f.orgId) e.parentId = '자기 자신을 상위 조직으로 지정할 수 없습니다.'
     if (f.phone && !/^\d{2,3}-\d{3,4}-\d{4}$/.test(f.phone))
       e.phone = '02-1234-5678 형식으로 입력하세요.'
@@ -180,6 +194,9 @@ const deleteDetail = computed(() => {
     ? `${blockers.join(', ')}이(가) 있어 삭제할 수 없습니다. 더 이상 쓰지 않는 조직이라면 사용여부를 '미사용'으로 바꾸세요.`
     : '소속 사용자나 하위 조직이 있으면 서버가 삭제를 거부합니다.'
 })
+
+/** 회사 유형일 때만 사업자등록번호·대표자명을 다룬다 (MST-PG-001) */
+const isCompany = computed(() => form.value.orgType === 'HQ')
 
 const readDenyReason = computed(() => session.denyReason('SYS_COMPANY', 'R'))
 
@@ -226,7 +243,7 @@ async function downloadAs(format) {
       <div>
         <h1 class="page-title">조직 관리</h1>
         <p class="page-desc">
-          본사·물류센터·매장 조직을 관리합니다. 조직유형은 역할 배정 범위(적용범위)와 데이터 범위 제한의 기준이 됩니다.
+          본사·물류센터 조직을 관리합니다. 조직유형은 역할 배정 범위(적용범위)와 데이터 범위 제한의 기준이 됩니다.
         </p>
       </div>
       <div class="page-head-actions">
@@ -345,10 +362,10 @@ async function downloadAs(format) {
           label="조직코드"
           required
           mono
-          placeholder="ST004"
+          placeholder="DC003"
           :disabled="mode === 'edit'"
           :error="errors.orgId"
-          help="HQ/DC/ST/WH + 3자리 숫자"
+          help="영문 대문자 2자 + 숫자 3자 (예: DC003)"
         />
         <FormField v-model="form.orgName" label="조직명" required placeholder="여의도점" :error="errors.orgName" />
         <FormField
@@ -372,6 +389,27 @@ async function downloadAs(format) {
         <FormField v-model="form.managerName" label="책임자" placeholder="홍길동" />
         <FormField v-model="form.phone" label="연락처" placeholder="02-1234-5678" :error="errors.phone" />
         <FormField v-model="form.address" class="grow" label="주소" placeholder="서울 영등포구 여의대로 1" />
+        <FormField
+          v-model="form.zipCode"
+          label="우편번호"
+          placeholder="07326"
+          :error="errors.zipCode"
+        />
+
+        <!--
+          사업자등록번호와 대표자명은 법인의 것이다. 물류센터에는 없는 항목이라
+          유형이 회사일 때만 보여준다. 서버와 DB 제약도 같은 규칙을 건다.
+        -->
+        <template v-if="isCompany">
+          <FormField
+            v-model="form.bizRegNo"
+            label="사업자등록번호"
+            placeholder="000-00-00000"
+            :error="errors.bizRegNo"
+            help="회사에만 입력하는 항목입니다."
+          />
+          <FormField v-model="form.ceoName" label="대표자명" placeholder="홍길동" />
+        </template>
         <FormField v-model="form.sortOrder" label="정렬순서" type="number" help="작을수록 위에 표시됩니다." />
         <FormField v-model="form.useYn" label="사용여부" type="switch" />
       </div>

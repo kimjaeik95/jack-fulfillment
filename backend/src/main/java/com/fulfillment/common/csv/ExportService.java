@@ -79,11 +79,14 @@ public class ExportService {
 		search.setSize(ExportRecorder.LIMIT);
 
 		List<OrgResponse> rows = orgService.search(actor, search).rows();
+		// 업로드 템플릿과 열 이름을 맞춘다. 내려받아 고친 뒤 그대로 올릴 수 있어야 한다.
 		TableWriter csv = format.newWriter("조직", "조직코드", "조직명", "조직유형", "상위조직코드", "상위조직명",
-				"담당자", "연락처", "주소", "소속인원", "하위조직수", "정렬순서", "사용여부", "등록일시");
+				"담당자", "연락처", "주소", "우편번호", "사업자등록번호", "대표자명",
+				"소속인원", "하위조직수", "정렬순서", "사용여부", "등록일시");
 		for (OrgResponse r : rows) {
 			csv.row(r.orgId(), r.orgName(), r.orgType(), r.parentId(), r.parentName(),
-					r.managerName(), r.phone(), r.address(), r.userCount(), r.childCount(),
+					r.managerName(), r.phone(), r.address(), r.zipCode(), r.bizRegNo(), r.ceoName(),
+					r.userCount(), r.childCount(),
 					r.sortOrder(), r.useYn(), r.createdAt());
 		}
 		recorder.record(actor, "tb_org", "조직", rows.size());

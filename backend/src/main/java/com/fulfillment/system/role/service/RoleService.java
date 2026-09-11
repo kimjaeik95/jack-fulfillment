@@ -1,11 +1,14 @@
 package com.fulfillment.system.role.service;
 
 import com.fulfillment.common.audit.AuditRecorder;
+import com.fulfillment.common.code.CodeGroups;
+import com.fulfillment.common.code.CodeLabels;
 import com.fulfillment.common.audit.AuditRecorder.Field;
 import com.fulfillment.common.exception.BusinessException;
 import com.fulfillment.common.exception.ErrorCode;
 import com.fulfillment.common.security.LoginUser;
 import com.fulfillment.common.security.PermissionChecker;
+import com.fulfillment.system.code.dao.CodeDao;
 import com.fulfillment.common.web.PageResponse;
 import com.fulfillment.domain.Role;
 import com.fulfillment.system.role.dao.RoleDao;
@@ -41,8 +44,15 @@ public class RoleService {
 	 */
 	private static final String PROTECTED_ROLE_ID = "SYS_ADMIN";
 
-	/** 배정 가능 조직유형 — 코드그룹 ORG_TYPE */
-	private static final List<String> ORG_SCOPES = List.of("HQ", "DC", "WAREHOUSE", "STORE");
+	/**
+	 * 배정 가능 조직유형은 코드그룹 ORG_TYPE 에서 읽는다.
+	 *
+	 * 전에는 이 목록을 코드에 적어 두었는데, 조직유형이 바뀌자 곧바로 어긋났다.
+	 * 매장을 걷어낸 뒤에도 orgScope="STORE" 인 역할이 등록됐고, 그 역할은
+	 * 어느 조직에도 배정할 수 없는 역할이 되어 사용자 등록에서만 실패했다.
+	 * 원인이 역할에 있는데 오류는 사용자 화면에서 나는 형태였다.
+	 */
+	private static final String ORG_TYPE_GROUP = CodeGroups.ORG_TYPE;
 
 	/** 데이터 범위 — 코드그룹 DATA_SCOPE */
 	private static final List<String> DATA_SCOPES = List.of("ALL", "OWN_ORG", "OWN_DATA");
@@ -57,14 +67,18 @@ public class RoleService {
 			new Field<>("use_yn", Role::getUseYn));
 
 	private final RoleDao roleDao;
+	private final CodeDao codeDao;
 	private final PermissionChecker permissionChecker;
 	private final AuditRecorder auditRecorder;
+	private final CodeLabels codeLabels;
 
-	public RoleService(RoleDao roleDao, PermissionChecker permissionChecker,
-			AuditRecorder auditRecorder) {
+	public RoleService(RoleDao roleDao, CodeDao codeDao, PermissionChecker permissionChecker,
+			AuditRecorder auditRecorder, CodeLabels codeLabels) {
 		this.roleDao = roleDao;
+		this.codeDao = codeDao;
 		this.permissionChecker = permissionChecker;
 		this.auditRecorder = auditRecorder;
+		this.codeLabels = codeLabels;
 	}
 
 	/* ------------------------------------------------------------------ */
@@ -192,9 +206,11 @@ public class RoleService {
 	/* ------------------------------------------------------------------ */
 
 	private void validateCodes(RoleSaveRequest request) {
-		if (!ORG_SCOPES.contains(request.orgScope())) {
+		List<String> orgScopes = codeDao.selectCodeIds(ORG_TYPE_GROUP);
+		if (!orgScopes.contains(request.orgScope())) {
 			throw new BusinessException(ErrorCode.INVALID_INPUT,
-					"적용범위 값이 올바르지 않습니다. (%s)".formatted(request.orgScope()));
+					"적용범위 값이 올바르지 않습니다. (%s) 가능한 값: %s"
+							.formatted(request.orgScope(), String.join(", ", orgScopes)));
 		}
 		if (!DATA_SCOPES.contains(request.defaultDataScope())) {
 			throw new BusinessException(ErrorCode.INVALID_INPUT,
@@ -219,7 +235,7 @@ public class RoleService {
 			throw new BusinessException(ErrorCode.INVALID_INPUT,
 					("적용범위를 %s(으)로 바꾸면 이미 배정된 사용자 %d명이 범위를 벗어납니다: %s. "
 							+ "사용자 화면에서 역할을 먼저 정리하세요.")
-							.formatted(orgTypeLabel(newScope), violating.size(), preview(violating)));
+							.formatted(codeLabels.orgType(newScope), violating.size(), preview(violating)));
 		}
 	}
 
@@ -280,15 +296,6 @@ public class RoleService {
 		return String.join(", ", names.subList(0, 5)) + " 외 %d명".formatted(names.size() - 5);
 	}
 
-	private String orgTypeLabel(String orgType) {
-		return switch (orgType == null ? "" : orgType) {
-			case "HQ" -> "본사";
-			case "DC" -> "물류센터";
-			case "WAREHOUSE" -> "창고";
-			case "STORE" -> "매장";
-			default -> orgType;
-		};
-	}
 
 	private String actorId(LoginUser actor) {
 		return actor == null ? "system" : actor.getUserId();

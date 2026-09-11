@@ -2,6 +2,7 @@ package com.fulfillment.system.org.service;
 
 import com.fulfillment.common.audit.AuditRecorder;
 import com.fulfillment.common.audit.AuditRecorder.Field;
+import com.fulfillment.common.code.CodeLabels;
 import com.fulfillment.common.exception.BusinessException;
 import com.fulfillment.common.exception.ErrorCode;
 import com.fulfillment.common.security.LoginUser;
@@ -39,7 +40,7 @@ public class OrgService {
 	/** 최상위 본사 — 지우면 모든 조직이 부모를 잃는다 */
 	private static final String ROOT_ORG_ID = "HQ001";
 
-	/** 상위 조직을 가질 수 없는 유형 */
+	/** 상위 조직을 가질 수 없는 유형 = 회사 */
 	private static final String ROOT_ORG_TYPE = "HQ";
 
 	private static final List<Field<Org>> AUDIT_FIELDS = List.of(
@@ -49,6 +50,9 @@ public class OrgService {
 			new Field<>("manager_name", Org::getManagerName),
 			new Field<>("phone", Org::getPhone),
 			new Field<>("address", Org::getAddress),
+			new Field<>("zip_code", Org::getZipCode),
+			new Field<>("biz_reg_no", Org::getBizRegNo),
+			new Field<>("ceo_name", Org::getCeoName),
 			new Field<>("sort_order", Org::getSortOrder),
 			new Field<>("use_yn", Org::getUseYn));
 
@@ -56,13 +60,16 @@ public class OrgService {
 	private final PermissionChecker permissionChecker;
 	private final DataScopeResolver dataScopes;
 	private final AuditRecorder auditRecorder;
+	private final CodeLabels codeLabels;
 
 	public OrgService(OrgDao orgDao, PermissionChecker permissionChecker,
-			DataScopeResolver dataScopes, AuditRecorder auditRecorder) {
+			DataScopeResolver dataScopes, AuditRecorder auditRecorder,
+			CodeLabels codeLabels) {
 		this.orgDao = orgDao;
 		this.permissionChecker = permissionChecker;
 		this.dataScopes = dataScopes;
 		this.auditRecorder = auditRecorder;
+		this.codeLabels = codeLabels;
 	}
 
 	/* ------------------------------------------------------------------ */
@@ -94,7 +101,7 @@ public class OrgService {
 	/* ------------------------------------------------------------------ */
 
 	@Transactional
-	public OrgResponse create(LoginUser actor, OrgSaveRequest request) {
+	public Result create(LoginUser actor, OrgSaveRequest request) {
 		permissionChecker.require(actor, PERM, "C");
 
 		if (orgDao.countByOrgId(request.orgId()) > 0) {
@@ -106,6 +113,7 @@ public class OrgService {
 					"이미 사용 중인 조직명입니다. (%s)".formatted(request.orgName()));
 		}
 
+		validateCompanyFields(request);
 		Org parent = resolveParent(request, null);
 		// 범위 밖 조직 밑에 새 조직을 달면 그 조직은 만든 사람도 못 보게 된다.
 		// 더 중요한 건, 범위 밖 조직의 하위를 늘리는 것 자체가 범위 우회다.
@@ -125,7 +133,7 @@ public class OrgService {
 		Org saved = mustFind(request.orgId());
 		auditRecorder.recordCreate(actor, TABLE, saved.getOrgId(), saved, AUDIT_FIELDS,
 				defaultReason(request.reason(), "조직 등록"));
-		return OrgResponse.of(saved);
+		return new Result(OrgResponse.of(saved), warnOnSecondCompany(request, saved.getOrgId()));
 	}
 
 	/* ------------------------------------------------------------------ */
@@ -144,6 +152,7 @@ public class OrgService {
 					"이미 사용 중인 조직명입니다. (%s)".formatted(request.orgName()));
 		}
 
+		validateCompanyFields(request);
 		Org parent = resolveParent(request, before);
 		// 범위 밖으로 옮기면 저장한 본인이 그 조직을 다시 볼 수 없게 된다
 		if (parent != null) {
@@ -215,6 +224,44 @@ public class OrgService {
 	 *   - 본사는 상위를 가질 수 없고, 그 외 유형은 상위가 반드시 있어야 한다
 	 *   - 자기 자신과 자기 하위를 상위로 지정할 수 없다 (순환 참조)
 	 */
+	/**
+	 * 회사 전용 속성 검증 (MST-PG-001).
+	 *
+	 * 사업자등록번호와 대표자명은 법인의 것이다. 물류센터에 넣으면 DB 제약
+	 * (ck_org_company_only)에 걸리는데, 그 오류 메시지는 사용자가 읽을 수 없다.
+	 * 여기서 먼저 사람이 읽을 수 있는 사유로 막는다.
+	 */
+	private void validateCompanyFields(OrgSaveRequest request) {
+		if (OrgSaveRequest.COMPANY_TYPE.equals(request.orgType())) {
+			return;
+		}
+		if (request.bizRegNo() != null || request.ceoName() != null) {
+			throw new BusinessException(ErrorCode.INVALID_INPUT,
+					("사업자등록번호와 대표자명은 회사에만 입력할 수 있습니다. "
+							+ "%s은(는) 해당 항목을 가질 수 없습니다.")
+							.formatted(codeLabels.orgType(request.orgType())));
+		}
+	}
+
+	/**
+	 * 두 번째 회사 등록 안내.
+	 *
+	 * 막지 않는다 — 다법인 운영으로 넓힐 여지를 남겨 두라는 요구가 있다
+	 * (NFR-OPS-04). 다만 1차 범위는 단일 법인이고, 회사가 둘이 되면 조직
+	 * 트리가 둘로 갈려 사용자·데이터범위가 섞이므로 알려는 준다.
+	 */
+	private String warnOnSecondCompany(OrgSaveRequest request, String exceptOrgId) {
+		if (!OrgSaveRequest.COMPANY_TYPE.equals(request.orgType())) {
+			return null;
+		}
+		int others = orgDao.countCompanies(exceptOrgId);
+		if (others == 0) {
+			return null;
+		}
+		return ("이미 회사가 %d개 있습니다. 1차 범위는 단일 법인이라, 회사를 둘 이상 두면 "
+				+ "조직 트리가 갈리고 사용자·데이터 범위가 회사별로 나뉩니다.").formatted(others);
+	}
+
 	private Org resolveParent(OrgSaveRequest request, Org self) {
 		String parentId = request.parentId();
 
@@ -266,7 +313,7 @@ public class OrgService {
 			throw new BusinessException(ErrorCode.INVALID_INPUT,
 					("조직유형을 %s(으)로 바꾸면 소속 사용자 %d명의 역할이 배정 범위를 벗어납니다: %s. "
 							+ "사용자 화면에서 역할을 먼저 다시 배정하세요.")
-							.formatted(orgTypeLabel(newType), violating.size(),
+							.formatted(codeLabels.orgType(newType), violating.size(),
 									String.join(", ", violating)));
 		}
 	}
@@ -316,15 +363,6 @@ public class OrgService {
 		return org;
 	}
 
-	private String orgTypeLabel(String orgType) {
-		return switch (orgType == null ? "" : orgType) {
-			case "HQ" -> "본사";
-			case "DC" -> "물류센터";
-			case "WAREHOUSE" -> "창고";
-			case "STORE" -> "매장";
-			default -> orgType;
-		};
-	}
 
 	/** 최상위 조직은 상위가 없다 */
 	private Long seqOf(Org org) {

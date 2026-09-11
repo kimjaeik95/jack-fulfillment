@@ -13,6 +13,9 @@
         <result property="managerName"   column="manager_name"/>
         <result property="phone"         column="phone"/>
         <result property="address"       column="address"/>
+        <result property="zipCode"       column="zip_code"/>
+        <result property="bizRegNo"      column="biz_reg_no"/>
+        <result property="ceoName"       column="ceo_name"/>
         <result property="sortOrder"     column="sort_order"/>
         <result property="useYn"         column="use_yn"/>
         <result property="createdBy"     column="created_by"/>
@@ -33,7 +36,8 @@
     -->
     <sql id="orgColumns">
         o.org_seq, o.org_id, o.org_name, o.org_type, o.parent_seq,
-        o.manager_name, o.phone, o.address, o.sort_order, o.use_yn,
+        o.manager_name, o.phone, o.address, o.zip_code, o.biz_reg_no, o.ceo_name,
+        o.sort_order, o.use_yn,
         o.created_by, o.created_at, o.updated_by, o.updated_at,
         p.org_id   AS parent_org_id,
         p.org_name AS parent_org_name,
@@ -118,6 +122,14 @@
         SELECT COUNT(*) FROM tb_org WHERE org_id = #{orgId}
     </select>
 
+    <!-- 회사(최상위) 수. 단일 법인 전제를 벗어났는지 알리는 데 쓴다. -->
+    <select id="countCompanies" resultType="int">
+        SELECT COUNT(*) FROM tb_org WHERE org_type = 'HQ'
+        <if test="exceptOrgId != null and exceptOrgId != ''">
+            AND org_id &lt;&gt; #{exceptOrgId}
+        </if>
+    </select>
+
     <select id="countByOrgName" resultType="int">
         SELECT COUNT(*) FROM tb_org
          WHERE org_name = #{orgName}
@@ -130,10 +142,12 @@
             useGeneratedKeys="true" keyProperty="orgSeq" keyColumn="org_seq">
         INSERT INTO tb_org (
             org_id, org_name, org_type, parent_seq,
-            manager_name, phone, address, sort_order, use_yn, created_by
+            manager_name, phone, address, zip_code, biz_reg_no, ceo_name,
+            sort_order, use_yn, created_by
         ) VALUES (
             #{orgId}, #{orgName}, #{orgType}, #{parentSeq},
-            #{managerName}, #{phone}, #{address}, #{sortOrder}, #{useYn}, #{createdBy}
+            #{managerName}, #{phone}, #{address}, #{zipCode}, #{bizRegNo}, #{ceoName},
+            #{sortOrder}, #{useYn}, #{createdBy}
         )
     </insert>
 
@@ -146,6 +160,9 @@
                manager_name = #{managerName},
                phone        = #{phone},
                address      = #{address},
+               zip_code     = #{zipCode},
+               biz_reg_no   = #{bizRegNo},
+               ceo_name     = #{ceoName},
                sort_order   = #{sortOrder},
                use_yn       = #{useYn},
                updated_by   = #{updatedBy},

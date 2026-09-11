@@ -466,7 +466,7 @@ async function downloadAs(format) {
           label="정책명"
           required
           span
-          placeholder="타 매장 재고 직접 수정 금지"
+          placeholder="센터 재고조정 승인 한도"
           :error="errors.policyName"
         />
         <FormField
@@ -508,7 +508,7 @@ async function downloadAs(format) {
         <FormField
           v-model="form.targetField"
           label="대상 항목/필드"
-          placeholder="po.cancelReason 또는 매장 재고/실사"
+          placeholder="po.cancelReason 또는 재고조정 금액·수량"
           :error="errors.targetField"
           :required="form.policyType === 'REQUIRED'"
         />
@@ -540,14 +540,14 @@ async function downloadAs(format) {
           required
           span
           :rows="2"
-          placeholder="소속 매장 외의 재고는 직접 수정할 수 없습니다."
+          placeholder="재고조정 한도(500만원 / 1,000EA)를 초과했습니다."
           :error="errors.message"
           help="차단·경고 시 사용자에게 그대로 노출됩니다."
         />
         <FormField
           v-model="form.altProcess"
           label="대안 프로세스"
-          placeholder="매장 간 이동 요청 → 이동 승인"
+          placeholder="본사 기준정보 담당 승인 요청"
           help="차단 시 사용자를 안내할 우회 경로"
         />
         <FormField v-model="form.useYn" label="사용여부" type="switch" />

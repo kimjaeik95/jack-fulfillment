@@ -20,6 +20,14 @@ public class Org {
 	private String managerName;
 	private String phone;
 	private String address;
+	private String zipCode;
+
+	/**
+	 * 사업자등록번호 · 대표자명은 회사(HQ)만 갖는다.
+	 * DB 의 ck_org_company_only 가 같은 규칙을 걸어 둔다.
+	 */
+	private String bizRegNo;
+	private String ceoName;
 	private Integer sortOrder;
 	private String useYn;
 

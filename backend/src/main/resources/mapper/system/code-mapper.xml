@@ -51,6 +51,18 @@
          ORDER BY c.sort_order
     </select>
 
+    <!-- 오류 메시지 라벨용 — 값과 이름만 (CodeLabels) -->
+    <select id="selectCodeLabels" resultType="com.fulfillment.domain.Code">
+        SELECT c.code_id   AS codeId,
+               c.code_name AS codeName
+          FROM tb_code c
+          JOIN tb_code_group g ON g.code_group_seq = c.code_group_seq
+         WHERE g.code_group_id = #{groupId}
+           AND g.use_yn = 'Y'
+           AND c.use_yn = 'Y'
+         ORDER BY c.sort_order
+    </select>
+
     <!--
       화면 라벨용 — 사용중인 것만.
       그룹과 코드를 따로 읽어 서비스에서 묶는다. 조인 한 번으로 가져오면

@@ -30,14 +30,25 @@ public class OrgUploadTarget implements UploadTarget {
 	private static final String MANAGER = "담당자";
 	private static final String PHONE = "연락처";
 	private static final String ADDRESS = "주소";
+	private static final String ZIP_CODE = "우편번호";
+	/** 회사(HQ)만 값을 가질 수 있다 */
+	private static final String BIZ_REG_NO = "사업자등록번호";
+	private static final String CEO_NAME = "대표자명";
 	private static final String SORT_ORDER = "정렬순서";
 	private static final String USE_YN = "사용여부";
 
 	/** 자바 필드명 → CSV 열 이름. 검증 실패 메시지가 사용자가 보는 열을 가리키게 한다. */
-	private static final Map<String, String> FIELD_LABELS = Map.of(
-			"orgId", ORG_ID, "orgName", ORG_NAME, "orgType", ORG_TYPE,
-			"managerName", MANAGER, "phone", PHONE, "address", ADDRESS,
-			"sortOrder", SORT_ORDER);
+	private static final Map<String, String> FIELD_LABELS = Map.ofEntries(
+			Map.entry("orgId", ORG_ID),
+			Map.entry("orgName", ORG_NAME),
+			Map.entry("orgType", ORG_TYPE),
+			Map.entry("managerName", MANAGER),
+			Map.entry("phone", PHONE),
+			Map.entry("address", ADDRESS),
+			Map.entry("zipCode", ZIP_CODE),
+			Map.entry("bizRegNo", BIZ_REG_NO),
+			Map.entry("ceoName", CEO_NAME),
+			Map.entry("sortOrder", SORT_ORDER));
 
 	private final OrgService orgService;
 	private final OrgDao orgDao;
@@ -68,7 +79,7 @@ public class OrgUploadTarget implements UploadTarget {
 	@Override
 	public List<String> headers() {
 		return List.of(ORG_ID, ORG_NAME, ORG_TYPE, PARENT_ID, MANAGER, PHONE, ADDRESS,
-				SORT_ORDER, USE_YN);
+				ZIP_CODE, BIZ_REG_NO, CEO_NAME, SORT_ORDER, USE_YN);
 	}
 
 	@Override
@@ -78,8 +89,9 @@ public class OrgUploadTarget implements UploadTarget {
 
 	@Override
 	public List<String> sampleRow() {
-		return List.of("ST900", "예시점", "STORE", "HQ001", "홍길동", "02-1234-5678",
-				"서울시 강남구", "900", "Y");
+		// 오프라인 매장은 범위 외다. 예시는 물류센터로 둔다.
+		return List.of("DC900", "예시물류센터", "DC", "HQ001", "홍길동", "031-1234-5678",
+				"경기도 이천시", "17325", "", "", "900", "Y");
 	}
 
 	@Override
@@ -97,6 +109,9 @@ public class OrgUploadTarget implements UploadTarget {
 				row.get(MANAGER),
 				row.get(PHONE),
 				row.get(ADDRESS),
+				row.get(ZIP_CODE),
+				row.get(BIZ_REG_NO),
+				row.get(CEO_NAME),
 				UploadValues.intOrNull(row.get(SORT_ORDER), SORT_ORDER),
 				UploadValues.useYn(row.get(USE_YN)),
 				"대량 등록");

@@ -21,7 +21,7 @@ public record OrgSaveRequest(
 
 		@NotBlank(message = "조직코드는 필수입니다.")
 		@Pattern(regexp = "^[A-Z]{2}\\d{3}$",
-				message = "영문 대문자 2자 + 숫자 3자 형식이어야 합니다. 예) ST004")
+				message = "영문 대문자 2자 + 숫자 3자 형식이어야 합니다. 예) DC003")
 		String orgId,
 
 		@NotBlank(message = "조직명은 필수입니다.")
@@ -42,6 +42,19 @@ public record OrgSaveRequest(
 
 		@Size(max = 300) String address,
 
+		@Pattern(regexp = "^\\d{5}$", message = "우편번호는 숫자 5자리여야 합니다.")
+		String zipCode,
+
+		/**
+		 * 사업자등록번호. 회사(HQ)만 가질 수 있다 — 그 검증은 서비스가 한다.
+		 * 형식만 여기서 본다.
+		 */
+		@Pattern(regexp = "^\\d{3}-\\d{2}-\\d{5}$",
+				message = "사업자등록번호는 000-00-00000 형식으로 입력하세요.")
+		String bizRegNo,
+
+		@Size(max = 50) String ceoName,
+
 		@PositiveOrZero(message = "정렬순서는 0 이상이어야 합니다.")
 		Integer sortOrder,
 
@@ -50,6 +63,9 @@ public record OrgSaveRequest(
 		/** 변경 사유 — 감사로그에 기록된다 */
 		String reason
 ) {
+
+	/** 사업자등록번호·대표자명을 가질 수 있는 유형 (코드그룹 ORG_TYPE) */
+	public static final String COMPANY_TYPE = "HQ";
 
 	/** 빈 문자열을 null 로 맞춰 둔다. 이유는 {@link Texts} 참고. */
 	public OrgSaveRequest {
@@ -60,6 +76,9 @@ public record OrgSaveRequest(
 		managerName = Texts.trimToNull(managerName);
 		phone = Texts.trimToNull(phone);
 		address = Texts.trimToNull(address);
+		zipCode = Texts.trimToNull(zipCode);
+		bizRegNo = Texts.trimToNull(bizRegNo);
+		ceoName = Texts.trimToNull(ceoName);
 		useYn = Texts.trimToNull(useYn);
 		reason = Texts.trimToNull(reason);
 	}
@@ -100,6 +119,12 @@ public record OrgSaveRequest(
 		org.setManagerName(managerName);
 		org.setPhone(phone);
 		org.setAddress(address);
+		org.setZipCode(zipCode);
+		// 회사가 아니면 회사 전용 값을 비운다. 유형을 바꿨을 때 옛 값이
+		// 따라다니면 DB 의 ck_org_company_only 에 걸린다.
+		boolean company = COMPANY_TYPE.equals(orgType);
+		org.setBizRegNo(company ? bizRegNo : null);
+		org.setCeoName(company ? ceoName : null);
 		org.setSortOrder(sortOrder == null ? 0 : sortOrder);
 		org.setUseYn(useYnOrDefault());
 	}

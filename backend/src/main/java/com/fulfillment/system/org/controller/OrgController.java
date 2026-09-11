@@ -52,7 +52,9 @@ public class OrgController {
 
 	@PostMapping
 	public ApiResponse<OrgResponse> create(@Valid @RequestBody OrgSaveRequest request) {
-		return ApiResponse.ok(orgService.create(CurrentUser.require(), request));
+		// 막을 정도는 아니지만 알려야 할 사항(두 번째 회사 등록 등)은 warning 으로
+		OrgService.Result result = orgService.create(CurrentUser.require(), request);
+		return ApiResponse.ok(result.org(), result.warning());
 	}
 
 	/**

@@ -21,6 +21,7 @@ public record PermissionGrant(
 		/**
 		 * 데이터 범위. 비우면 역할의 기본값(tb_role.default_data_scope)을 상속한다.
 		 * 권한마다 다르게 줘야 하는 경우에만 채운다.
+		 * 그 업무를 어느 범위까지 할것인가  강남매장관리자 ->  강남매장, 부천매장 등 관리가능)
 		 */
 		String dataScope
 ) {

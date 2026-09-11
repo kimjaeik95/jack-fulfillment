@@ -3,6 +3,7 @@ package com.fulfillment.system.user.service;
 import com.fulfillment.common.audit.AuditAction;
 import com.fulfillment.common.audit.AuditRecorder;
 import com.fulfillment.common.audit.AuditRecorder.Field;
+import com.fulfillment.common.code.CodeLabels;
 import com.fulfillment.common.exception.BusinessException;
 import com.fulfillment.common.exception.ErrorCode;
 import com.fulfillment.common.security.LoginUser;
@@ -53,9 +54,12 @@ public class UserService {
 	 * 직무분리 — 요청자와 승인자를 한 사람이 겸할 수 없다. (동시에 부여하면 안될때)
 	 * 겸하면 본인이 올린 건을 본인이 승인할 수 있어 통제가 무력화된다.
 	 */
-	private static final List<String[]> SOD_PAIRS = List.of(
-			new String[] { "INBOUND_WORKER", "CENTER_MGR" },
-			new String[] { "STORE_STAFF", "STORE_MGR" });
+	// 오프라인 매장(STORE_STAFF + STORE_MGR)은 범위 외라 V7 에서 걷어냈다.
+	//
+	// 쌍이 하나뿐이라 타입을 명시해야 한다. List.of(new String[]{...}) 는 배열이
+	// 가변인자로 풀려 List<String> 으로 추론된다.
+	private static final List<String[]> SOD_PAIRS = List.<String[]>of(
+			new String[] { "INBOUND_WORKER", "CENTER_MGR" });
 
 	/** 조회 전용 역할 — 다른 역할과 섞으면 "수정 권한 없음" 정책이 깨진다 */
 	private static final String VIEW_ONLY_ROLE = "CS_VIEWER";
@@ -83,11 +87,13 @@ public class UserService {
 	private final PasswordPolicy passwordPolicy;
 	private final PasswordEncoder passwordEncoder;
 	private final AuditRecorder auditRecorder;
+	private final CodeLabels codeLabels;
 
 	public UserService(UserDao userDao, RoleDao roleDao, OrgDao orgDao,
 			PermissionChecker permissionChecker, DataScopeResolver dataScopes,
 			PasswordPolicy passwordPolicy,
-			PasswordEncoder passwordEncoder, AuditRecorder auditRecorder) {
+			PasswordEncoder passwordEncoder, AuditRecorder auditRecorder,
+			CodeLabels codeLabels) {
 		this.userDao = userDao;
 		this.roleDao = roleDao;
 		this.orgDao = orgDao;
@@ -96,6 +102,7 @@ public class UserService {
 		this.passwordPolicy = passwordPolicy;
 		this.passwordEncoder = passwordEncoder;
 		this.auditRecorder = auditRecorder;
+		this.codeLabels = codeLabels;
 	}
 
 	/* ------------------------------------------------------------------ */
@@ -306,8 +313,8 @@ public class UserService {
 			}
 			if (!role.getOrgScope().equals(org.getOrgType())) {
 				problems.add("'%s' 역할은 %s 소속에만 배정할 수 있습니다. (현재 소속: %s / %s)"
-						.formatted(role.getRoleName(), orgTypeLabel(role.getOrgScope()),
-								org.getOrgName(), orgTypeLabel(org.getOrgType())));
+						.formatted(role.getRoleName(), codeLabels.orgType(role.getOrgScope()),
+								org.getOrgName(), codeLabels.orgType(org.getOrgType())));
 			}
 		}
 
@@ -382,15 +389,6 @@ public class UserService {
 		return role == null ? roleId : role.getRoleName();
 	}
 
-	private String orgTypeLabel(String orgType) {
-		return switch (orgType) {
-			case "HQ" -> "본사";
-			case "DC" -> "물류센터";
-			case "WAREHOUSE" -> "창고";
-			case "STORE" -> "매장";
-			default -> orgType;
-		};
-	}
 
 	private String actorId(LoginUser actor) {
 		return actor == null ? "system" : actor.getUserId();

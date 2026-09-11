@@ -19,6 +19,13 @@ public interface CodeDao {
 	/** 사용중인 코드값 목록 (예: PERM_ACTION -> [R, C, U, D, A, X]) */
 	List<String> selectCodeIds(@Param("groupId") String groupId);
 
+	/**
+	 * 사용중인 코드의 값과 이름 (오류 메시지 라벨용).
+	 * selectCodeIds 와 나눠 두는 이유는 값 검증에는 이름이 필요없고,
+	 * 검증이 훨씬 자주 불리기 때문이다.
+	 */
+	List<Code> selectCodeLabels(@Param("groupId") String groupId);
+
 	/* 화면 라벨용 — 인증된 사용자 누구나 -------------------------------- */
 
 	/**

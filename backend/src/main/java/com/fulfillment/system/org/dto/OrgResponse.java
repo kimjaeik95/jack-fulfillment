@@ -20,6 +20,10 @@ public record OrgResponse(
 		String managerName,
 		String phone,
 		String address,
+		String zipCode,
+		/** 회사(HQ)만 값이 있다 */
+		String bizRegNo,
+		String ceoName,
 		Integer sortOrder,
 		String useYn,
 		Integer userCount,
@@ -34,7 +38,7 @@ public record OrgResponse(
 		return new OrgResponse(
 				o.getOrgId(), o.getOrgName(), o.getOrgType(),
 				o.getParentOrgId(), o.getParentOrgName(),
-				o.getManagerName(), o.getPhone(), o.getAddress(),
+				o.getManagerName(), o.getPhone(), o.getAddress(), o.getZipCode(), o.getBizRegNo(), o.getCeoName(),
 				o.getSortOrder(), o.getUseYn(),
 				o.getUserCount(), o.getChildCount(),
 				o.getCreatedBy(), o.getCreatedAt(), o.getUpdatedBy(), o.getUpdatedAt());

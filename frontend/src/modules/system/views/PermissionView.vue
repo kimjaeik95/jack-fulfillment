@@ -384,8 +384,8 @@ async function downloadAs(format) {
           :disabled="mode === 'edit'"
           :error="errors.permId"
         />
-        <FormField v-model="form.permName" label="권한명" required span placeholder="보충 요청" :error="errors.permName" />
-        <FormField v-model="form.menuPath" label="메뉴 경로" span placeholder="매장 > 보충요청" help="사용자에게 보여줄 화면 위치" />
+        <FormField v-model="form.permName" label="권한명" required span placeholder="재고조정 승인" :error="errors.permName" />
+        <FormField v-model="form.menuPath" label="메뉴 경로" span placeholder="재고 > 재고조정" help="사용자에게 보여줄 화면 위치" />
         <FormField
           v-model="form.actions"
           label="허용 액션"

@@ -33,7 +33,7 @@ const router = useRouter()
 
 const DATA_SCOPES = [
   { value: 'ALL', label: '전사 (모든 조직 데이터)' },
-  { value: 'OWN_ORG', label: '소속 조직 (센터/매장 한정)' },
+  { value: 'OWN_ORG', label: '소속 조직 (물류센터 한정)' },
   { value: 'OWN_DATA', label: '본인 등록 데이터' },
 ]
 
@@ -391,7 +391,7 @@ async function downloadAs(format) {
           v-model="form.roleName"
           label="역할명"
           required
-          placeholder="매장 관리자"
+          placeholder="센터 관리자"
           :error="errors.roleName"
         />
         <FormField
@@ -419,7 +419,7 @@ async function downloadAs(format) {
           required
           span
           :rows="2"
-          placeholder="보충요청·이동 승인·매장실사"
+          placeholder="입고검수·재고조정 승인·실사"
           :error="errors.description"
           help="목록에 표시되는 역할 설명입니다."
         />
@@ -429,7 +429,7 @@ async function downloadAs(format) {
           type="textarea"
           span
           :rows="2"
-          placeholder="타 매장 재고 직접 수정 금지"
+          placeholder="재고조정 한도 초과 시 본사 승인"
           help="실제 통제는 공통정책에 등록해야 동작합니다."
         />
         <FormField v-model="form.sortOrder" label="정렬순서" type="number" :error="errors.sortOrder" />
