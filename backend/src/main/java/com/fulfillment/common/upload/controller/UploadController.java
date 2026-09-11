@@ -1,5 +1,6 @@
 package com.fulfillment.common.upload.controller;
 
+import com.fulfillment.common.csv.ExportFormat;
 import com.fulfillment.common.exception.BusinessException;
 import com.fulfillment.common.exception.ErrorCode;
 import com.fulfillment.common.security.CurrentUser;
@@ -27,7 +28,7 @@ import java.util.List;
  *
  *   GET  /api/uploads/targets                대상 목록 (내가 올릴 수 있는 것만)
  *   GET  /api/uploads/targets/{type}/template 빈 템플릿 CSV
- *   POST /api/uploads/{type}                 파일 업로드 (multipart, 필드명 file)
+ *   POST /api/uploads/{type}                 파일 업로드 (multipart, 필드명 file — xlsx/csv)
  *   GET  /api/uploads                        업로드 이력
  *   GET  /api/uploads/{uploadSeq}            이력 한 건
  *   GET  /api/uploads/{uploadSeq}/errors     실패 행 CSV (사유 열 추가)
@@ -50,10 +51,13 @@ public class UploadController {
 		return ApiResponse.ok(uploadService.availableTargets(CurrentUser.require()));
 	}
 
+	/** 빈 템플릿. 기본은 엑셀 — 받아서 그대로 채워 올리는 흐름이기 때문이다. */
 	@GetMapping("/targets/{type}/template")
-	public ResponseEntity<byte[]> template(@PathVariable String type) {
-		byte[] csv = uploadService.template(CurrentUser.require(), type);
-		return Downloads.csv(csv, "template-%s.csv".formatted(type.toLowerCase()));
+	public ResponseEntity<byte[]> template(@PathVariable String type,
+			@RequestParam(required = false) String format) {
+		ExportFormat fmt = ExportFormat.of(format);
+		byte[] file = uploadService.template(CurrentUser.require(), type, fmt);
+		return Downloads.of(file, "%s-템플릿.%s".formatted(type.toLowerCase(), fmt.extension()), fmt);
 	}
 
 	@PostMapping("/{type}")
@@ -91,9 +95,13 @@ public class UploadController {
 		return ApiResponse.ok(uploadService.history(CurrentUser.require(), uploadSeq));
 	}
 
+	/** 실패 행만. 사유 열이 붙어 있어 고쳐서 그대로 다시 올릴 수 있다. */
 	@GetMapping("/{uploadSeq}/errors")
-	public ResponseEntity<byte[]> errors(@PathVariable Long uploadSeq) {
-		byte[] csv = uploadService.errorCsv(CurrentUser.require(), uploadSeq);
-		return Downloads.csv(csv, "upload-errors-%d-%s.csv".formatted(uploadSeq, LocalDate.now()));
+	public ResponseEntity<byte[]> errors(@PathVariable Long uploadSeq,
+			@RequestParam(required = false) String format) {
+		ExportFormat fmt = ExportFormat.of(format);
+		byte[] file = uploadService.errorFile(CurrentUser.require(), uploadSeq, fmt);
+		return Downloads.of(file,
+				"업로드오류-%d-%s.%s".formatted(uploadSeq, LocalDate.now(), fmt.extension()), fmt);
 	}
 }

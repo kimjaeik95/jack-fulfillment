@@ -21,6 +21,8 @@ ext {
 	// MyBatis 스타터는 Spring Boot BOM이 관리하지 않으므로 버전을 명시한다.
 	// 4.1.x = Spring Boot 4.1.x 대응 버전 (3.0.x 는 Boot 3.x 용)
 	mybatisStarterVersion = '4.1.0'
+	// Apache POI — xlsx 읽기·쓰기. Boot BOM 이 관리하지 않아 버전을 명시한다.
+	poiVersion = '5.5.1'
 }
 
 dependencies {
@@ -33,6 +35,11 @@ dependencies {
 	// 데이터 접근 — MyBatis (SQL 직접 작성)
 	implementation 'org.springframework.boot:spring-boot-starter-jdbc'
 	implementation "org.mybatis.spring.boot:mybatis-spring-boot-starter:${mybatisStarterVersion}"
+
+	// 엑셀 읽기 · 쓰기 (COM-PG-010 / COM-PG-011)
+	// 담당자가 받은 엑셀을 채워 그대로 올릴 수 있어야 한다. CSV 로 다시 저장하게
+	// 시키면 그 과정에서 실수가 나고, 애초에 그런 요구를 할 만한 일이 아니다.
+	implementation "org.apache.poi:poi-ooxml:${poiVersion}"
 
 	// DB 스키마 버전 관리 — Flyway
 	// Boot 4 는 자동설정이 기술별 스타터로 분리되어 있다.

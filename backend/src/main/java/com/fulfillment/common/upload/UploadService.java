@@ -3,7 +3,8 @@ package com.fulfillment.common.upload;
 import com.fulfillment.common.audit.AuditAction;
 import com.fulfillment.common.audit.AuditRecorder;
 import com.fulfillment.common.csv.CsvReader;
-import com.fulfillment.common.csv.CsvWriter;
+import com.fulfillment.common.csv.ExportFormat;
+import com.fulfillment.common.csv.TableWriter;
 import com.fulfillment.common.exception.BusinessException;
 import com.fulfillment.common.exception.ErrorCode;
 import com.fulfillment.common.security.LoginUser;
@@ -21,7 +22,6 @@ import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -35,10 +35,12 @@ import java.util.Map;
  * 때문에 앞의 전부가 되돌려지고, 사용자는 파일을 완벽하게 만들어야만 한 건도
  * 넣을 수 없다. 그래서 행마다 별도 트랜잭션으로 반영한다.
  *
- * 파일 형식은 UTF-8 CSV 다. 엑셀에서 "다른 이름으로 저장 → CSV UTF-8" 로
- * 저장하면 그대로 올라간다. xlsx 를 직접 읽으려면 파서 라이브러리가 필요한데,
- * 검증 · 부분성공 · 오류 파일이라는 실제 어려운 부분은 형식과 무관해서
- * 먼저 CSV 로 완성했다. 확장 지점은 {@link CsvReader} 한 곳이다.
+ * 엑셀(.xlsx)과 UTF-8 CSV 를 모두 받는다. 확장자를 보고 파서를 고르며,
+ * 어느 쪽이든 같은 모양({@link CsvReader.Sheet})으로 읽히므로 검증 · 부분성공 ·
+ * 오류 파일은 형식과 무관하게 그대로 돈다.
+ *
+ * 내려주는 템플릿과 오류 파일도 같은 형식으로 준다 — 엑셀로 받은 사람이
+ * 엑셀로 고쳐 다시 올릴 수 있어야 한다.
  */
 @Service
 public class UploadService {
@@ -90,13 +92,13 @@ public class UploadService {
 	 * 형식을 문서로 설명하는 대신 파일로 준다. 사용자가 예시 줄을 지우고
 	 * 자기 데이터를 채우면 열 이름이 어긋날 일이 없다.
 	 */
-	public byte[] template(LoginUser actor, String type) {
+	public byte[] template(LoginUser actor, String type, ExportFormat format) {
 		UploadTarget target = mustFindTarget(type);
 		permissionChecker.require(actor, target.permId(), "C");
 
-		CsvWriter csv = new CsvWriter(target.headers().toArray(String[]::new));
-		csv.rawRow(target.sampleRow());
-		return csv.toBytes();
+		TableWriter out = format.newWriter(target.label(), target.headers().toArray(String[]::new));
+		out.rawRow(target.sampleRow());
+		return out.toBytes();
 	}
 
 	/* ------------------------------------------------------------------ */
@@ -115,9 +117,9 @@ public class UploadService {
 		permissionChecker.require(actor, target.permId(), "C");
 
 		String safeName = fileName == null || fileName.isBlank() ? "upload.csv" : fileName;
-		rejectSpreadsheet(safeName);
 
-		CsvReader.Sheet sheet = CsvReader.read(content);
+		// 확장자를 보고 엑셀(.xlsx)과 CSV 중 맞는 쪽으로 읽는다
+		CsvReader.Sheet sheet = CsvReader.readAny(safeName, content);
 		validateHeaders(target, sheet.headers());
 
 		if (sheet.rows().isEmpty()) {
@@ -197,20 +199,20 @@ public class UploadService {
 	 * 그 열만 지우고 다시 올리면 된다.
 	 */
 	@Transactional(readOnly = true)
-	public byte[] errorCsv(LoginUser actor, Long uploadSeq) {
+	public byte[] errorFile(LoginUser actor, Long uploadSeq, ExportFormat format) {
 		UploadHistory history = mustFindHistory(actor, uploadSeq);
 		UploadTarget target = mustFindTarget(history.getTargetType());
 
 		List<String> headers = new ArrayList<>(target.headers());
 		headers.add("오류사유");
 
-		CsvWriter csv = new CsvWriter(headers.toArray(String[]::new));
+		TableWriter out = format.newWriter(target.label() + " 오류", headers.toArray(String[]::new));
 		for (UploadError e : uploadDao.selectErrors(uploadSeq)) {
 			List<String> cells = fitToColumns(e.getRawLine(), target.headers().size());
 			cells.add(e.getMessage());
-			csv.rawRow(cells);
+			out.rawRow(cells);
 		}
-		return csv.toBytes();
+		return out.toBytes();
 	}
 
 	@Transactional(readOnly = true)
@@ -238,17 +240,6 @@ public class UploadService {
 							+ "(필요한 열: %s)")
 							.formatted(String.join(", ", missing),
 									String.join(", ", target.headers())));
-		}
-	}
-
-	/** 엑셀 원본 파일은 읽지 못한다. 무엇을 해야 하는지 알려주고 거절한다. */
-	private void rejectSpreadsheet(String fileName) {
-		String lower = fileName.toLowerCase(Locale.ROOT);
-		if (lower.endsWith(".xlsx") || lower.endsWith(".xls")) {
-			throw new BusinessException(ErrorCode.INVALID_INPUT,
-					("엑셀 파일(%s)은 직접 읽지 못합니다. 엑셀에서 [다른 이름으로 저장] → "
-							+ "[CSV UTF-8(쉼표로 분리)] 으로 저장한 뒤 올려 주세요.")
-							.formatted(fileName.substring(fileName.lastIndexOf('.'))));
 		}
 	}
 

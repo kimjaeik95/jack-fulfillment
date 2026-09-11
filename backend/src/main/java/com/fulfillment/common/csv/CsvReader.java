@@ -54,6 +54,22 @@ public final class CsvReader {
 		}
 	}
 
+	/**
+	 * 파일 이름을 보고 CSV 와 엑셀 중 맞는 쪽으로 읽는다 (COM-PG-010).
+	 *
+	 * 확장자로 고르는 것은 확실한 방법이 아니지만, 사용자가 엑셀에서 저장한
+	 * 파일은 확장자가 정확하다. 틀렸으면 각 파서가 자기 사유로 실패한다.
+	 */
+	public static Sheet readAny(String fileName, InputStream in) {
+		String name = fileName == null ? "" : fileName.toLowerCase(java.util.Locale.ROOT);
+		if (name.endsWith(".xls")) {
+			throw new BusinessException(ErrorCode.INVALID_INPUT,
+					"97-2003 엑셀(.xls)은 지원하지 않습니다. [다른 이름으로 저장]에서 "
+							+ "[Excel 통합 문서(*.xlsx)] 또는 [CSV UTF-8] 로 저장한 뒤 올려 주세요.");
+		}
+		return name.endsWith(".xlsx") ? XlsxReader.read(in) : read(in);
+	}
+
 	public static Sheet read(InputStream in) {
 		List<String> lines = readLogicalLines(in);
 		if (lines.isEmpty()) {

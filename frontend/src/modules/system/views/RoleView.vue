@@ -204,18 +204,23 @@ function goMapping(row) {
  * 회수할 수 없어 서버가 다운로드 액션(X)을 따로 판정한다.
  */
 const downloadDenyReason = computed(() => session.denyReason('SYS_ROLE', 'X'))
-const downloading = ref(false)
+const downloading = ref('')
 
-/** 화면이 보고 있는 검색 조건 그대로 내보낸다 — 화면과 파일이 달라지면 안 된다 */
-async function downloadCsv() {
-  downloading.value = true
+/**
+ * 화면이 보고 있는 검색 조건 그대로 내보낸다 — 화면과 파일이 달라지면 안 된다.
+ *
+ * @param {'xlsx'|'csv'} format 엑셀이 기본. 받은 파일을 고쳐 다시 올리는
+ *   흐름이 있어 CSV 로 주면 "CSV 로 다시 저장"을 시키게 된다.
+ */
+async function downloadAs(format) {
+  downloading.value = format
   try {
-    await exportApi.roles({ ...filters })
+    await exportApi.roles({ ...filters }, format)
     toast.success('현재 검색 조건으로 내려받았습니다. 다운로드 사실은 감사 기록 대상입니다.')
   } catch (e) {
     toast.error(e.message)
   } finally {
-    downloading.value = false
+    downloading.value = ''
   }
 }
 </script>
@@ -278,12 +283,21 @@ async function downloadCsv() {
         <div class="toolbar-actions">
           <button
             class="btn"
-            :disabled="downloading || !!downloadDenyReason"
-            :title="downloadDenyReason ?? '현재 검색 조건으로 CSV 내려받기'"
-            @click="downloadCsv"
+            :disabled="!!downloading || !!downloadDenyReason"
+            :title="downloadDenyReason ?? '현재 검색 조건으로 엑셀 내려받기'"
+            @click="downloadAs('xlsx')"
           >
-            <span v-if="downloading" class="spinner"></span>
-            ⬇ CSV
+            <span v-if="downloading === 'xlsx'" class="spinner"></span>
+            ⬇ 엑셀
+          </button>
+          <button
+            class="btn"
+            :disabled="!!downloading || !!downloadDenyReason"
+            :title="downloadDenyReason ?? '현재 검색 조건으로 CSV 내려받기'"
+            @click="downloadAs('csv')"
+          >
+            <span v-if="downloading === 'csv'" class="spinner"></span>
+            CSV
           </button>
           <button class="btn" @click="resetFilters">초기화</button>
           <button class="btn" :disabled="roleStore.loading" @click="reload(true)">

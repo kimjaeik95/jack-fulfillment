@@ -4,8 +4,8 @@
  * 부분 성공을 전제한다. 정상 행은 반영되고 잘못된 행만 사유와 함께 남는다 —
  * 파일 전체가 완벽해야만 한 건이라도 들어가는 방식은 실무에서 쓸 수 없다.
  *
- * 파일 형식은 UTF-8 CSV 다. 엑셀에서 [다른 이름으로 저장] → [CSV UTF-8] 로
- * 저장하면 그대로 올라간다. xlsx 를 올리면 서버가 그 안내와 함께 거절한다.
+ * 엑셀(.xlsx)과 UTF-8 CSV 를 모두 받는다. 내려준 템플릿·오류 파일도 엑셀이라,
+ * 받아서 채우거나 고친 뒤 그대로 다시 올리면 된다.
  */
 import { download, get, upload as uploadFile } from './http.js'
 
@@ -20,9 +20,12 @@ export async function targets() {
   return data
 }
 
-/** 빈 템플릿 내려받기 — 머리글 한 줄 + 예시 한 줄 */
-export function downloadTemplate(type) {
-  return download(`/uploads/targets/${encodeURIComponent(type)}/template`)
+/**
+ * 빈 템플릿 내려받기 — 머리글 한 줄 + 예시 한 줄.
+ * 기본은 엑셀이다. 받아서 그대로 채워 올리는 흐름이기 때문이다.
+ */
+export function downloadTemplate(type, format) {
+  return download(`/uploads/targets/${encodeURIComponent(type)}/template`, { format })
 }
 
 /**
@@ -51,7 +54,7 @@ export async function history(params = {}) {
   return data
 }
 
-/** 실패 행만 담긴 CSV. 원문에 '오류사유' 열이 붙어 있어 고쳐서 다시 올릴 수 있다. */
-export function downloadErrors(uploadSeq) {
-  return download(`/uploads/${uploadSeq}/errors`)
+/** 실패 행만. 원문에 '오류사유' 열이 붙어 있어 고쳐서 그대로 다시 올릴 수 있다. */
+export function downloadErrors(uploadSeq, format) {
+  return download(`/uploads/${uploadSeq}/errors`, { format })
 }

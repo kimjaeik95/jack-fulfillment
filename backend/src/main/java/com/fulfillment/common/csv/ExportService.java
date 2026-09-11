@@ -73,13 +73,13 @@ public class ExportService {
 	 */
 
 	@Transactional
-	public byte[] orgs(LoginUser actor, OrgSearch search) {
+	public byte[] orgs(LoginUser actor, OrgSearch search, ExportFormat format) {
 		recorder.requirePermission(actor, "SYS_COMPANY");
 		search.setPage(1);
 		search.setSize(ExportRecorder.LIMIT);
 
 		List<OrgResponse> rows = orgService.search(actor, search).rows();
-		CsvWriter csv = new CsvWriter("조직코드", "조직명", "조직유형", "상위조직코드", "상위조직명",
+		TableWriter csv = format.newWriter("조직", "조직코드", "조직명", "조직유형", "상위조직코드", "상위조직명",
 				"담당자", "연락처", "주소", "소속인원", "하위조직수", "정렬순서", "사용여부", "등록일시");
 		for (OrgResponse r : rows) {
 			csv.row(r.orgId(), r.orgName(), r.orgType(), r.parentId(), r.parentName(),
@@ -91,13 +91,13 @@ public class ExportService {
 	}
 
 	@Transactional
-	public byte[] roles(LoginUser actor, RoleSearch search) {
+	public byte[] roles(LoginUser actor, RoleSearch search, ExportFormat format) {
 		recorder.requirePermission(actor, "SYS_ROLE");
 		search.setPage(1);
 		search.setSize(ExportRecorder.LIMIT);
 
 		List<RoleResponse> rows = roleService.search(actor, search).rows();
-		CsvWriter csv = new CsvWriter("역할코드", "역할명", "설명", "적용범위", "기본데이터범위",
+		TableWriter csv = format.newWriter("역할", "역할코드", "역할명", "설명", "적용범위", "기본데이터범위",
 				"제한/승인 사항", "권한수", "정책수", "배정인원", "정렬순서", "사용여부");
 		for (RoleResponse r : rows) {
 			csv.row(r.roleId(), r.roleName(), r.description(), r.orgScope(),
@@ -109,7 +109,7 @@ public class ExportService {
 	}
 
 	@Transactional
-	public byte[] permissions(LoginUser actor, PermissionSearch search) {
+	public byte[] permissions(LoginUser actor, PermissionSearch search, ExportFormat format) {
 		recorder.requirePermission(actor, "SYS_ROLE");
 		search.setPage(1);
 		search.setSize(ExportRecorder.LIMIT);
@@ -117,7 +117,7 @@ public class ExportService {
 		List<PermissionResponse> rows = permissionService.search(actor, search).rows();
 		// 허용액션은 업로드 템플릿과 같은 표기(RCUD)로 내보낸다. 내려받아
 		// 고친 뒤 그대로 다시 올릴 수 있어야 한다.
-		CsvWriter csv = new CsvWriter("권한코드", "권한명", "모듈", "메뉴경로", "허용액션",
+		TableWriter csv = format.newWriter("권한", "권한코드", "권한명", "모듈", "메뉴경로", "허용액션",
 				"정렬순서", "사용여부", "부여역할수", "부여역할");
 		for (PermissionResponse r : rows) {
 			csv.row(r.permId(), r.permName(), r.moduleCode(), r.menuPath(),
@@ -138,13 +138,13 @@ public class ExportService {
 	 * 비밀번호 해시는 어떤 경로로도 내보내지 않는다.
 	 */
 	@Transactional
-	public byte[] users(LoginUser actor, UserSearch search) {
+	public byte[] users(LoginUser actor, UserSearch search, ExportFormat format) {
 		recorder.requirePermission(actor, "SYS_USER");
 		search.setPage(1);
 		search.setSize(ExportRecorder.LIMIT);
 
 		List<UserResponse> rows = userService.search(actor, search).rows();
-		CsvWriter csv = new CsvWriter("사용자ID", "이름", "조직코드", "조직명", "부서", "직위",
+		TableWriter csv = format.newWriter("사용자", "사용자ID", "이름", "조직코드", "조직명", "부서", "직위",
 				"이메일", "연락처", "역할", "승인한도", "상태", "사용여부", "최근접속");
 		for (UserResponse r : rows) {
 			csv.row(r.userId(), r.userName(), r.orgId(), r.orgName(), r.deptName(),
@@ -156,13 +156,13 @@ public class ExportService {
 	}
 
 	@Transactional
-	public byte[] policies(LoginUser actor, PolicySearch search) {
+	public byte[] policies(LoginUser actor, PolicySearch search, ExportFormat format) {
 		recorder.requirePermission(actor, "SYS_POLICY");
 		search.setPage(1);
 		search.setSize(ExportRecorder.LIMIT);
 
 		List<PolicyResponse> rows = policyService.search(actor, search).rows();
-		CsvWriter csv = new CsvWriter("정책ID", "정책명", "적용역할", "대상기능", "유형", "강도",
+		TableWriter csv = format.newWriter("공통정책", "정책ID", "정책명", "적용역할", "대상기능", "유형", "강도",
 				"대상항목", "조건식", "안내메시지", "대안절차", "한도금액", "한도수량",
 				"권한보유", "사용여부");
 		for (PolicyResponse r : rows) {
@@ -183,10 +183,10 @@ public class ExportService {
 	 * 템플릿과 열이 같아야 내려받아 고친 뒤 그대로 올릴 수 있다.
 	 */
 	@Transactional
-	public byte[] codes(LoginUser actor, String keyword, String useYn) {
+	public byte[] codes(LoginUser actor, String keyword, String useYn, ExportFormat format) {
 		recorder.requirePermission(actor, "SYS_CODE");
 
-		CsvWriter csv = new CsvWriter("코드그룹ID", "코드그룹명", "코드", "코드명", "설명",
+		TableWriter csv = format.newWriter("공통코드", "코드그룹ID", "코드그룹명", "코드", "코드명", "설명",
 				"색상", "정렬순서", "사용여부");
 		int count = 0;
 		// 목록 조회는 그룹만 준다. 코드값은 그룹별로 한 번 더 읽어야 한다 —

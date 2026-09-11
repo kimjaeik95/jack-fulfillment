@@ -9,12 +9,19 @@
  */
 import { download } from './http.js'
 
-export const orgs = (params = {}) => download('/exports/orgs', params)
-export const roles = (params = {}) => download('/exports/roles', params)
-export const permissions = (params = {}) => download('/exports/permissions', params)
-export const users = (params = {}) => download('/exports/users', params)
-export const policies = (params = {}) => download('/exports/policies', params)
-export const codes = (params = {}) => download('/exports/codes', params)
+/**
+ * 형식은 xlsx(기본) 또는 csv.
+ * 기본을 엑셀로 둔 이유는 받은 파일을 채워 다시 올리는 흐름 때문이다 —
+ * CSV 로 주면 엑셀에서 열어 고친 뒤 "CSV 로 다시 저장"을 해야 한다.
+ */
+export const orgs = (params = {}, format) => download('/exports/orgs', { ...params, format })
+export const roles = (params = {}, format) => download('/exports/roles', { ...params, format })
+export const permissions = (params = {}, format) =>
+  download('/exports/permissions', { ...params, format })
+export const users = (params = {}, format) => download('/exports/users', { ...params, format })
+export const policies = (params = {}, format) =>
+  download('/exports/policies', { ...params, format })
+export const codes = (params = {}, format) => download('/exports/codes', { ...params, format })
 
 /**
  * 감사 이력만 경로가 다르다.

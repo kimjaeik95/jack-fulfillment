@@ -291,17 +291,18 @@ async function doCodeDelete() {
  * 업로드 템플릿과 열이 같아야 내려받아 고친 뒤 그대로 올릴 수 있다.
  */
 const downloadDenyReason = computed(() => session.denyReason('SYS_CODE', 'X'))
-const downloading = ref(false)
+const downloading = ref('')
 
-async function downloadCsv() {
-  downloading.value = true
+/** @param {'xlsx'|'csv'} format 엑셀이 기본 */
+async function downloadAs(format) {
+  downloading.value = format
   try {
-    await exportApi.codes({ ...filters })
+    await exportApi.codes({ ...filters }, format)
     toast.success('현재 검색 조건으로 내려받았습니다. 다운로드 사실은 감사 기록 대상입니다.')
   } catch (e) {
     toast.error(e.message)
   } finally {
-    downloading.value = false
+    downloading.value = ''
   }
 }
 </script>
@@ -319,12 +320,21 @@ async function downloadCsv() {
       <div class="page-head-actions">
         <button
           class="btn"
-          :disabled="downloading || !!downloadDenyReason"
-          :title="downloadDenyReason ?? '현재 검색 조건으로 CSV 내려받기'"
-          @click="downloadCsv"
+          :disabled="!!downloading || !!downloadDenyReason"
+          :title="downloadDenyReason ?? '현재 검색 조건으로 엑셀 내려받기'"
+          @click="downloadAs('xlsx')"
         >
-          <span v-if="downloading" class="spinner"></span>
-          ⬇ CSV
+          <span v-if="downloading === 'xlsx'" class="spinner"></span>
+          ⬇ 엑셀
+        </button>
+        <button
+          class="btn"
+          :disabled="!!downloading || !!downloadDenyReason"
+          :title="downloadDenyReason ?? '현재 검색 조건으로 CSV 내려받기'"
+          @click="downloadAs('csv')"
+        >
+          <span v-if="downloading === 'csv'" class="spinner"></span>
+          CSV
         </button>
         <button
           class="btn btn-primary"

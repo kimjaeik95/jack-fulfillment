@@ -22,7 +22,7 @@ import java.util.List;
  *           .row(org.getOrgId(), org.getOrgName())
  *           .toBytes();
  */
-public class CsvWriter {
+public class CsvWriter implements TableWriter {
 
 	/** 엑셀이 UTF-8 로 읽게 하는 표식 */
 	private static final String BOM = "﻿";
@@ -43,6 +43,7 @@ public class CsvWriter {
 	 * 한 행을 쓴다. 값의 개수가 머리글과 다르면 즉시 실패한다 —
 	 * 열이 밀린 파일은 받아 본 사람이 원인을 찾기 어렵다.
 	 */
+	@Override
 	public CsvWriter row(Object... values) {
 		if (values.length != columnCount) {
 			throw new IllegalArgumentException(
@@ -59,15 +60,18 @@ public class CsvWriter {
 	}
 
 	/** 이미 만들어 둔 문자열 목록을 한 행으로 (업로드 오류 파일에서 쓴다) */
+	@Override
 	public CsvWriter rawRow(List<String> values) {
 		return row(values.toArray());
 	}
 
+	@Override
 	public byte[] toBytes() {
 		return out.toString().getBytes(StandardCharsets.UTF_8);
 	}
 
 	/** 지금까지 쓴 행 수 (머리글 제외) */
+	@Override
 	public int rowCount() {
 		return (int) out.toString().lines().count() - 1;
 	}

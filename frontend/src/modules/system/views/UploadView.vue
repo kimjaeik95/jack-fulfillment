@@ -6,11 +6,15 @@
  * 부분 성공을 전제하기 때문에 "올렸다"로 끝나지 않고 "몇 건이 왜 안 들어갔는지"를
  * 되짚어야 하고, 그건 업로드 직후뿐 아니라 나중에도 필요하다.
  *
- * 파일 형식은 UTF-8 CSV 다. 엑셀에서 [다른 이름으로 저장] → [CSV UTF-8] 로
- * 저장하면 그대로 올라간다. xlsx 를 고르면 서버가 그 안내와 함께 거절한다.
+ * 엑셀(.xlsx)과 UTF-8 CSV 를 모두 받는다. 템플릿·오류 파일도 엑셀로 주므로,
+ * 받아서 채우거나 고친 뒤 그대로 다시 올리면 된다.
  */
 import { computed, onMounted, ref } from 'vue'
 import * as uploadApi from '@/api/upload.js'
+import { loadCodes } from '@/api/codes.js'
+import { useOrgStore } from '@/stores/org.js'
+import { usePermissionStore } from '@/stores/permission.js'
+import { useRoleStore } from '@/stores/role.js'
 import { useToastStore } from '@/stores/toast.js'
 import DataTable from '@/components/DataTable.vue'
 import ModalDialog from '@/components/ModalDialog.vue'
@@ -18,6 +22,9 @@ import FormField from '@/components/FormField.vue'
 import CodeBadge from '@/components/CodeBadge.vue'
 
 const toast = useToastStore()
+const orgStore = useOrgStore()
+const permStore = usePermissionStore()
+const roleStore = useRoleStore()
 
 const targets = ref([])
 const histories = ref([])
@@ -90,9 +97,10 @@ function onFilePick(event) {
   uploadError.value = ''
 }
 
-async function downloadTemplate() {
+/** @param {'xlsx'|'csv'} format 엑셀이 기본 — 받아서 그대로 채워 올린다 */
+async function downloadTemplate(format) {
   try {
-    await uploadApi.downloadTemplate(selectedType.value)
+    await uploadApi.downloadTemplate(selectedType.value, format)
     toast.success(`${target.value?.label} 템플릿을 내려받았습니다.`)
   } catch (e) {
     toast.error(e.message)
@@ -117,7 +125,7 @@ async function doUpload() {
     dlgOpen.value = false
     file.value = null
     if (fileInput.value) fileInput.value.value = ''
-    await reload()
+    await Promise.all([reload(), refreshAffected(result.targetType)])
   } catch (e) {
     // 파일 형식·머리글 오류는 대화상자를 닫지 않고 그대로 보여준다.
     // 사용자가 파일을 바꿔 바로 다시 시도할 수 있어야 한다.
@@ -127,12 +135,35 @@ async function doUpload() {
   }
 }
 
-async function downloadErrors(uploadSeq) {
+/**
+ * 실패 행만 받는다. 사유 열이 붙어 있고, 그 열이 남아 있어도 다시 올라가므로
+ * 지우지 않고 고치기만 해도 된다.
+ */
+async function downloadErrors(uploadSeq, format) {
   try {
-    await uploadApi.downloadErrors(uploadSeq)
-    toast.success('오류 파일을 내려받았습니다. 사유를 고쳐 다시 올리면 됩니다.')
+    await uploadApi.downloadErrors(uploadSeq, format)
+    toast.success('오류 파일을 내려받았습니다. 사유를 보고 고쳐서 그대로 다시 올리면 됩니다.')
   } catch (e) {
     toast.error(e.message)
+  }
+}
+
+/**
+ * 올린 데이터를 들고 있는 화면의 캐시를 버린다.
+ *
+ * 조직·권한 목록은 부팅 때 한 번 받아 스토어에 두고 여러 화면이 함께 쓴다.
+ * 업로드로 바꾼 뒤 그냥 두면 조직 관리 화면이 옛 목록을 그대로 보여줘서,
+ * 사용자는 업로드가 안 된 줄 안다. 실제로 그렇게 보였다.
+ */
+async function refreshAffected(targetType) {
+  try {
+    if (targetType === 'ORG') await orgStore.load(true)
+    // 권한이 바뀌면 역할의 권한 수도 달라진다
+    if (targetType === 'PERMISSION') await Promise.all([permStore.load(true), roleStore.load(true)])
+    // 공통코드는 모든 화면의 셀렉트박스·배지 라벨이다
+    if (targetType === 'CODE') await loadCodes(true)
+  } catch {
+    // 갱신에 실패해도 업로드 자체는 끝났다. 새로고침하면 보인다.
   }
 }
 
@@ -208,7 +239,7 @@ const stamp = (v) => (v ? String(v).replace('T', ' ').slice(0, 19) : '-')
               앞쪽 {{ lastResult.errors.length }}건만 표시했습니다. 전체는 오류 파일로 받으세요.
             </span>
             <span class="spacer"></span>
-            <button class="btn btn-sm" @click="downloadErrors(lastResult.uploadSeq)">
+            <button class="btn btn-sm" @click="downloadErrors(lastResult.uploadSeq, 'xlsx')">
               ⬇ 오류 파일 받기
             </button>
           </div>
@@ -259,8 +290,8 @@ const stamp = (v) => (v ? String(v).replace('T', ' ').slice(0, 19) : '-')
             <button
               v-if="row.failCount > 0"
               class="btn btn-sm"
-              title="실패한 행만 사유와 함께 내려받습니다."
-              @click="downloadErrors(row.uploadSeq)"
+              title="실패한 행만 사유와 함께 엑셀로 내려받습니다. 고쳐서 그대로 다시 올리면 됩니다."
+              @click="downloadErrors(row.uploadSeq, 'xlsx')"
             >
               ⬇ 오류
             </button>
@@ -270,7 +301,7 @@ const stamp = (v) => (v ? String(v).replace('T', ' ').slice(0, 19) : '-')
     </div>
 
     <!-- 업로드 -->
-    <ModalDialog v-if="dlgOpen" title="파일 올리기" subtitle="UTF-8 CSV" @close="dlgOpen = false">
+    <ModalDialog v-if="dlgOpen" title="파일 올리기" subtitle="엑셀(.xlsx) 또는 CSV" @close="dlgOpen = false">
       <div v-if="uploadError" class="alert alert-danger mb-2">
         <span class="alert-icon">⛔</span><span>{{ uploadError }}</span>
       </div>
@@ -296,18 +327,28 @@ const stamp = (v) => (v ? String(v).replace('T', ' ').slice(0, 19) : '-')
           </div>
           <div class="small mt-1">
             필수 열: <span class="bold">{{ target.requiredHeaders.join(', ') }}</span> ·
-            이미 있는 항목은 수정으로 처리됩니다 · 한 번에 최대 10,000행
+            나머지 열은 없어도 됩니다 · 이미 있는 항목은 수정으로 처리됩니다 ·
+            한 번에 최대 10,000행
           </div>
-          <button class="btn btn-sm mt-1" @click="downloadTemplate">⬇ 템플릿 받기</button>
+          <div class="btn-row mt-1">
+            <button class="btn btn-sm" @click="downloadTemplate('xlsx')">⬇ 엑셀 템플릿</button>
+            <button class="btn btn-sm" @click="downloadTemplate('csv')">CSV 템플릿</button>
+          </div>
         </div>
       </div>
 
       <div class="field span-2 mt-2">
         <label class="field-label">파일<span class="req">*</span></label>
-        <input ref="fileInput" class="input" type="file" accept=".csv,text/csv" @change="onFilePick" />
+        <input
+          ref="fileInput"
+          class="input"
+          type="file"
+          accept=".xlsx,.csv,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+          @change="onFilePick"
+        />
         <span class="field-help">
-          엑셀 파일(.xlsx)은 그대로 읽지 못합니다. [다른 이름으로 저장] → [CSV UTF-8(쉼표로 분리)] 로
-          저장한 뒤 올려 주세요.
+          엑셀(.xlsx) 또는 CSV(UTF-8). 위 템플릿을 받아 채운 뒤 그대로 올리면 됩니다.
+          97-2003 엑셀(.xls)은 지원하지 않으니 [Excel 통합 문서(*.xlsx)]로 저장해 주세요.
         </span>
       </div>
 
