@@ -215,7 +215,7 @@ public class PlantService {
 	/**
 	 * 사용중지 안내.
 	 *
-	 * 막지 않는다. 다만 딸린 로케이션이 있으면 알려야 한다 — 재고는 그대로
+	 * 막지 않는다. 다만 딸린 빈이 있으면 알려야 한다 — 재고는 그대로
 	 * 남아 있는데 플랜트가 목록에서 사라지면 그 재고를 찾을 수 없다.
 	 */
 	private String warnOnDisable(Plant before, PlantSaveRequest request) {
@@ -226,7 +226,7 @@ public class PlantService {
 		if (locations == null || locations == 0) {
 			return null;
 		}
-		return ("%s을(를) 미사용으로 바꿨습니다. 딸린 로케이션 %d개와 그 재고는 그대로 남지만, "
+		return ("%s을(를) 미사용으로 바꿨습니다. 딸린 빈 %d개와 그 재고는 그대로 남지만, "
 				+ "이 플랜트로는 더 이상 새 창고를 만들 수 없습니다.")
 				.formatted(before.getPlantName(), locations);
 	}

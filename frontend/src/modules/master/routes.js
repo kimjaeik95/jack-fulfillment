@@ -1,7 +1,7 @@
 /**
  * master 모듈 — 기준정보.
  *
- * 거점 3단계(플랜트 · 창고 · 로케이션)가 먼저 온다. 재고주소가 이 위에서
+ * 거점 3단계(플랜트 · 창고 · 빈)가 먼저 온다. 재고주소가 이 위에서
  * 정해지기 때문이다 — 플랜트 · 창고 · 빈 · 상품(SKU) · 거래처.
  * 제품 · SKU · 채널 · 공급처 · 고객은 이어서 붙는다.
  *
@@ -28,7 +28,7 @@ export const routes = [
     path: '/locations',
     name: 'locations',
     component: () => import('./views/LocationView.vue'),
-    meta: { title: '로케이션 관리', perm: 'MST_LOCATION' },
+    meta: { title: '빈 관리', perm: 'MST_LOCATION' },
   },
 ]
 

@@ -26,12 +26,12 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 
 /**
- * 로케이션(빈) 관리 (MST-PG-003).
+ * 빈 관리 (MST-PG-003).
  *
  * 재고주소의 마지막 물리 단계다. 여기까지 오면 재고가 놓일 자리가 정해진다.
  *   재고주소 = 플랜트 - 창고 - 빈 - 상품(SKU) - 거래처
  *
- * 로케이션코드는 전역 유일하고 바꿀 수 없다. 라벨로 인쇄되어 현장에 붙기
+ * 빈코드는 전역 유일하고 바꿀 수 없다. 라벨로 인쇄되어 현장에 붙기
  * 때문이다. 코드를 바꾸면 이미 붙은 라벨이 다른 곳을 가리킨다.
  *
  * 데이터 범위는 창고 → 플랜트 → 운영 조직으로 거슬러 판정한다.
@@ -111,7 +111,7 @@ public class LocationService {
 
 		if (locationDao.countByLocationId(request.locationId()) > 0) {
 			throw new BusinessException(ErrorCode.DUPLICATE,
-					("이미 사용 중인 로케이션코드입니다. (%s) 로케이션코드는 전사에서 유일해야 "
+					("이미 사용 중인 빈코드입니다. (%s) 빈코드는 전사에서 유일해야 "
 							+ "합니다 — 라벨 하나를 스캔해 한 곳이 지목되어야 하기 때문입니다.")
 							.formatted(request.locationId()));
 		}
@@ -124,7 +124,7 @@ public class LocationService {
 
 		Location saved = mustFind(request.locationId());
 		auditRecorder.recordCreate(actor, TABLE, saved.getLocationId(), saved, AUDIT_FIELDS,
-				defaultReason(request.reason(), "로케이션 등록"));
+				defaultReason(request.reason(), "빈 등록"));
 		return new Result(LocationResponse.of(saved), warning);
 	}
 
@@ -156,7 +156,7 @@ public class LocationService {
 		Location after = mustFind(locationId);
 		// 실제로 바뀐 컬럼만 전/후로 기록한다 (COM-PG-009)
 		auditRecorder.recordUpdate(actor, TABLE, locationId, before, after, AUDIT_FIELDS,
-				defaultReason(request.reason(), "로케이션 수정"));
+				defaultReason(request.reason(), "빈 수정"));
 		return new Result(LocationResponse.of(after), warning);
 	}
 
@@ -175,7 +175,7 @@ public class LocationService {
 		// 있지도 않은 테이블을 참조하는 죽은 코드가 남기 때문이다.
 		locationDao.delete(before.getLocationSeq());
 		auditRecorder.recordDelete(actor, TABLE, locationId, before, AUDIT_FIELDS,
-				defaultReason(reason, "로케이션 삭제"));
+				defaultReason(reason, "빈 삭제"));
 	}
 
 	/* ------------------------------------------------------------------ */
@@ -183,7 +183,7 @@ public class LocationService {
 	/* ------------------------------------------------------------------ */
 
 	/**
-	 * 로케이션유형이 코드그룹 LOC_TYPE 안에 있는가.
+	 * 빈유형이 코드그룹 LOC_TYPE 안에 있는가.
 	 *
 	 * 목록을 코드에 적어 두지 않는다 — 화면의 셀렉트박스가 tb_code 를 읽으므로
 	 * 검증도 같은 곳을 읽어야 한다.
@@ -192,7 +192,7 @@ public class LocationService {
 		List<String> allowed = codeDao.selectCodeIds(CodeGroups.LOC_TYPE);
 		if (!allowed.contains(locationType)) {
 			throw new BusinessException(ErrorCode.INVALID_INPUT,
-					"로케이션유형 값이 올바르지 않습니다. (%s) 사용 가능: %s"
+					"빈유형 값이 올바르지 않습니다. (%s) 사용 가능: %s"
 							.formatted(locationType, String.join(", ", allowed)));
 		}
 	}
@@ -215,7 +215,7 @@ public class LocationService {
 	}
 
 	/**
-	 * 창고유형과 로케이션유형이 어긋나는 경우 안내.
+	 * 창고유형과 빈유형이 어긋나는 경우 안내.
 	 *
 	 * 막지 않는다. 양품창고에 불량 격리 빈을 하나 두는 식의 정당한 구성이
 	 * 있고, TRANSIT(운송중)은 어느 창고에든 붙을 수 있다. 다만 재고의
@@ -229,11 +229,11 @@ public class LocationService {
 		if (whType == null || whType.equals(locationType)) {
 			return null;
 		}
-		// GOOD 창고의 NORMAL 로케이션은 정상 조합이다
+		// GOOD 창고의 NORMAL 빈은 정상 조합이다
 		if ("GOOD".equals(whType) && "NORMAL".equals(locationType)) {
 			return null;
 		}
-		return ("창고유형과 로케이션유형이 다릅니다. 재고의 판매가능 여부는 창고유형(%s)이 "
+		return ("창고유형과 빈유형이 다릅니다. 재고의 판매가능 여부는 창고유형(%s)이 "
 				+ "정하므로, 의도한 구성인지 확인하세요.").formatted(whType);
 	}
 
@@ -261,7 +261,7 @@ public class LocationService {
 		Location location = locationDao.selectByLocationId(locationId);
 		if (location == null) {
 			throw new BusinessException(ErrorCode.NOT_FOUND,
-					"로케이션을 찾을 수 없습니다. (%s)".formatted(locationId));
+					"빈을 찾을 수 없습니다. (%s)".formatted(locationId));
 		}
 		return location;
 	}
@@ -269,7 +269,7 @@ public class LocationService {
 	/**
 	 * 단건 조회 + 데이터 범위 확인 (COM-PG-004).
 	 *
-	 * 목록에서 거르는 것만으로는 부족하다. 목록에 안 보이는 로케이션도 코드를
+	 * 목록에서 거르는 것만으로는 부족하다. 목록에 안 보이는 빈도 코드를
 	 * 알면 단건 조회·수정·삭제로 닿을 수 있기 때문이다. 그 경로를 막는다.
 	 */
 	private Location mustFindInScope(LoginUser actor, String locationId, String action) {
@@ -279,7 +279,7 @@ public class LocationService {
 				? dataScopes.forRead(actor, PERM)
 				: dataScopes.forWrite(actor, PERM);
 		scope.requireOrgOrOwner(plant.getOrgSeq(), location.getCreatedBy(),
-				"로케이션 " + location.getLocationId());
+				"빈 " + location.getLocationId());
 		return location;
 	}
 

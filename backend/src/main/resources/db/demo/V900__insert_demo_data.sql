@@ -106,12 +106,12 @@ SELECT p.plant_seq, v.warehouse_id, v.warehouse_name, v.warehouse_type,
 
 
 -- ============================================================================
--- 6. 로케이션(빈)
+-- 6. 빈
 --    코드는 전역 유일하다. 라벨에 찍혀 현장에서 스캔되는 값이므로
 --    스캔 한 번으로 한 곳이 지목되어야 한다.
 --
 --    TRANSIT(운송중)은 물리적인 자리가 아니라 이동 중 재고가 잠시 머무는
---    가상 로케이션이다. 재고가 어디에도 없는 상태를 만들지 않기 위해 둔다.
+--    가상 빈이다. 재고가 어디에도 없는 상태를 만들지 않기 위해 둔다.
 -- ============================================================================
 INSERT INTO tb_location (warehouse_seq, location_id, sector, zone_code, floor_no,
                          location_type, barcode, sort_order, created_by)

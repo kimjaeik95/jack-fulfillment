@@ -132,8 +132,8 @@
     </insert>
 
     <!--
-      창고코드와 소속 플랜트는 바꾸지 않는다. 로케이션과 재고가 그 조합으로
-      창고를 부르고, 플랜트를 옮기면 로케이션코드 체계가 어긋난다.
+      창고코드와 소속 플랜트는 바꾸지 않는다. 빈과 재고가 그 조합으로
+      창고를 부르고, 플랜트를 옮기면 빈코드 체계가 어긋난다.
     -->
     <update id="update" parameterType="com.fulfillment.domain.Warehouse">
         UPDATE tb_warehouse

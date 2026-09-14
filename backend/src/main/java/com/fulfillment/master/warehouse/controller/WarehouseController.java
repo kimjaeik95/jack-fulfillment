@@ -31,7 +31,7 @@ import org.springframework.web.bind.annotation.RestController;
  *   GET    /api/warehouses/{plantId}/{whId}       상세
  *   POST   /api/warehouses                        등록
  *   PUT    /api/warehouses/{plantId}/{whId}       수정
- *   DELETE /api/warehouses/{plantId}/{whId}       삭제 (딸린 로케이션이 없을 때만)
+ *   DELETE /api/warehouses/{plantId}/{whId}       삭제 (딸린 빈이 없을 때만)
  */
 @RestController
 @RequestMapping("/warehouses")

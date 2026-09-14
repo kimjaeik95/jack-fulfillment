@@ -1,10 +1,10 @@
 -- ============================================================================
 -- V1 : 전체 스키마  (PostgreSQL)
 --      공통코드 · 회사 · 조직 · 사용자 · 역할 · 권한 · 공통정책 · 감사로그
---      · 메뉴 · 업로드이력 · 플랜트 · 창고 · 로케이션
+--      · 메뉴 · 업로드이력 · 플랜트 · 창고 · 빈
 --
 -- 한 파일에 모아 둔 이유는 FK 의존 순서가 곧 읽는 순서이기 때문이다.
--- 회사 -> 조직 -> 플랜트 -> 창고 -> 로케이션 이 그대로 파일 순서다.
+-- 회사 -> 조직 -> 플랜트 -> 창고 -> 빈 이 그대로 파일 순서다.
 --
 -- 설계 규칙
 --   1) PK 는 대리키(*_seq, GENERATED ALWAYS AS IDENTITY). 업무코드는 UNIQUE.
@@ -609,7 +609,7 @@ COMMENT ON COLUMN tb_upload_error.raw_line    IS '실패한 행의 원문. 고�
 
 
 -- ============================================================================
--- 11. 플랜트 · 창고 · 로케이션 — 물건이 있는 곳
+-- 11. 플랜트 · 창고 · 빈 — 물건이 있는 곳
 --
 --     재고주소는 이 세 단계로 정해진다.
 --       재고주소 = 플랜트 - 창고 - 빈 - 상품(SKU) - 거래처
@@ -696,7 +696,7 @@ COMMENT ON COLUMN tb_warehouse.position_desc  IS '물리적 위치 설명. posit
 
 
 -- ----------------------------------------------------------------------------
--- 로케이션 (빈) — 피킹 · 적치 단위
+-- 빈 — 피킹 · 적치 단위
 -- ----------------------------------------------------------------------------
 CREATE TABLE tb_location (
     location_seq   bigint       GENERATED ALWAYS AS IDENTITY,
@@ -714,7 +714,7 @@ CREATE TABLE tb_location (
     updated_by     varchar(30),
     updated_at     timestamp,
     CONSTRAINT pk_location         PRIMARY KEY (location_seq),
-    -- 로케이션코드는 전역 유일이다. 라벨에 찍혀 현장에서 스캔되는 값이고,
+    -- 빈코드는 전역 유일이다. 라벨에 찍혀 현장에서 스캔되는 값이고,
     -- 스캔 한 번으로 한 곳이 지목되어야 한다 (MST-PG-004 바코드 출력).
     CONSTRAINT uk_location_id      UNIQUE (location_id),
     CONSTRAINT fk_location_wh      FOREIGN KEY (warehouse_seq)
@@ -728,12 +728,12 @@ CREATE INDEX ix_location_type ON tb_location (location_type);
 CREATE UNIQUE INDEX ux_location_barcode ON tb_location (barcode)
     WHERE barcode IS NOT NULL;
 
-COMMENT ON TABLE  tb_location               IS '로케이션(빈) — 피킹 · 적치 단위. MST-003';
-COMMENT ON COLUMN tb_location.location_seq  IS '로케이션 순번 (PK)';
-COMMENT ON COLUMN tb_location.location_id   IS '로케이션코드. 전역 유일 (예: 1A-01-01)';
+COMMENT ON TABLE  tb_location               IS '빈 — 피킹 · 적치 단위. MST-003';
+COMMENT ON COLUMN tb_location.location_seq  IS '빈 순번 (PK)';
+COMMENT ON COLUMN tb_location.location_id   IS '빈코드. 전역 유일 (예: 1A-01-01)';
 COMMENT ON COLUMN tb_location.sector        IS '섹터';
 COMMENT ON COLUMN tb_location.zone_code     IS '구역. zone 은 AT TIME ZONE 과 겹쳐 회피';
 COMMENT ON COLUMN tb_location.floor_no      IS '층. floor 는 내장 함수명과 겹쳐 회피';
-COMMENT ON COLUMN tb_location.location_type IS '로케이션유형 — 코드그룹 LOC_TYPE (NORMAL/RETURN/DEFECT/TRANSIT)';
+COMMENT ON COLUMN tb_location.location_type IS '빈유형 — 코드그룹 LOC_TYPE (NORMAL/RETURN/DEFECT/TRANSIT)';
 COMMENT ON COLUMN tb_location.barcode       IS '라벨 바코드. 비우면 location_id 를 그대로 쓴다';
 

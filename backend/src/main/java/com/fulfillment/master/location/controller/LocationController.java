@@ -20,11 +20,11 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 로케이션(빈) 관리 (MST-PG-003).
+ * 빈 관리 (MST-PG-003).
  *
  * 모든 경로가 MST_LOCATION 권한을 요구하며 판정은 서비스에서 수행한다.
  *
- * 경로에 로케이션코드만 쓰는 이유는 그 값이 전역 유일이기 때문이다.
+ * 경로에 빈코드만 쓰는 이유는 그 값이 전역 유일이기 때문이다.
  * 창고와 달리 플랜트를 함께 받지 않아도 한 곳이 정해진다.
  *
  *   GET    /api/locations              목록 (기본 100건 페이징)
@@ -53,7 +53,7 @@ public class LocationController {
 		return ApiResponse.ok(locationService.get(CurrentUser.require(), locationId));
 	}
 
-	/** 등록. 창고유형과 로케이션유형이 어긋나면 warning 으로 알린다. */
+	/** 등록. 창고유형과 빈유형이 어긋나면 warning 으로 알린다. */
 	@PostMapping
 	public ApiResponse<LocationResponse> create(@Valid @RequestBody LocationSaveRequest request) {
 		LocationService.Result result = locationService.create(CurrentUser.require(), request);

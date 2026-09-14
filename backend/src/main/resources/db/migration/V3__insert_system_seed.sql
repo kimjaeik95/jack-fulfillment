@@ -35,7 +35,7 @@ VALUES
   -- 거점 3단계. 재고주소가 이 위에서 정해지므로 기준정보의 첫 묶음이다.
   ('MST_PLANT',         '플랜트 관리',          'MST', '기준정보 > 플랜트',    105, 'system'),
   ('MST_WAREHOUSE',     '창고 관리',            'MST', '기준정보 > 창고',      106, 'system'),
-  ('MST_LOCATION',      '로케이션 관리',        'MST', '기준정보 > 로케이션',  107, 'system'),
+  ('MST_LOCATION',      '빈 관리',        'MST', '기준정보 > 빈',  107, 'system'),
   ('MST_SKU',           '제품/SKU 관리',        'MST', '기준정보 > SKU',       110, 'system'),
   ('MST_BRAND',         '브랜드 관리',          'MST', '기준정보 > 브랜드',    120, 'system'),
   ('MST_CHANNEL',       '채널 관리',            'MST', '기준정보 > 채널',      130, 'system'),
@@ -222,7 +222,7 @@ SELECT v.menu_id, v.menu_name, g.menu_seq, v.route_name, v.icon, p.perm_seq, v.s
         ('SYS_ORGS',      '조직 관리',      'GRP_USER',   'orgs',             '🏢', 'SYS_COMPANY',   30),
         ('MST_PLANTS',    '플랜트 관리',    'GRP_MASTER', 'plants',           '🏭', 'MST_PLANT',     10),
         ('MST_WAREHOUSES','창고 관리',      'GRP_MASTER', 'warehouses',       '📦', 'MST_WAREHOUSE', 20),
-        ('MST_LOCATIONS', '로케이션 관리',  'GRP_MASTER', 'locations',        '🧭', 'MST_LOCATION',  30),
+        ('MST_LOCATIONS', '빈 관리',  'GRP_MASTER', 'locations',        '🧭', 'MST_LOCATION',  30),
         ('SYS_ROLES',     '역할 관리',      'GRP_AUTH',   'roles',            '🎫', 'SYS_ROLE',      10),
         ('SYS_PERMS',     '권한 관리',      'GRP_AUTH',   'permissions',      '🔑', 'SYS_ROLE',      20),
         ('SYS_ROLEPERMS', '역할-권한 매핑', 'GRP_AUTH',   'role-permissions', '▦',  'SYS_ROLE',      30),

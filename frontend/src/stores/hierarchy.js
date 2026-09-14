@@ -3,12 +3,12 @@
  *
  * 한 스토어에 셋을 함께 두는 이유는 화면들이 서로의 목록을 필요로 하기
  * 때문이다. 조직 화면은 회사 목록을, 플랜트 화면은 조직 목록을, 창고 화면은
- * 플랜트 목록을, 로케이션 화면은 플랜트와 창고 목록을 드롭다운으로 쓴다.
+ * 플랜트 목록을, 빈 화면은 플랜트와 창고 목록을 드롭다운으로 쓴다.
  * 화면마다 따로 읽으면 한쪽에서 만든 값이 다른 쪽에는 없는 상태가 되어
  * 저장할 때마다 서버에 거부당한다.
  *
- * 로케이션은 여기에 두지 않는다. 수백~수천 건이라 전체를 메모리에 들고 있을
- * 수 없고, 다른 화면의 드롭다운이 되지도 않는다 — 로케이션 화면이 직접
+ * 빈은 여기에 두지 않는다. 수백~수천 건이라 전체를 메모리에 들고 있을
+ * 수 없고, 다른 화면의 드롭다운이 되지도 않는다 — 빈 화면이 직접
  * 페이징해서 읽는다.
  *
  * 조직은 기존 org 스토어가 이미 들고 있으므로 중복하지 않는다.
@@ -112,7 +112,7 @@ export const useHierarchyStore = defineStore('hierarchy', () => {
   const plantNameOf = (plantId) =>
     plants.value.find((p) => p.plantId === plantId)?.plantName ?? plantId
 
-  /** 창고유형. 로케이션 화면이 "유형이 어긋나는가"를 미리 보여주는 데 쓴다. */
+  /** 창고유형. 빈 관리 화면이 "유형이 어긋나는가"를 미리 보여주는 데 쓴다. */
   const warehouseTypeOf = (plantId, warehouseId) =>
     warehouses.value.find((w) => w.plantId === plantId && w.warehouseId === warehouseId)
       ?.warehouseType ?? null

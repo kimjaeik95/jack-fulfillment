@@ -8,12 +8,12 @@ import jakarta.validation.constraints.PositiveOrZero;
 import jakarta.validation.constraints.Size;
 
 /**
- * 로케이션(빈) 등록 · 수정 요청.
+ * 빈 등록 · 수정 요청.
  *
- * 로케이션코드는 라벨에 찍혀 현장에서 스캔되는 값이다. 그래서 형식을
+ * 빈코드는 라벨에 찍혀 현장에서 스캔되는 값이다. 그래서 형식을
  * 느슨하게 둔다 — 1A-01-01 처럼 구분자를 쓰는 관행이 널리 쓰이고, 센터마다
  * 체계가 다르다. 다만 공백과 한글은 막는다. 바코드로 인쇄했을 때 스캐너가
- * 읽지 못하거나 잘려도 조용히 다른 로케이션이 되어 버린다.
+ * 읽지 못하거나 잘려도 조용히 다른 빈이 되어 버린다.
  */
 public record LocationSaveRequest(
 
@@ -24,9 +24,9 @@ public record LocationSaveRequest(
 		@NotBlank(message = "소속 창고는 필수입니다.")
 		String warehouseId,
 
-		@NotBlank(message = "로케이션코드는 필수입니다.")
+		@NotBlank(message = "빈코드는 필수입니다.")
 		@Pattern(regexp = "^[A-Z0-9][A-Z0-9-]{1,29}$",
-				message = "로케이션코드는 영문 대문자 · 숫자 · 하이픈 2~30자여야 합니다. 예) 1A-01-01")
+				message = "빈코드는 영문 대문자 · 숫자 · 하이픈 2~30자여야 합니다. 예) 1A-01-01")
 		String locationId,
 
 		@Size(max = 20) String sector,
@@ -35,10 +35,10 @@ public record LocationSaveRequest(
 
 		@Size(max = 20) String floorNo,
 
-		@NotBlank(message = "로케이션유형은 필수입니다.")
+		@NotBlank(message = "빈유형은 필수입니다.")
 		String locationType,
 
-		/** 라벨 바코드. 비우면 로케이션코드를 그대로 쓴다. */
+		/** 라벨 바코드. 비우면 빈코드를 그대로 쓴다. */
 		@Pattern(regexp = "^[A-Z0-9-]{2,50}$",
 				message = "바코드는 영문 대문자 · 숫자 · 하이픈 2~50자여야 합니다.")
 		String barcode,
@@ -80,7 +80,7 @@ public record LocationSaveRequest(
 	 *
 	 * 조회한 기존 객체를 고치지 않고 새로 만든다. 감사로그가 변경 전후를
 	 * 비교해야 하므로 before 를 그대로 남겨 두어야 하기 때문이다.
-	 * 로케이션코드는 바꾸지 않는다 — 이미 인쇄된 라벨이 현장에 붙어 있다.
+	 * 빈코드는 바꾸지 않는다 — 이미 인쇄된 라벨이 현장에 붙어 있다.
 	 */
 	public Location toUpdatedLocation(Long locationSeq, Long warehouseSeq, String actorId) {
 		Location location = new Location();

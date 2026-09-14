@@ -35,6 +35,6 @@ public interface WarehouseDao {
 
 	void delete(@Param("warehouseSeq") Long warehouseSeq);
 
-	/** 딸린 로케이션 수. 있으면 삭제할 수 없다. */
+	/** 딸린 빈 수. 있으면 삭제할 수 없다. */
 	int countLocations(@Param("warehouseSeq") Long warehouseSeq);
 }

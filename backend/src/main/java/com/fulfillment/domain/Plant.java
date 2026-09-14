@@ -44,5 +44,5 @@ public class Plant {
 	private String companyId;        // 조직이 속한 회사코드
 	private String companyName;
 	private Integer warehouseCount;  // 딸린 창고 수
-	private Integer locationCount;   // 딸린 로케이션 수
+	private Integer locationCount;   // 딸린 빈 수
 }

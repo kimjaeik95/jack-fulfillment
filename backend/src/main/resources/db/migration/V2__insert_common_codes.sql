@@ -17,7 +17,7 @@ INSERT INTO tb_code_group (code_group_id, code_group_name, description, created_
   ('ORG_TYPE',      '조직 유형',     '회사 · 물류센터',                              'system'),
   ('PLANT_TYPE',    '플랜트 유형',   '거점의 역할',                                  'system'),
   ('WH_TYPE',       '창고 유형',     '플랜트 내 구획의 재고 성격',                   'system'),
-  ('LOC_TYPE',      '로케이션 유형', '빈에 담기는 재고의 상태',                      'system'),
+  ('LOC_TYPE',      '빈 유형', '빈에 담기는 재고의 상태',                      'system'),
   ('USER_STATUS',   '사용자 상태',   '계정 상태. 물리 삭제 대신 이 값으로 통제한다', 'system'),
   ('PERM_MODULE',   '권한 모듈',     '기능 권한의 대분류',                           'system'),
   ('PERM_ACTION',   '권한 액션',     '조회 · 등록 · 수정 · 삭제 · 승인 · 다운로드',  'system'),
@@ -55,11 +55,11 @@ SELECT g.code_group_seq, v.code_id, v.code_name, v.description, v.attr1, v.sort_
         ('WH_TYPE',       'RETURN',     '반품',           '반품 입고 후 판정 대기',                   'amber',  20),
         ('WH_TYPE',       'DEFECT',     '불량',           '판매불가. 폐기 · 반송 대상',               'red',    30),
 
-        -- 로케이션 유형 --------------------------------------------------
-        ('LOC_TYPE',      'NORMAL',     '정상',           '일반 적치 · 피킹 로케이션',                'green',  10),
-        ('LOC_TYPE',      'RETURN',     '반품',           '반품 전용 로케이션',                       'amber',  20),
-        ('LOC_TYPE',      'DEFECT',     '불량',           '불량 격리 로케이션',                       'red',    30),
-        ('LOC_TYPE',      'TRANSIT',    '운송중',         '이동 중 재고가 잠시 머무는 가상 로케이션', 'gray',   40),
+        -- 빈 유형 --------------------------------------------------
+        ('LOC_TYPE',      'NORMAL',     '정상',           '일반 적치 · 피킹 빈',                'green',  10),
+        ('LOC_TYPE',      'RETURN',     '반품',           '반품 전용 빈',                       'amber',  20),
+        ('LOC_TYPE',      'DEFECT',     '불량',           '불량 격리 빈',                       'red',    30),
+        ('LOC_TYPE',      'TRANSIT',    '운송중',         '이동 중 재고가 잠시 머무는 가상 빈', 'gray',   40),
 
         -- 사용자 상태 ----------------------------------------------------
         ('USER_STATUS',   'ACTIVE',     '정상',           '로그인 가능',                              'green',  10),
@@ -69,7 +69,7 @@ SELECT g.code_group_seq, v.code_id, v.code_name, v.description, v.attr1, v.sort_
 
         -- 권한 모듈 ------------------------------------------------------
         ('PERM_MODULE',   'SYS',        '시스템설정',     '회사 · 조직 · 사용자 · 역할 · 코드 · 정책', 'slate', 10),
-        ('PERM_MODULE',   'MST',        '기준정보',       '플랜트 · 창고 · 로케이션 · SKU · 채널 · 공급처', 'violet', 20),
+        ('PERM_MODULE',   'MST',        '기준정보',       '플랜트 · 창고 · 빈 · SKU · 채널 · 공급처', 'violet', 20),
         ('PERM_MODULE',   'PUR',        '구매',           '구매요청 · 발주',                          'amber',  30),
         ('PERM_MODULE',   'INB',        '입고',           '입하 · 검수 · 적치 · 확정',                'teal',   40),
         ('PERM_MODULE',   'OUT',        '출고',           '할당 · 피킹 · 패킹 · 결품',                'blue',   50),
@@ -124,7 +124,7 @@ SELECT g.code_group_seq, v.code_id, v.code_name, v.description, v.attr1, v.sort_
         ('UPLOAD_TARGET', 'ORG',        '조직',           '회사 하위의 본사 · 센터 조직',             'blue',   10),
         ('UPLOAD_TARGET', 'PLANT',      '플랜트',         '물류센터 · 반품센터 · 크로스독',           'violet', 20),
         ('UPLOAD_TARGET', 'WAREHOUSE',  '창고',           '플랜트 내 양품 · 반품 · 불량 구획',        'teal',   30),
-        ('UPLOAD_TARGET', 'LOCATION',   '로케이션',       '빈. 수백 건을 한 번에 올린다',             'green',  40),
+        ('UPLOAD_TARGET', 'LOCATION',   '빈',       '빈. 수백 건을 한 번에 올린다',             'green',  40),
         ('UPLOAD_TARGET', 'PERMISSION', '권한',           '기능 권한과 허용 액션',                    'amber',  50),
         ('UPLOAD_TARGET', 'CODE',       '공통코드',       '코드그룹 하위의 코드값',                   'cyan',   60),
 

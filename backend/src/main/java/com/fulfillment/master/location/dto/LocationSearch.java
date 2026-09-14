@@ -5,9 +5,9 @@ import lombok.Getter;
 import lombok.Setter;
 
 /**
- * 로케이션 목록 조회 조건.
+ * 빈 목록 조회 조건.
  *
- * 다른 기준정보와 달리 기본 페이지 크기를 둔다. 로케이션은 센터 하나에
+ * 다른 기준정보와 달리 기본 페이지 크기를 둔다. 빈은 센터 하나에
  * 수백~수천 건이 생기므로 전체 조회가 기본값이면 화면이 멈춘다.
  * size=0 으로 전체를 받을 수는 있지만 그건 다운로드 경로가 쓴다.
  *
@@ -17,7 +17,7 @@ import lombok.Setter;
 @Setter
 public class LocationSearch extends ScopedSearch {
 
-	/** 로케이션코드 · 바코드 · 섹터 · 구역 부분일치 */
+	/** 빈코드 · 바코드 · 섹터 · 구역 부분일치 */
 	private String keyword;
 	private String plantId;
 	private String warehouseId;

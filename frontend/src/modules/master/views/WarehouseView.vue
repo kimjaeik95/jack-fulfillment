@@ -75,7 +75,7 @@ const columns = [
   { key: 'warehouseName', label: '창고명', width: '160px', sortable: true },
   { key: 'warehouseType', label: '유형', width: '84px', align: 'center', sortable: true },
   { key: 'positionDesc', label: '위치', width: '150px' },
-  { key: 'locationCount', label: '로케이션', width: '78px', align: 'right', sortable: true },
+  { key: 'locationCount', label: '빈', width: '78px', align: 'right', sortable: true },
   { key: 'useYn', label: '사용', width: '64px', align: 'center', sortable: true },
   { key: '_act', label: '', width: '112px', align: 'right' },
 ]
@@ -168,13 +168,13 @@ const {
 /**
  * 수정 중에는 소속 플랜트를 바꿀 수 없다.
  *
- * 로케이션코드 체계가 플랜트 단위로 정해지므로, 창고만 옮기면 그 아래 빈들이
+ * 빈코드 체계가 플랜트 단위로 정해지므로, 창고만 옮기면 그 아래 빈들이
  * 엉뚱한 곳을 가리킨다. 서버도 같은 이유로 거부한다.
  */
 const plantLocked = computed(() => mode.value === 'edit')
 
 /**
- * 창고유형을 바꾸면 딸린 로케이션 재고의 판매가능 여부가 함께 바뀐다.
+ * 창고유형을 바꾸면 딸린 빈 재고의 판매가능 여부가 함께 바뀐다.
  * 막지는 않되(반품창고를 양품으로 승격하는 정당한 경우가 있다) 알려 준다.
  */
 const typeChangeNotice = computed(() => {
@@ -184,7 +184,7 @@ const typeChangeNotice = computed(() => {
   )
   if (!original || original.warehouseType === form.value.warehouseType) return ''
   if (!original.locationCount) return ''
-  return `창고유형을 바꿉니다. 딸린 로케이션 ${original.locationCount}개에 있는 재고의 판매가능 여부가 이 유형을 따릅니다.`
+  return `창고유형을 바꿉니다. 딸린 빈 ${original.locationCount}개에 있는 재고의 판매가능 여부가 이 유형을 따릅니다.`
 })
 
 /** 삭제 확인창에 왜 막힐 수 있는지 미리 보여준다 */
@@ -192,9 +192,9 @@ const deleteDetail = computed(() => {
   const row = askDelete.value
   if (!row) return ''
   if (row.locationCount) {
-    return `딸린 로케이션 ${row.locationCount}개가 있어 삭제할 수 없습니다. 로케이션을 먼저 삭제하세요. 더 이상 쓰지 않는 창고라면 사용여부를 '미사용'으로 바꾸세요.`
+    return `딸린 빈 ${row.locationCount}개가 있어 삭제할 수 없습니다. 빈을 먼저 삭제하세요. 더 이상 쓰지 않는 창고라면 사용여부를 '미사용'으로 바꾸세요.`
   }
-  return '딸린 로케이션이 있으면 서버가 삭제를 거부합니다.'
+  return '딸린 빈이 있으면 서버가 삭제를 거부합니다.'
 })
 
 const readDenyReason = computed(() => session.denyReason('MST_WAREHOUSE', 'R'))
@@ -353,7 +353,7 @@ watch(
           :options="hierarchy.plantOptions"
           :disabled="plantLocked"
           :error="errors.plantId"
-          :help="plantLocked ? '소속 플랜트는 바꿀 수 없습니다. 로케이션 체계가 플랜트 단위로 정해집니다.' : '창고코드는 이 플랜트 안에서만 유일해야 합니다.'"
+          :help="plantLocked ? '소속 플랜트는 바꿀 수 없습니다. 빈코드 체계가 플랜트 단위로 정해집니다.' : '창고코드는 이 플랜트 안에서만 유일해야 합니다.'"
         />
         <FormField
           v-model="form.warehouseId"

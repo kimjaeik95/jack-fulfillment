@@ -134,12 +134,12 @@ public class WarehouseService {
 
 		Warehouse before = mustFindInScope(actor, plantId, warehouseId, "U");
 
-		// 플랜트 이동은 허용하지 않는다. 로케이션코드 체계가 플랜트 단위로
+		// 플랜트 이동은 허용하지 않는다. 빈코드 체계가 플랜트 단위로
 		// 정해지므로, 창고만 옮기면 그 아래 빈들이 엉뚱한 곳을 가리킨다.
 		if (!plantId.equals(request.plantId())) {
 			throw new BusinessException(ErrorCode.INVALID_INPUT,
 					("창고의 소속 플랜트는 바꿀 수 없습니다. 새 플랜트에 창고를 만들고 "
-							+ "로케이션을 옮기세요."));
+							+ "빈을 옮기세요."));
 		}
 		if (warehouseDao.countByName(before.getPlantSeq(), request.warehouseName(),
 				before.getWarehouseSeq()) > 0) {
@@ -175,7 +175,7 @@ public class WarehouseService {
 		int locations = warehouseDao.countLocations(before.getWarehouseSeq());
 		if (locations > 0) {
 			throw new BusinessException(ErrorCode.IN_USE,
-					("딸린 로케이션 %d개가 있어 삭제할 수 없습니다. 로케이션을 먼저 삭제하세요. "
+					("딸린 빈 %d개가 있어 삭제할 수 없습니다. 빈을 먼저 삭제하세요. "
 							+ "더 이상 쓰지 않는 창고라면 사용여부를 미사용으로 바꾸세요.")
 							.formatted(locations));
 		}
@@ -208,7 +208,7 @@ public class WarehouseService {
 	 * 창고유형 변경 안내.
 	 *
 	 * 막지 않는다 — 반품창고를 양품창고로 승격하는 것 같은 정당한 경우가
-	 * 있다. 다만 이 값이 재고의 판매가능 여부를 가르므로, 딸린 로케이션이
+	 * 있다. 다만 이 값이 재고의 판매가능 여부를 가르므로, 딸린 빈이
 	 * 있으면 그 재고의 성격이 함께 바뀐다는 것을 알려야 한다.
 	 */
 	private String warnOnTypeChange(Warehouse before, WarehouseSaveRequest request) {
@@ -219,7 +219,7 @@ public class WarehouseService {
 		if (locations == null || locations == 0) {
 			return null;
 		}
-		return ("창고유형을 바꿨습니다. 딸린 로케이션 %d개에 있는 재고의 판매가능 여부가 "
+		return ("창고유형을 바꿨습니다. 딸린 빈 %d개에 있는 재고의 판매가능 여부가 "
 				+ "이 유형을 따릅니다. 재고 현황을 확인하세요.").formatted(locations);
 	}
 

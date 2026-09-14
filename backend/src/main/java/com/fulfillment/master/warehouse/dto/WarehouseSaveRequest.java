@@ -72,8 +72,8 @@ public record WarehouseSaveRequest(
 	 *
 	 * 조회한 기존 객체를 고치지 않고 새로 만든다. 감사로그가 변경 전후를
 	 * 비교해야 하므로 before 를 그대로 남겨 두어야 하기 때문이다.
-	 * 창고코드와 소속 플랜트는 바꾸지 않는다 — 로케이션과 재고가 그 조합으로
-	 * 창고를 부르고, 플랜트를 옮기면 로케이션코드 체계가 어긋난다.
+	 * 창고코드와 소속 플랜트는 바꾸지 않는다 — 빈과 재고가 그 조합으로
+	 * 창고를 부르고, 플랜트를 옮기면 빈코드 체계가 어긋난다.
 	 */
 	public Warehouse toUpdatedWarehouse(Long warehouseSeq, Long plantSeq, String actorId) {
 		Warehouse warehouse = new Warehouse();

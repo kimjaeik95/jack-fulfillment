@@ -37,5 +37,5 @@ public class Warehouse {
 	/* 조회 전용 파생 컬럼 -------------------------------------------------- */
 	private String plantId;
 	private String plantName;
-	private Integer locationCount;   // 딸린 로케이션 수
+	private Integer locationCount;   // 딸린 빈 수
 }

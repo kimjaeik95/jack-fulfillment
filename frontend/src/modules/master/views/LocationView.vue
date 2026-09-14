@@ -1,6 +1,6 @@
 <script setup>
 /**
- * 로케이션(빈) 관리 (MST-PG-003).
+ * 빈 관리 (MST-PG-003).
  *
  * 재고주소의 마지막 물리 단계다. 여기까지 오면 재고가 놓일 자리가 정해진다.
  *   재고주소 = 플랜트 - 창고 - 빈 - 상품(SKU) - 거래처
@@ -9,7 +9,7 @@
  * 건이 생기므로 전체를 받아 화면에서 거르면 첫 화면이 멈춘다. 그래서 검색
  * 조건이 바뀌면 서버에 다시 물어본다.
  *
- * 로케이션코드는 바꿀 수 없다 — 이미 인쇄된 라벨이 현장에 붙어 있으므로
+ * 빈코드는 바꿀 수 없다 — 이미 인쇄된 라벨이 현장에 붙어 있으므로
  * 코드를 바꾸면 그 라벨이 다른 곳을 가리킨다.
  */
 import { computed, onMounted, reactive, ref, watch } from 'vue'
@@ -107,7 +107,7 @@ async function goPage(n) {
 }
 
 const columns = [
-  { key: 'locationId', label: '로케이션코드', width: '124px', sortable: true, cls: 'code' },
+  { key: 'locationId', label: '빈코드', width: '124px', sortable: true, cls: 'code' },
   { key: 'plantName', label: '플랜트', width: '140px' },
   { key: 'warehouseName', label: '창고', width: '132px' },
   { key: 'locationType', label: '유형', width: '84px', align: 'center' },
@@ -128,12 +128,12 @@ const {
 } = useCrud({
   perm: 'MST_LOCATION',
   pk: 'locationId',
-  label: '로케이션',
+  label: '빈',
   nameOf: (l) => `${l.locationId} (${l.warehouseName})`,
   api: {
     create: (payload) => locationApi.create(payload),
     update: (locationId, payload) => locationApi.update(locationId, payload),
-    remove: (locationId) => locationApi.remove(locationId, '로케이션 삭제'),
+    remove: (locationId) => locationApi.remove(locationId, '빈 삭제'),
   },
   // 서버 페이징이라 현재 페이지만 다시 읽는다. 등록한 행이 다른 페이지에
   // 있을 수 있으므로, 코드로 찾아갈 수 있게 검색어에 넣어 주는 편이
@@ -142,7 +142,7 @@ const {
     if (action === 'create' && result?.location) {
       filters.keyword = result.location.locationId
       await search()
-      toast.success(`등록한 로케이션 ${result.location.locationId} 을(를) 검색어에 넣었습니다.`)
+      toast.success(`등록한 빈 ${result.location.locationId} 을(를) 검색어에 넣었습니다.`)
     } else {
       await fetchPage()
     }
@@ -187,12 +187,12 @@ const {
     const e = {}
     if (!f.plantId) e.plantId = '소속 플랜트를 선택하세요.'
     if (!f.warehouseId) e.warehouseId = '소속 창고를 선택하세요.'
-    if (!f.locationId?.trim()) e.locationId = '로케이션코드는 필수입니다.'
+    if (!f.locationId?.trim()) e.locationId = '빈코드는 필수입니다.'
     // 공백과 한글은 막는다. 바코드로 인쇄했을 때 스캐너가 읽지 못하거나
-    // 잘려도 조용히 다른 로케이션이 되어 버린다.
+    // 잘려도 조용히 다른 빈이 되어 버린다.
     else if (!/^[A-Z0-9][A-Z0-9-]{1,29}$/.test(f.locationId))
       e.locationId = '영문 대문자·숫자·하이픈 2~30자. 예) 1A-01-01'
-    if (!f.locationType) e.locationType = '로케이션유형을 선택하세요.'
+    if (!f.locationType) e.locationType = '빈유형을 선택하세요.'
     if (f.barcode && !/^[A-Z0-9-]{2,50}$/.test(f.barcode))
       e.barcode = '영문 대문자·숫자·하이픈 2~50자로 입력하세요.'
     return e
@@ -205,7 +205,7 @@ const formWarehouseOptions = computed(() =>
 )
 
 /**
- * 창고유형과 로케이션유형이 어긋나면 알린다.
+ * 창고유형과 빈유형이 어긋나면 알린다.
  *
  * 막지 않는다 — 양품창고에 불량 격리 빈을 하나 두는 정당한 구성이 있고,
  * 운송중(TRANSIT)은 어느 창고에든 붙는다. 다만 재고의 판매가능 여부는
@@ -218,10 +218,10 @@ const typeMismatchNotice = computed(() => {
   const whType = hierarchy.warehouseTypeOf(plantId, warehouseId)
   if (!whType || whType === locationType) return ''
   if (whType === 'GOOD' && locationType === 'NORMAL') return ''
-  return `창고유형(${whType})과 로케이션유형(${locationType})이 다릅니다. 재고의 판매가능 여부는 창고유형이 정하므로, 의도한 구성인지 확인하세요.`
+  return `창고유형(${whType})과 빈유형(${locationType})이 다릅니다. 재고의 판매가능 여부는 창고유형이 정하므로, 의도한 구성인지 확인하세요.`
 })
 
-/** 바코드를 비우면 로케이션코드가 라벨이 된다 */
+/** 바코드를 비우면 빈코드가 라벨이 된다 */
 const labelPreview = computed(() => form.value.barcode || form.value.locationId || '-')
 
 const readDenyReason = computed(() => session.denyReason('MST_LOCATION', 'R'))
@@ -241,9 +241,9 @@ watch(
   <div>
     <div class="page-head">
       <div>
-        <h1 class="page-title">로케이션 관리</h1>
+        <h1 class="page-title">빈 관리</h1>
         <p class="page-desc">
-          창고 안의 빈(적치·피킹 단위)을 관리합니다. 로케이션코드는 전사에서 유일하며
+          창고 안의 빈(적치·피킹 단위)을 관리합니다. 빈코드는 전사에서 유일하며
           <strong>라벨로 인쇄되어 현장에 붙기 때문에 등록 후 바꿀 수 없습니다</strong>.
           건수가 많아 목록은 서버에서 {{ size }}건씩 나눠 받습니다.
         </p>
@@ -252,10 +252,10 @@ watch(
         <button
           class="btn btn-primary"
           :disabled="!canCreate"
-          :title="createDenyReason ?? '로케이션 등록'"
+          :title="createDenyReason ?? '빈 등록'"
           @click="openCreate()"
         >
-          + 로케이션 등록
+          + 빈 등록
         </button>
       </div>
     </div>
@@ -280,7 +280,7 @@ watch(
           v-model="filters.keyword"
           class="grow"
           label="검색어"
-          placeholder="로케이션코드 / 바코드 / 섹터 / 구역"
+          placeholder="빈코드 / 바코드 / 섹터 / 구역"
           @keyup.enter="search()"
         />
         <FormField
@@ -332,7 +332,7 @@ watch(
         :page-size="0"
         :show-pager="false"
         :muted-when="(l) => l.useYn !== 'Y'"
-        empty-text="조건에 맞는 로케이션이 없습니다."
+        empty-text="조건에 맞는 빈이 없습니다."
       >
         <template #cell-locationType="{ value }">
           <CodeBadge group="LOC_TYPE" :code="value" />
@@ -399,8 +399,8 @@ watch(
 
     <ModalDialog
       v-if="dlgOpen"
-      :title="mode === 'create' ? '로케이션 등록' : '로케이션 수정'"
-      :subtitle="mode === 'edit' ? form.locationId : '로케이션코드는 등록 후 변경할 수 없습니다 (라벨이 현장에 붙습니다).'"
+      :title="mode === 'create' ? '빈 등록' : '빈 수정'"
+      :subtitle="mode === 'edit' ? form.locationId : '빈코드는 등록 후 변경할 수 없습니다 (라벨이 현장에 붙습니다).'"
       @close="close()"
     >
       <div v-if="serverError" class="alert alert-danger mb-2">
@@ -431,7 +431,7 @@ watch(
         />
         <FormField
           v-model="form.locationId"
-          label="로케이션코드"
+          label="빈코드"
           required
           mono
           placeholder="1A-01-01"
@@ -441,7 +441,7 @@ watch(
         />
         <FormField
           v-model="form.locationType"
-          label="로케이션유형"
+          label="빈유형"
           type="select"
           required
           :options="codeOptions('LOC_TYPE')"
@@ -454,7 +454,7 @@ watch(
           v-model="form.barcode"
           label="바코드"
           mono
-          placeholder="비우면 로케이션코드를 씁니다"
+          placeholder="비우면 빈코드를 씁니다"
           :error="errors.barcode"
           :help="`라벨에 찍힐 값: ${labelPreview}`"
         />
@@ -478,9 +478,9 @@ watch(
 
     <ConfirmDialog
       v-if="askDelete"
-      title="로케이션 삭제"
+      title="빈 삭제"
       :message="deleteMessage"
-      detail="현장에 붙은 라벨이 있으면 함께 떼어야 합니다. 재고가 남아 있는 로케이션은 재고 기능이 생긴 뒤 삭제가 막힙니다."
+      detail="현장에 붙은 라벨이 있으면 함께 떼어야 합니다. 재고가 남아 있는 빈은 재고 기능이 생긴 뒤 삭제가 막힙니다."
       confirm-label="삭제"
       danger
       :busy="deleting"

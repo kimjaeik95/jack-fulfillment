@@ -74,7 +74,7 @@ const columns = [
   { key: 'orgName', label: '운영 조직', width: '150px', sortable: true },
   { key: 'managerName', label: '담당자', width: '86px' },
   { key: 'warehouseCount', label: '창고', width: '60px', align: 'right', sortable: true },
-  { key: 'locationCount', label: '로케이션', width: '78px', align: 'right', sortable: true },
+  { key: 'locationCount', label: '빈', width: '78px', align: 'right', sortable: true },
   { key: 'useYn', label: '사용', width: '64px', align: 'center', sortable: true },
   { key: '_act', label: '', width: '112px', align: 'right' },
 ]
@@ -173,7 +173,7 @@ const orgChangeNotice = computed(() => {
   if (mode.value !== 'edit') return ''
   const original = hierarchy.plants.find((p) => p.plantId === form.value.plantId)
   if (!original || original.orgId === form.value.orgId) return ''
-  return `운영 조직을 ${original.orgName}에서 옮깁니다. 이 플랜트의 창고·로케이션·재고는 그대로 남지만, 누가 볼 수 있는지(데이터 범위)가 새 조직 기준으로 바뀝니다.`
+  return `운영 조직을 ${original.orgName}에서 옮깁니다. 이 플랜트의 창고·빈·재고는 그대로 남지만, 누가 볼 수 있는지(데이터 범위)가 새 조직 기준으로 바뀝니다.`
 })
 
 /** 삭제 확인창에 왜 막힐 수 있는지 미리 보여준다 */
@@ -181,7 +181,7 @@ const deleteDetail = computed(() => {
   const row = askDelete.value
   if (!row) return ''
   if (row.warehouseCount) {
-    return `딸린 창고 ${row.warehouseCount}개(로케이션 ${row.locationCount ?? 0}개)가 있어 삭제할 수 없습니다. 창고를 먼저 삭제하세요. 더 이상 쓰지 않는 플랜트라면 사용여부를 '미사용'으로 바꾸세요.`
+    return `딸린 창고 ${row.warehouseCount}개(빈 ${row.locationCount ?? 0}개)가 있어 삭제할 수 없습니다. 창고를 먼저 삭제하세요. 더 이상 쓰지 않는 플랜트라면 사용여부를 '미사용'으로 바꾸세요.`
   }
   return '딸린 창고가 있으면 서버가 삭제를 거부합니다.'
 })

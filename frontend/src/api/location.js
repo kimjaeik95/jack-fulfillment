@@ -1,7 +1,7 @@
 /**
- * 로케이션(빈) 관리 API (MST-PG-003).
+ * 빈 관리 API (MST-PG-003).
  *
- * 재고주소의 마지막 물리 단계다. 로케이션코드는 전역 유일하고 라벨로
+ * 재고주소의 마지막 물리 단계다. 빈코드는 전역 유일하고 라벨로
  * 인쇄되어 현장에 붙으므로, 경로에 코드 하나만 쓴다 — 창고와 달리
  * 플랜트를 함께 받지 않아도 한 곳이 정해진다.
  *
@@ -40,7 +40,7 @@ export async function detail(locationId) {
 
 /**
  * 등록.
- * 창고유형과 로케이션유형이 어긋나면 막지 않고 warning 으로 알린다 —
+ * 창고유형과 빈유형이 어긋나면 막지 않고 warning 으로 알린다 —
  * 양품창고에 불량 격리 빈을 두는 정당한 구성이 있다.
  *
  * @returns {Promise<{location: object, warning: string|null}>}
@@ -52,7 +52,7 @@ export async function create(payload) {
 
 /**
  * 수정.
- * 로케이션코드는 바꿀 수 없다 — 이미 인쇄된 라벨이 현장에 붙어 있다.
+ * 빈코드는 바꿀 수 없다 — 이미 인쇄된 라벨이 현장에 붙어 있다.
  * 창고 이동은 허용한다 (구획 재편).
  *
  * @returns {Promise<{location: object, warning: string|null}>}

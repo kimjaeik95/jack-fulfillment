@@ -7,9 +7,9 @@ import org.apache.ibatis.annotations.Param;
 import java.util.List;
 
 /**
- * 로케이션(빈) 조회 · 등록 · 수정 · 삭제.
+ * 빈 조회 · 등록 · 수정 · 삭제.
  *
- * 로케이션코드는 전역 유일이므로 코드 하나로 찾을 수 있다. 창고 · 플랜트와
+ * 빈코드는 전역 유일이므로 코드 하나로 찾을 수 있다. 창고 · 플랜트와
  * 다른 점이며, 현장에서 라벨 하나를 스캔해 위치를 특정하기 위한 설계다.
  */
 public interface LocationDao {

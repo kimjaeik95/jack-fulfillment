@@ -45,10 +45,10 @@ export async function create(payload) {
 /**
  * 수정.
  *
- * 소속 플랜트는 바꿀 수 없다 — 로케이션코드 체계가 플랜트 단위로 정해지므로
+ * 소속 플랜트는 바꿀 수 없다 — 빈코드 체계가 플랜트 단위로 정해지므로
  * 창고만 옮기면 그 아래 빈들이 엉뚱한 곳을 가리킨다. 서버가 거부한다.
  *
- * 창고유형을 바꾸면 딸린 로케이션 재고의 판매가능 여부가 함께 바뀌므로
+ * 창고유형을 바꾸면 딸린 빈 재고의 판매가능 여부가 함께 바뀌므로
  * warning 이 온다.
  *
  * @returns {Promise<{warehouse: object, warning: string|null}>}
@@ -60,7 +60,7 @@ export async function update(plantId, warehouseId, payload) {
 
 /**
  * 삭제.
- * 딸린 로케이션이 남아 있으면 서버가 사유와 함께 거부한다.
+ * 딸린 빈이 남아 있으면 서버가 사유와 함께 거부한다.
  */
 export async function remove(plantId, warehouseId, reason) {
   await del(path(plantId, warehouseId), { reason })

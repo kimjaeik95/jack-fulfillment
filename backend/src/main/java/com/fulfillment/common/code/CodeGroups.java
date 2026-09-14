@@ -39,7 +39,7 @@ public final class CodeGroups {
 	/** 창고 유형 (GOOD/RETURN/DEFECT) — 재고의 판매가능 여부를 가른다 */
 	public static final String WH_TYPE = "WH_TYPE";
 
-	/** 로케이션 유형 (NORMAL/RETURN/DEFECT/TRANSIT) */
+	/** 빈 유형 (NORMAL/RETURN/DEFECT/TRANSIT) */
 	public static final String LOC_TYPE = "LOC_TYPE";
 
 	/** 사용자 상태 (ACTIVE/LOCKED/DORMANT/RETIRED) */
