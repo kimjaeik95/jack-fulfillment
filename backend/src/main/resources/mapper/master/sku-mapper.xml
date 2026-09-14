@@ -122,6 +122,21 @@
         SELECT COUNT(*) FROM tb_sku WHERE sku_id = #{skuId}
     </select>
 
+    <!--
+      옵션 조합으로 기존 SKU 를 찾는다 (MST-PG-009).
+
+      일괄생성이 건너뛴 조합을 보고할 때 이미 있는 SKU 의 코드를 함께
+      적어 준다. 생성 규칙대로라면 PRD-24001-BK-M 이지만, 사람이 코드를
+      고쳐 두었을 수 있어 실제 코드를 읽어야 한다.
+    -->
+    <select id="selectByOption" resultMap="skuMap">
+        SELECT <include refid="skuColumns"/>
+        <include refid="skuFrom"/>
+         WHERE s.product_seq = #{productSeq}
+           AND s.color_code  = #{colorCode}
+           AND s.size_code   = #{sizeCode}
+    </select>
+
     <!-- 동일 제품 내 옵션 조합 중복 (MST-005) -->
     <select id="countByOption" resultType="int">
         SELECT COUNT(*) FROM tb_sku

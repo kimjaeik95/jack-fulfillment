@@ -58,3 +58,25 @@ export async function update(skuId, payload) {
 export async function remove(skuId, reason) {
   await del(`/skus/${encodeURIComponent(skuId)}`, { reason })
 }
+
+/**
+ * 일괄생성 미리보기 (MST-PG-009).
+ *
+ * 아무것도 만들지 않는다. 조합마다 만들어질지 / 건너뛸지와 그 사유를 준다.
+ * 조회지만 POST 인 이유는 색상 · 사이즈 목록을 보내야 하기 때문이다.
+ */
+export async function previewBulk(payload) {
+  const { data } = await post('/skus/bulk/preview', payload)
+  return data
+}
+
+/**
+ * 일괄생성.
+ *
+ * 만들 수 있는 것만 만들고 나머지는 사유와 함께 돌려준다 — 중복 조합은
+ * 오류가 아니다. 건너뛴 것이 있으면 warning 도 함께 온다.
+ */
+export async function createBulk(payload) {
+  const { data, warning } = await post('/skus/bulk', payload)
+  return { result: data, warning }
+}

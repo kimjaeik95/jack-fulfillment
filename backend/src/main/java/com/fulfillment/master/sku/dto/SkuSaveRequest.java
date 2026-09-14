@@ -15,8 +15,7 @@ import jakarta.validation.constraints.PositiveOrZero;
 public record SkuSaveRequest(
 
 		@NotBlank(message = "SKU 코드는 필수입니다.")
-		@Pattern(regexp = "^[A-Z0-9][A-Z0-9-]{2,39}$",
-				message = "SKU 코드는 영문 대문자·숫자·하이픈 3~40자여야 합니다. 예) PRD-24001-BK-M")
+		@Pattern(regexp = CODE_PATTERN, message = CODE_MESSAGE)
 		String skuId,
 
 		@NotBlank(message = "제품은 필수입니다.")
@@ -45,6 +44,18 @@ public record SkuSaveRequest(
 		/** 변경 사유 — 감사로그에 기록된다 */
 		String reason
 ) {
+
+	/**
+	 * SKU 코드 규칙.
+	 *
+	 * 일괄생성(MST-PG-009)이 만드는 코드도 같은 규칙을 지켜야 하므로 상수로
+	 * 꺼내 둔다. 규칙이 두 곳에 적히면 한쪽만 고쳐지고, 화면에서 거부당하는
+	 * 코드를 일괄생성이 만들어 넣는 일이 생긴다.
+	 */
+	public static final String CODE_PATTERN = "^[A-Z0-9][A-Z0-9-]{2,39}$";
+
+	public static final String CODE_MESSAGE =
+			"SKU 코드는 영문 대문자·숫자·하이픈 3~40자여야 합니다. 예) PRD-24001-BK-M";
 
 	/** 빈 문자열을 null 로 맞춰 둔다. 이유는 {@link Texts} 참고. */
 	public SkuSaveRequest {

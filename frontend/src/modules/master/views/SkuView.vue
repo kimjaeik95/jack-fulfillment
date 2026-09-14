@@ -12,6 +12,7 @@
  * SKU 코드가 찍힌다.
  */
 import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { codeOptions } from '@/api/codes.js'
 import * as skuApi from '@/api/sku.js'
 import { useCatalogStore } from '@/stores/catalog.js'
@@ -23,6 +24,8 @@ import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import FormField from '@/components/FormField.vue'
 import CodeBadge from '@/components/CodeBadge.vue'
 
+const route = useRoute()
+const router = useRouter()
 const catalog = useCatalogStore()
 const session = useSessionStore()
 
@@ -37,7 +40,8 @@ const size = skuApi.PAGE_SIZE
 
 const filters = reactive({
   keyword: '',
-  productId: '',
+  // 일괄생성 화면에서 '만든 것 보기' 로 넘어오면 그 제품이 걸린 채로 열린다
+  productId: route.query.productId ?? '',
   categoryId: '',
   brandId: '',
   colorCode: '',
@@ -222,6 +226,14 @@ const discardNotice = computed(() => {
   return '공통정책 P002 는 재고 0 · 미처리 0 일 때만 폐기를 허용합니다. 재고 기능이 아직 없어 선행조건을 확인하지 못하니 재고를 직접 확인하세요.'
 })
 
+/** 일괄생성 화면으로 — 보고 있는 제품을 그대로 가져간다 */
+function openBulk() {
+  router.push({
+    name: 'sku-bulk',
+    query: filters.productId ? { productId: filters.productId } : {},
+  })
+}
+
 const readDenyReason = computed(() => session.denyReason('MST_SKU', 'R'))
 </script>
 
@@ -237,6 +249,15 @@ const readDenyReason = computed(() => session.denyReason('MST_SKU', 'R'))
         </p>
       </div>
       <div class="page-head-actions">
+        <!-- 색상 × 사이즈를 한 번에 만들 때. 보고 있는 제품을 걸고 넘어간다. -->
+        <button
+          class="btn"
+          :disabled="!canCreate"
+          :title="createDenyReason ?? '색상 × 사이즈 조합을 한 번에 만듭니다'"
+          @click="openBulk()"
+        >
+          일괄생성
+        </button>
         <button
           class="btn btn-primary"
           :disabled="!canCreate"

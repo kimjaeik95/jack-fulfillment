@@ -59,6 +59,15 @@ export const routes = [
     meta: { title: 'SKU 관리', perm: 'MST_SKU' },
   },
   {
+    // 별도 권한을 두지 않는다. 하는 일이 SKU 를 만드는 것이라 MST_SKU 의 C 와
+    // 같다 — 권한을 나누면 "SKU 는 만들 수 있지만 한 번에 만들지는 못하는
+    // 사람" 이라는, 업무에 없는 역할이 생긴다.
+    path: '/sku-bulk',
+    name: 'sku-bulk',
+    component: () => import('./views/SkuBulkView.vue'),
+    meta: { title: 'SKU 일괄생성', perm: 'MST_SKU' },
+  },
+  {
     path: '/channels',
     name: 'channels',
     component: () => import('./views/ChannelView.vue'),
