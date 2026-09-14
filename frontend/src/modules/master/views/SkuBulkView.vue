@@ -74,6 +74,14 @@ const items = ref([])
 const reason = ref('')
 
 /**
+ * 직전에 담은 색상 · 사이즈.
+ *
+ * 제품을 바꾸면 체크를 비우지만(아래 onProductChange 참고), 같은 성격의
+ * 제품을 연달아 담는 일이 잦아 되살릴 수단이 필요하다.
+ */
+const lastUsed = ref(null)
+
+/**
  * 담는다.
  *
  * 같은 제품을 또 담는 것을 막지 않는다 — 색상을 나중에 떠올려 한 줄 더
@@ -90,10 +98,57 @@ function addDraft() {
       status: draft.value.status,
     },
   ]
-  // 제품만 비운다. 다음 제품도 같은 색상·사이즈 구성인 경우가 많아
-  // 체크를 그대로 두는 편이 손이 덜 간다.
-  draft.value = { ...draft.value, productId: '' }
+  lastUsed.value = {
+    colorCodes: [...draft.value.colorCodes],
+    sizeCodes: [...draft.value.sizeCodes],
+  }
+  draft.value = { ...draft.value, productId: '', colorCodes: [], sizeCodes: [] }
 }
+
+/**
+ * 제품을 바꾸면 색상 · 사이즈를 비운다.
+ *
+ * 사이즈 목록에 상의(S·M·L)와 하의(28·30·32)가 함께 있다. 티셔츠를 담고
+ * 팬츠를 골랐을 때 S·M·L 이 남아 있으면 PANTS-BK-M 같은 SKU 가 만들어지는데,
+ * 이것은 아무것도 잡아내지 못한다 — 코드 규칙에 맞고, 중복도 아니고,
+ * 미리보기에도 '생성' 으로 보인다. 서버는 팬츠에 M 이 이상하다는 것을 알
+ * 방법이 없다. 그래서 남기는 쪽의 대가가 클릭 몇 번이 아니라 잘못된
+ * 데이터다.
+ *
+ * 같은 성격의 제품을 연달아 담는 경우는 '이전과 동일' 로 한 번에 되살린다.
+ *
+ * watch 가 아니라 change 인 이유는 '고치기' 때문이다. 고치기는 제품과
+ * 색상·사이즈를 함께 되돌리는데, 제품을 감시하면 그때도 방금 되돌린 체크를
+ * 지워 버린다. change 는 사람이 드롭다운을 건드렸을 때만 돈다.
+ */
+function onProductChange() {
+  draft.value = { ...draft.value, colorCodes: [], sizeCodes: [] }
+}
+
+/** 직전에 담은 색상 · 사이즈를 그대로 다시 고른다 */
+function reuseLast() {
+  if (!lastUsed.value) return
+  draft.value = {
+    ...draft.value,
+    colorCodes: [...lastUsed.value.colorCodes],
+    sizeCodes: [...lastUsed.value.sizeCodes],
+  }
+}
+
+/** '이전과 동일' 을 권할 때 — 되살릴 것이 있고 지금은 비어 있을 때 */
+const canReuse = computed(
+  () =>
+    !!lastUsed.value &&
+    draft.value.colorCodes.length === 0 &&
+    draft.value.sizeCodes.length === 0,
+)
+
+const lastUsedLabel = computed(() => {
+  if (!lastUsed.value) return ''
+  const colors = lastUsed.value.colorCodes.map((c) => labelOf(colorOptions.value, c)).join(' · ')
+  const sizes = lastUsed.value.sizeCodes.map((z) => labelOf(sizeOptions.value, z)).join(' · ')
+  return `${colors} × ${sizes}`
+})
 
 function removeItem(i) {
   items.value = items.value.filter((_, n) => n !== i)
@@ -245,6 +300,7 @@ const readDenyReason = computed(() => session.denyReason('MST_SKU', 'R'))
           empty-option="선택하세요"
           :options="catalog.productOptions"
           help="SKU 코드는 제품코드-색상-사이즈 로 만들어집니다."
+          @change="onProductChange()"
         />
         <FormField
           v-model="draft.status"
@@ -273,6 +329,15 @@ const readDenyReason = computed(() => session.denyReason('MST_SKU', 'R'))
         help="상의(S·M·L)와 하의(28·30·32)가 한 목록에 있습니다. 이 제품에 맞는 것만 고르세요."
       />
 
+      <!--
+        제품을 바꾸면 체크가 비워진다. 같은 성격의 제품을 연달아 담을 때를
+        위해 직전 조합을 한 번에 되살릴 수 있게 둔다.
+      -->
+      <div v-if="canReuse" class="reuse">
+        <button class="btn btn-sm" @click="reuseLast()">↺ 이전과 동일</button>
+        <span class="small dim">{{ lastUsedLabel }}</span>
+      </div>
+
       <div class="add-bar">
         <span class="small dim">
           <template v-if="draftReady">
@@ -280,8 +345,8 @@ const readDenyReason = computed(() => session.denyReason('MST_SKU', 'R'))
             {{ draft.sizeCodes.length }} = <strong>{{ draftCount }}개 조합</strong>
           </template>
           <template v-else>
-            제품 · 색상 · 사이즈를 고르고 추가하세요. 색상·사이즈 체크는 다음 제품에도 그대로
-            남습니다.
+            제품 · 색상 · 사이즈를 고르고 추가하세요. 제품을 바꾸면 체크는 비워집니다 —
+            사이즈 목록에 상의와 하의가 함께 있어 그대로 남기면 엉뚱한 조합이 만들어집니다.
           </template>
         </span>
         <button class="btn btn-primary" :disabled="!draftReady" @click="addDraft()">
@@ -494,6 +559,12 @@ const readDenyReason = computed(() => session.denyReason('MST_SKU', 'R'))
   text-align: center;
   color: var(--fg-dim, #6b7280);
   font-size: 13px;
+}
+.reuse {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0 4px;
 }
 .add-bar {
   display: flex;
