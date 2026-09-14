@@ -75,11 +75,10 @@ public record ProductSaveRequest(
 	 * @param brandSeq    검증을 마친 브랜드의 순번
 	 */
 	public Product toNewProduct(Long categorySeq, Long brandSeq, String actorId) {
-		Product product = new Product();
-		product.setProductId(productId);
-		product.setCreatedBy(actorId);
-		applyEditableFields(product, categorySeq, brandSeq);
-		return product;
+		return editable(categorySeq, brandSeq)
+				.productId(productId)
+				.createdBy(actorId)
+				.build();
 	}
 
 	/**
@@ -91,25 +90,32 @@ public record ProductSaveRequest(
 	 */
 	public Product toUpdatedProduct(Long productSeq, Long categorySeq, Long brandSeq,
 			String actorId) {
-		Product product = new Product();
-		product.setProductSeq(productSeq);
-		product.setUpdatedBy(actorId);
-		applyEditableFields(product, categorySeq, brandSeq);
-		return product;
+		return editable(categorySeq, brandSeq)
+				.productSeq(productSeq)
+				.updatedBy(actorId)
+				.build();
 	}
 
-	private void applyEditableFields(Product product, Long categorySeq, Long brandSeq) {
-		product.setProductName(productName);
-		product.setCategorySeq(categorySeq);
-		product.setBrandSeq(brandSeq);
-		product.setStatus(status);
-		product.setOriginCountry(originCountry);
-		product.setProducedOn(producedOn);
-		product.setCostAmount(costAmount);
-		product.setSeason(season);
-		product.setReleaseYear(releaseYear);
-		product.setSortOrder(sortOrder == null ? 0 : sortOrder);
-		product.setUseYn(useYnOrDefault());
+	/**
+	 * 등록 · 수정이 공통으로 채우는 값.
+	 *
+	 * 덜 지은 빌더를 돌려주므로 부르는 쪽이 나머지를 채워 build() 한다.
+	 * 객체를 넘겨 고치던 이전 방식과 달리 반쯤 채워진 Product 이(가) 밖에
+	 * 존재하지 않는다.
+	 */
+	private Product.ProductBuilder editable(Long categorySeq, Long brandSeq) {
+		return Product.builder()
+				.productName(productName)
+				.categorySeq(categorySeq)
+				.brandSeq(brandSeq)
+				.status(status)
+				.originCountry(originCountry)
+				.producedOn(producedOn)
+				.costAmount(costAmount)
+				.season(season)
+				.releaseYear(releaseYear)
+				.sortOrder(sortOrder == null ? 0 : sortOrder)
+				.useYn(useYnOrDefault());
 	}
 
 	public String useYnOrDefault() {

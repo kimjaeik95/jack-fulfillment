@@ -64,10 +64,9 @@ public record ChannelSkuSaveRequest(
 	 */
 	public ChannelSku toNewMapping(Long channelSeq, Long skuSeq, LocalDateTime mappedAt,
 			String actorId) {
-		ChannelSku m = new ChannelSku();
-		m.setCreatedBy(actorId);
-		applyEditableFields(m, channelSeq, skuSeq, mappedAt);
-		return m;
+		return editable(channelSeq, skuSeq, mappedAt)
+				.createdBy(actorId)
+				.build();
 	}
 
 	/**
@@ -78,23 +77,30 @@ public record ChannelSkuSaveRequest(
 	 */
 	public ChannelSku toUpdatedMapping(Long mappingSeq, Long channelSeq, Long skuSeq,
 			LocalDateTime mappedAt, String actorId) {
-		ChannelSku m = new ChannelSku();
-		m.setMappingSeq(mappingSeq);
-		m.setUpdatedBy(actorId);
-		applyEditableFields(m, channelSeq, skuSeq, mappedAt);
-		return m;
+		return editable(channelSeq, skuSeq, mappedAt)
+				.mappingSeq(mappingSeq)
+				.updatedBy(actorId)
+				.build();
 	}
 
-	private void applyEditableFields(ChannelSku m, Long channelSeq, Long skuSeq,
+	/**
+	 * 등록 · 수정이 공통으로 채우는 값.
+	 *
+	 * 덜 지은 빌더를 돌려주므로 부르는 쪽이 나머지를 채워 build() 한다.
+	 * 객체를 넘겨 고치던 이전 방식과 달리 반쯤 채워진 ChannelSku 이(가) 밖에
+	 * 존재하지 않는다.
+	 */
+	private ChannelSku.ChannelSkuBuilder editable(Long channelSeq, Long skuSeq,
 			LocalDateTime mappedAt) {
-		m.setChannelSeq(channelSeq);
-		m.setSkuSeq(skuSeq);
-		m.setExtProductCode(extProductCode);
-		m.setExtOptionCode(extOptionCode);
-		m.setExtProductName(extProductName);
-		m.setMappingStatus(mappingStatus);
-		m.setMappedAt(mappedAt);
-		m.setUseYn(useYnOrDefault());
+		return ChannelSku.builder()
+				.channelSeq(channelSeq)
+				.skuSeq(skuSeq)
+				.extProductCode(extProductCode)
+				.extOptionCode(extOptionCode)
+				.extProductName(extProductName)
+				.mappingStatus(mappingStatus)
+				.mappedAt(mappedAt)
+				.useYn(useYnOrDefault());
 	}
 
 	public boolean isMapped() {

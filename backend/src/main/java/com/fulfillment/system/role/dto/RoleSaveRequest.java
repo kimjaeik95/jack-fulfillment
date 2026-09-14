@@ -66,11 +66,10 @@ public record RoleSaveRequest(
 	}
 
 	public Role toNewRole(String actorId) {
-		Role role = new Role();
-		role.setRoleId(roleId);
-		role.setCreatedBy(actorId);
-		applyEditableFields(role);
-		return role;
+		return editable()
+				.roleId(roleId)
+				.createdBy(actorId)
+				.build();
 	}
 
 	/**
@@ -81,22 +80,29 @@ public record RoleSaveRequest(
 	 * 역할코드는 바꾸지 않는다 — 권한 매핑·정책·화면이 코드로 역할을 부른다.
 	 */
 	public Role toUpdatedRole(Long roleSeq, String actorId) {
-		Role role = new Role();
-		role.setRoleSeq(roleSeq);
-		role.setUpdatedBy(actorId);
-		applyEditableFields(role);
-		return role;
+		return editable()
+				.roleSeq(roleSeq)
+				.updatedBy(actorId)
+				.build();
 	}
 
 	/** 등록·수정이 공통으로 채우는 항목 */
-	private void applyEditableFields(Role role) {
-		role.setRoleName(roleName);
-		role.setDescription(description);
-		role.setOrgScope(orgScope);
-		role.setDefaultDataScope(defaultDataScope);
-		role.setRestrictionSummary(restrictionSummary);
-		role.setSortOrder(sortOrder == null ? 0 : sortOrder);
-		role.setUseYn(useYnOrDefault());
+	/**
+	 * 등록 · 수정이 공통으로 채우는 값.
+	 *
+	 * 덜 지은 빌더를 돌려주므로 부르는 쪽이 나머지를 채워 build() 한다.
+	 * 객체를 넘겨 고치던 이전 방식과 달리 반쯤 채워진 Role 이(가) 밖에
+	 * 존재하지 않는다.
+	 */
+	private Role.RoleBuilder editable() {
+		return Role.builder()
+				.roleName(roleName)
+				.description(description)
+				.orgScope(orgScope)
+				.defaultDataScope(defaultDataScope)
+				.restrictionSummary(restrictionSummary)
+				.sortOrder(sortOrder == null ? 0 : sortOrder)
+				.useYn(useYnOrDefault());
 	}
 
 	public String useYnOrDefault() {

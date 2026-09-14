@@ -71,11 +71,10 @@ public record SkuSaveRequest(
 
 	/** @param productSeq 검증을 마친 제품의 순번 */
 	public Sku toNewSku(Long productSeq, String actorId) {
-		Sku sku = new Sku();
-		sku.setSkuId(skuId);
-		sku.setCreatedBy(actorId);
-		applyEditableFields(sku, productSeq);
-		return sku;
+		return editable(productSeq)
+				.skuId(skuId)
+				.createdBy(actorId)
+				.build();
 	}
 
 	/**
@@ -86,21 +85,28 @@ public record SkuSaveRequest(
 	 * SKU 코드는 바꾸지 않는다 — 재고 · 주문이 이 코드로 SKU 를 부른다.
 	 */
 	public Sku toUpdatedSku(Long skuSeq, Long productSeq, String actorId) {
-		Sku sku = new Sku();
-		sku.setSkuSeq(skuSeq);
-		sku.setUpdatedBy(actorId);
-		applyEditableFields(sku, productSeq);
-		return sku;
+		return editable(productSeq)
+				.skuSeq(skuSeq)
+				.updatedBy(actorId)
+				.build();
 	}
 
-	private void applyEditableFields(Sku sku, Long productSeq) {
-		sku.setProductSeq(productSeq);
-		sku.setColorCode(colorCode);
-		sku.setSizeCode(sizeCode);
-		sku.setBarcode(barcode);
-		sku.setStatus(status);
-		sku.setSortOrder(sortOrder == null ? 0 : sortOrder);
-		sku.setUseYn(useYnOrDefault());
+	/**
+	 * 등록 · 수정이 공통으로 채우는 값.
+	 *
+	 * 덜 지은 빌더를 돌려주므로 부르는 쪽이 나머지를 채워 build() 한다.
+	 * 객체를 넘겨 고치던 이전 방식과 달리 반쯤 채워진 Sku 이(가) 밖에
+	 * 존재하지 않는다.
+	 */
+	private Sku.SkuBuilder editable(Long productSeq) {
+		return Sku.builder()
+				.productSeq(productSeq)
+				.colorCode(colorCode)
+				.sizeCode(sizeCode)
+				.barcode(barcode)
+				.status(status)
+				.sortOrder(sortOrder == null ? 0 : sortOrder)
+				.useYn(useYnOrDefault());
 	}
 
 	public String useYnOrDefault() {

@@ -46,11 +46,10 @@ public record ChannelSaveRequest(
 	}
 
 	public Channel toNewChannel(String actorId) {
-		Channel channel = new Channel();
-		channel.setChannelId(channelId);
-		channel.setCreatedBy(actorId);
-		applyEditableFields(channel);
-		return channel;
+		return editable()
+				.channelId(channelId)
+				.createdBy(actorId)
+				.build();
 	}
 
 	/**
@@ -61,18 +60,25 @@ public record ChannelSaveRequest(
 	 * 채널코드는 바꾸지 않는다 — 매핑과 주문이 코드로 채널을 부른다.
 	 */
 	public Channel toUpdatedChannel(Long channelSeq, String actorId) {
-		Channel channel = new Channel();
-		channel.setChannelSeq(channelSeq);
-		channel.setUpdatedBy(actorId);
-		applyEditableFields(channel);
-		return channel;
+		return editable()
+				.channelSeq(channelSeq)
+				.updatedBy(actorId)
+				.build();
 	}
 
-	private void applyEditableFields(Channel channel) {
-		channel.setChannelName(channelName);
-		channel.setChannelType(channelType);
-		channel.setSortOrder(sortOrder == null ? 0 : sortOrder);
-		channel.setUseYn(useYnOrDefault());
+	/**
+	 * 등록 · 수정이 공통으로 채우는 값.
+	 *
+	 * 덜 지은 빌더를 돌려주므로 부르는 쪽이 나머지를 채워 build() 한다.
+	 * 객체를 넘겨 고치던 이전 방식과 달리 반쯤 채워진 Channel 이(가) 밖에
+	 * 존재하지 않는다.
+	 */
+	private Channel.ChannelBuilder editable() {
+		return Channel.builder()
+				.channelName(channelName)
+				.channelType(channelType)
+				.sortOrder(sortOrder == null ? 0 : sortOrder)
+				.useYn(useYnOrDefault());
 	}
 
 	public String useYnOrDefault() {

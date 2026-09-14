@@ -1,5 +1,8 @@
 package com.fulfillment.domain;
 
+import lombok.AccessLevel;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
@@ -16,10 +19,16 @@ import java.util.List;
  *
  * 라우트 자체는 프론트 코드가 소유한다. 메뉴는 "그 라우트를 사이드바
  * 어디에 어떤 이름으로 걸지"만 정한다.
+ *
+ * 만들 때는 빌더를 쓴다 (X.builder()). setter 는 MyBatis 가 조회 결과를 담을 때
+ * 쓰므로 남겨 두지만, 우리 코드에서는 부르지 않는다.
  */
 @Getter
 @Setter
 @NoArgsConstructor
+// 빌더가 쓸 생성자다. 위치로 넘기는 실수를 막으려 패키지 밖으로는 열지 않는다.
+@AllArgsConstructor(access = AccessLevel.PACKAGE)
+@Builder
 public class Menu {
 
 	private Long menuSeq;
@@ -45,6 +54,8 @@ public class Menu {
 	private String permId;
 	private String permName;
 	/** 하위 메뉴 (그룹일 때만 채운다) */
+	// @Builder 는 초기화식을 무시한다. 빌더로 만들어도 빈 목록이도록 둔다.
+	@Builder.Default
 	private List<Menu> children = new ArrayList<>();
 
 	public boolean isGroup() {

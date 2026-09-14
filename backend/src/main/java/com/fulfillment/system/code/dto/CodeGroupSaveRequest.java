@@ -40,11 +40,10 @@ public record CodeGroupSaveRequest(
 	}
 
 	public CodeGroup toNewGroup(String actorId) {
-		CodeGroup group = new CodeGroup();
-		group.setCodeGroupId(codeGroupId);
-		group.setCreatedBy(actorId);
-		applyEditableFields(group);
-		return group;
+		return editable()
+				.codeGroupId(codeGroupId)
+				.createdBy(actorId)
+				.build();
 	}
 
 	/**
@@ -52,17 +51,24 @@ public record CodeGroupSaveRequest(
 	 * 조회한 기존 객체를 고치지 않고 새로 만든다 — 감사로그가 변경 전후를 비교한다.
 	 */
 	public CodeGroup toUpdatedGroup(Long codeGroupSeq, String actorId) {
-		CodeGroup group = new CodeGroup();
-		group.setCodeGroupSeq(codeGroupSeq);
-		group.setUpdatedBy(actorId);
-		applyEditableFields(group);
-		return group;
+		return editable()
+				.codeGroupSeq(codeGroupSeq)
+				.updatedBy(actorId)
+				.build();
 	}
 
-	private void applyEditableFields(CodeGroup group) {
-		group.setCodeGroupName(codeGroupName);
-		group.setDescription(description);
-		group.setUseYn(useYnOrDefault());
+	/**
+	 * 등록 · 수정이 공통으로 채우는 값.
+	 *
+	 * 덜 지은 빌더를 돌려주므로 부르는 쪽이 나머지를 채워 build() 한다.
+	 * 객체를 넘겨 고치던 이전 방식과 달리 반쯤 채워진 CodeGroup 이(가) 밖에
+	 * 존재하지 않는다.
+	 */
+	private CodeGroup.CodeGroupBuilder editable() {
+		return CodeGroup.builder()
+				.codeGroupName(codeGroupName)
+				.description(description)
+				.useYn(useYnOrDefault());
 	}
 
 	public String useYnOrDefault() {

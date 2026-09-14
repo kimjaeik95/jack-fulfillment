@@ -94,11 +94,10 @@ public record PolicySaveRequest(
 	 * @param permSeq 대상 기능 순번. 전체 기능이면 null
 	 */
 	public Policy toNewPolicy(Long roleSeq, Long permSeq, String actorId) {
-		Policy policy = new Policy();
-		policy.setPolicyId(policyId);
-		policy.setCreatedBy(actorId);
-		applyEditableFields(policy, roleSeq, permSeq);
-		return policy;
+		return editable(roleSeq, permSeq)
+				.policyId(policyId)
+				.createdBy(actorId)
+				.build();
 	}
 
 	/**
@@ -107,29 +106,36 @@ public record PolicySaveRequest(
 	 * 정책ID 는 바꾸지 않는다. 감사로그와 운영 문서가 코드로 정책을 부른다.
 	 */
 	public Policy toUpdatedPolicy(Long policySeq, Long roleSeq, Long permSeq, String actorId) {
-		Policy policy = new Policy();
-		policy.setPolicySeq(policySeq);
-		policy.setUpdatedBy(actorId);
-		applyEditableFields(policy, roleSeq, permSeq);
-		return policy;
+		return editable(roleSeq, permSeq)
+				.policySeq(policySeq)
+				.updatedBy(actorId)
+				.build();
 	}
 
-	private void applyEditableFields(Policy policy, Long roleSeq, Long permSeq) {
-		policy.setPolicyName(policyName);
-		policy.setRoleSeq(roleSeq);
-		policy.setPermSeq(permSeq);
-		policy.setPolicyType(policyType);
-		policy.setEnforceLevel(enforceLevel);
-		policy.setConditionExpr(conditionExpr);
-		policy.setTargetField(targetField);
-		policy.setMessage(message);
-		policy.setAltProcess(altProcess);
+	/**
+	 * 등록 · 수정이 공통으로 채우는 값.
+	 *
+	 * 덜 지은 빌더를 돌려주므로 부르는 쪽이 나머지를 채워 build() 한다.
+	 * 객체를 넘겨 고치던 이전 방식과 달리 반쯤 채워진 Policy 이(가) 밖에
+	 * 존재하지 않는다.
+	 */
+	private Policy.PolicyBuilder editable(Long roleSeq, Long permSeq) {
 		// LIMIT 이 아니면 한도는 의미가 없다. 남겨 두면 유형을 바꿨을 때 옛 값이 따라다닌다.
 		boolean limit = "LIMIT".equals(policyType);
-		policy.setLimitAmount(limit ? limitAmount : null);
-		policy.setLimitQty(limit ? limitQty : null);
-		policy.setRemark(remark);
-		policy.setUseYn(useYnOrDefault());
+		return Policy.builder()
+				.policyName(policyName)
+				.roleSeq(roleSeq)
+				.permSeq(permSeq)
+				.policyType(policyType)
+				.enforceLevel(enforceLevel)
+				.conditionExpr(conditionExpr)
+				.targetField(targetField)
+				.message(message)
+				.altProcess(altProcess)
+				.limitAmount(limit ? limitAmount : null)
+				.limitQty(limit ? limitQty : null)
+				.remark(remark)
+				.useYn(useYnOrDefault());
 	}
 
 	public String useYnOrDefault() {

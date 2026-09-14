@@ -68,11 +68,10 @@ public record LocationSaveRequest(
 
 	/** @param warehouseSeq 검증을 마친 소속 창고의 순번 */
 	public Location toNewLocation(Long warehouseSeq, String actorId) {
-		Location location = new Location();
-		location.setLocationId(locationId);
-		location.setCreatedBy(actorId);
-		applyEditableFields(location, warehouseSeq);
-		return location;
+		return editable(warehouseSeq)
+				.locationId(locationId)
+				.createdBy(actorId)
+				.build();
 	}
 
 	/**
@@ -83,22 +82,29 @@ public record LocationSaveRequest(
 	 * 빈코드는 바꾸지 않는다 — 이미 인쇄된 라벨이 현장에 붙어 있다.
 	 */
 	public Location toUpdatedLocation(Long locationSeq, Long warehouseSeq, String actorId) {
-		Location location = new Location();
-		location.setLocationSeq(locationSeq);
-		location.setUpdatedBy(actorId);
-		applyEditableFields(location, warehouseSeq);
-		return location;
+		return editable(warehouseSeq)
+				.locationSeq(locationSeq)
+				.updatedBy(actorId)
+				.build();
 	}
 
-	private void applyEditableFields(Location location, Long warehouseSeq) {
-		location.setWarehouseSeq(warehouseSeq);
-		location.setSector(sector);
-		location.setZoneCode(zoneCode);
-		location.setFloorNo(floorNo);
-		location.setLocationType(locationType);
-		location.setBarcode(barcode);
-		location.setSortOrder(sortOrder == null ? 0 : sortOrder);
-		location.setUseYn(useYnOrDefault());
+	/**
+	 * 등록 · 수정이 공통으로 채우는 값.
+	 *
+	 * 덜 지은 빌더를 돌려주므로 부르는 쪽이 나머지를 채워 build() 한다.
+	 * 객체를 넘겨 고치던 이전 방식과 달리 반쯤 채워진 Location 이(가) 밖에
+	 * 존재하지 않는다.
+	 */
+	private Location.LocationBuilder editable(Long warehouseSeq) {
+		return Location.builder()
+				.warehouseSeq(warehouseSeq)
+				.sector(sector)
+				.zoneCode(zoneCode)
+				.floorNo(floorNo)
+				.locationType(locationType)
+				.barcode(barcode)
+				.sortOrder(sortOrder == null ? 0 : sortOrder)
+				.useYn(useYnOrDefault());
 	}
 
 	public String useYnOrDefault() {

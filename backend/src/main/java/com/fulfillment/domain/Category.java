@@ -1,5 +1,8 @@
 package com.fulfillment.domain;
 
+import lombok.AccessLevel;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
@@ -12,10 +15,16 @@ import java.time.LocalDateTime;
  * 대/중/소를 세 컬럼으로 두지 않고 자기참조로 묶는다. 세 컬럼이면 분류가
  * 데이터가 아니라 컬럼이 되어, 분류명 하나를 바꿀 때 그 분류에 속한 제품
  * 행을 전부 고쳐야 한다.
+ *
+ * 만들 때는 빌더를 쓴다 (X.builder()). setter 는 MyBatis 가 조회 결과를 담을 때
+ * 쓰므로 남겨 두지만, 우리 코드에서는 부르지 않는다.
  */
 @Getter
 @Setter
 @NoArgsConstructor
+// 빌더가 쓸 생성자다. 위치로 넘기는 실수를 막으려 패키지 밖으로는 열지 않는다.
+@AllArgsConstructor(access = AccessLevel.PACKAGE)
+@Builder
 public class Category {
 
 	private Long categorySeq;

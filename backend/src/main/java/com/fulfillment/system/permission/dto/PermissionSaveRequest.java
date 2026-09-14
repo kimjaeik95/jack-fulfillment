@@ -63,11 +63,10 @@ public record PermissionSaveRequest(
 	}
 
 	public Permission toNewPermission(String actorId) {
-		Permission permission = new Permission();
-		permission.setPermId(permId);
-		permission.setCreatedBy(actorId);
-		applyEditableFields(permission);
-		return permission;
+		return editable()
+				.permId(permId)
+				.createdBy(actorId)
+				.build();
 	}
 
 	/**
@@ -78,21 +77,28 @@ public record PermissionSaveRequest(
 	 * 권한코드는 바꾸지 않는다 — 역할 매핑과 정책이 코드로 권한을 부른다.
 	 */
 	public Permission toUpdatedPermission(Long permSeq, String actorId) {
-		Permission permission = new Permission();
-		permission.setPermSeq(permSeq);
-		permission.setUpdatedBy(actorId);
-		applyEditableFields(permission);
-		return permission;
+		return editable()
+				.permSeq(permSeq)
+				.updatedBy(actorId)
+				.build();
 	}
 
 	/** 등록·수정이 공통으로 채우는 항목 */
-	private void applyEditableFields(Permission permission) {
-		permission.setPermName(permName);
-		permission.setModuleCode(moduleCode);
-		permission.setMenuPath(menuPath);
-		permission.setSortOrder(sortOrder == null ? 0 : sortOrder);
-		permission.setUseYn(useYnOrDefault());
-		permission.setActions(actions);
+	/**
+	 * 등록 · 수정이 공통으로 채우는 값.
+	 *
+	 * 덜 지은 빌더를 돌려주므로 부르는 쪽이 나머지를 채워 build() 한다.
+	 * 객체를 넘겨 고치던 이전 방식과 달리 반쯤 채워진 Permission 이(가) 밖에
+	 * 존재하지 않는다.
+	 */
+	private Permission.PermissionBuilder editable() {
+		return Permission.builder()
+				.permName(permName)
+				.moduleCode(moduleCode)
+				.menuPath(menuPath)
+				.sortOrder(sortOrder == null ? 0 : sortOrder)
+				.useYn(useYnOrDefault())
+				.actions(actions);
 	}
 
 	public String useYnOrDefault() {

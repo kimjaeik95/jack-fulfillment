@@ -1,5 +1,8 @@
 package com.fulfillment.domain;
 
+import lombok.AccessLevel;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
@@ -15,10 +18,16 @@ import java.time.LocalDateTime;
  * 조직({@link Org})과 1:1 로 보이지만 같은 것이 아니다. 조직개편으로
  * 운영조직이 사라져도 플랜트의 재고는 그대로 있어야 한다. 그때 플랜트의
  * orgSeq 만 다른 조직으로 옮기고 그 아래 창고 · 빈 · 재고는 건드리지 않는다.
+ *
+ * 만들 때는 빌더를 쓴다 (X.builder()). setter 는 MyBatis 가 조회 결과를 담을 때
+ * 쓰므로 남겨 두지만, 우리 코드에서는 부르지 않는다.
  */
 @Getter
 @Setter
 @NoArgsConstructor
+// 빌더가 쓸 생성자다. 위치로 넘기는 실수를 막으려 패키지 밖으로는 열지 않는다.
+@AllArgsConstructor(access = AccessLevel.PACKAGE)
+@Builder
 public class Plant {
 
 	private Long plantSeq;

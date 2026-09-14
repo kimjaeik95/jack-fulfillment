@@ -1,5 +1,8 @@
 package com.fulfillment.domain;
 
+import lombok.AccessLevel;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
@@ -15,10 +18,16 @@ import java.time.LocalDateTime;
  * 사업자등록번호 · 대표자명은 {@link Company} 로 옮겼다. 전에는 조직에
  * 두고 "회사 유형일 때만 채운다" 를 CHECK 로 막았는데, 그건 테이블을
  * 나눠서 푸는 문제였다.
+ *
+ * 만들 때는 빌더를 쓴다 (X.builder()). setter 는 MyBatis 가 조회 결과를 담을 때
+ * 쓰므로 남겨 두지만, 우리 코드에서는 부르지 않는다.
  */
 @Getter
 @Setter
 @NoArgsConstructor
+// 빌더가 쓸 생성자다. 위치로 넘기는 실수를 막으려 패키지 밖으로는 열지 않는다.
+@AllArgsConstructor(access = AccessLevel.PACKAGE)
+@Builder
 public class Org {
 
 	private Long orgSeq;

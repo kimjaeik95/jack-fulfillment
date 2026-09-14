@@ -60,11 +60,10 @@ public record WarehouseSaveRequest(
 
 	/** @param plantSeq 검증을 마친 소속 플랜트의 순번 */
 	public Warehouse toNewWarehouse(Long plantSeq, String actorId) {
-		Warehouse warehouse = new Warehouse();
-		warehouse.setWarehouseId(warehouseId);
-		warehouse.setCreatedBy(actorId);
-		applyEditableFields(warehouse, plantSeq);
-		return warehouse;
+		return editable(plantSeq)
+				.warehouseId(warehouseId)
+				.createdBy(actorId)
+				.build();
 	}
 
 	/**
@@ -76,20 +75,27 @@ public record WarehouseSaveRequest(
 	 * 창고를 부르고, 플랜트를 옮기면 빈코드 체계가 어긋난다.
 	 */
 	public Warehouse toUpdatedWarehouse(Long warehouseSeq, Long plantSeq, String actorId) {
-		Warehouse warehouse = new Warehouse();
-		warehouse.setWarehouseSeq(warehouseSeq);
-		warehouse.setUpdatedBy(actorId);
-		applyEditableFields(warehouse, plantSeq);
-		return warehouse;
+		return editable(plantSeq)
+				.warehouseSeq(warehouseSeq)
+				.updatedBy(actorId)
+				.build();
 	}
 
-	private void applyEditableFields(Warehouse warehouse, Long plantSeq) {
-		warehouse.setPlantSeq(plantSeq);
-		warehouse.setWarehouseName(warehouseName);
-		warehouse.setWarehouseType(warehouseType);
-		warehouse.setPositionDesc(positionDesc);
-		warehouse.setSortOrder(sortOrder == null ? 0 : sortOrder);
-		warehouse.setUseYn(useYnOrDefault());
+	/**
+	 * 등록 · 수정이 공통으로 채우는 값.
+	 *
+	 * 덜 지은 빌더를 돌려주므로 부르는 쪽이 나머지를 채워 build() 한다.
+	 * 객체를 넘겨 고치던 이전 방식과 달리 반쯤 채워진 Warehouse 가 밖에
+	 * 존재하지 않는다.
+	 */
+	private Warehouse.WarehouseBuilder editable(Long plantSeq) {
+		return Warehouse.builder()
+				.plantSeq(plantSeq)
+				.warehouseName(warehouseName)
+				.warehouseType(warehouseType)
+				.positionDesc(positionDesc)
+				.sortOrder(sortOrder == null ? 0 : sortOrder)
+				.useYn(useYnOrDefault());
 	}
 
 	public String useYnOrDefault() {

@@ -67,11 +67,10 @@ public record MenuSaveRequest(
 	 * @param permSeq   검증을 마친 권한 순번. 없으면 null
 	 */
 	public Menu toNewMenu(Long parentSeq, Long permSeq, String actorId) {
-		Menu menu = new Menu();
-		menu.setMenuId(menuId);
-		menu.setCreatedBy(actorId);
-		applyEditableFields(menu, parentSeq, permSeq);
-		return menu;
+		return editable(parentSeq, permSeq)
+				.menuId(menuId)
+				.createdBy(actorId)
+				.build();
 	}
 
 	/**
@@ -80,22 +79,29 @@ public record MenuSaveRequest(
 	 * 메뉴코드는 바꾸지 않는다.
 	 */
 	public Menu toUpdatedMenu(Long menuSeq, Long parentSeq, Long permSeq, String actorId) {
-		Menu menu = new Menu();
-		menu.setMenuSeq(menuSeq);
-		menu.setUpdatedBy(actorId);
-		applyEditableFields(menu, parentSeq, permSeq);
-		return menu;
+		return editable(parentSeq, permSeq)
+				.menuSeq(menuSeq)
+				.updatedBy(actorId)
+				.build();
 	}
 
-	private void applyEditableFields(Menu menu, Long parentSeq, Long permSeq) {
-		menu.setMenuName(menuName);
-		menu.setParentSeq(parentSeq);
-		// 그룹 머리글은 이동할 화면이 없다. 남겨 두면 DB 제약에 걸린다.
-		menu.setRouteName(parentSeq == null ? null : routeName);
-		menu.setIcon(icon);
-		menu.setPermSeq(permSeq);
-		menu.setSortOrder(sortOrder == null ? 0 : sortOrder);
-		menu.setUseYn(useYnOrDefault());
+	/**
+	 * 등록 · 수정이 공통으로 채우는 값.
+	 *
+	 * 덜 지은 빌더를 돌려주므로 부르는 쪽이 나머지를 채워 build() 한다.
+	 * 객체를 넘겨 고치던 이전 방식과 달리 반쯤 채워진 Menu 이(가) 밖에
+	 * 존재하지 않는다.
+	 */
+	private Menu.MenuBuilder editable(Long parentSeq, Long permSeq) {
+		return Menu.builder()
+				.menuName(menuName)
+				.parentSeq(parentSeq)
+				// 그룹 머리글은 이동할 화면이 없다. 남겨 두면 DB 제약에 걸린다.
+				.routeName(parentSeq == null ? null : routeName)
+				.icon(icon)
+				.permSeq(permSeq)
+				.sortOrder(sortOrder == null ? 0 : sortOrder)
+				.useYn(useYnOrDefault());
 	}
 
 	public String useYnOrDefault() {

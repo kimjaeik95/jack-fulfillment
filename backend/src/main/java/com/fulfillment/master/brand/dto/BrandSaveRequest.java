@@ -47,11 +47,10 @@ public record BrandSaveRequest(
 	}
 
 	public Brand toNewBrand(String actorId) {
-		Brand brand = new Brand();
-		brand.setBrandId(brandId);
-		brand.setCreatedBy(actorId);
-		applyEditableFields(brand);
-		return brand;
+		return editable()
+				.brandId(brandId)
+				.createdBy(actorId)
+				.build();
 	}
 
 	/**
@@ -62,18 +61,25 @@ public record BrandSaveRequest(
 	 * 브랜드코드는 바꾸지 않는다 — 제품이 코드로 브랜드를 부른다.
 	 */
 	public Brand toUpdatedBrand(Long brandSeq, String actorId) {
-		Brand brand = new Brand();
-		brand.setBrandSeq(brandSeq);
-		brand.setUpdatedBy(actorId);
-		applyEditableFields(brand);
-		return brand;
+		return editable()
+				.brandSeq(brandSeq)
+				.updatedBy(actorId)
+				.build();
 	}
 
-	private void applyEditableFields(Brand brand) {
-		brand.setBrandName(brandName);
-		brand.setCountryCode(countryCode);
-		brand.setSortOrder(sortOrder == null ? 0 : sortOrder);
-		brand.setUseYn(useYnOrDefault());
+	/**
+	 * 등록 · 수정이 공통으로 채우는 값.
+	 *
+	 * 덜 지은 빌더를 돌려주므로 부르는 쪽이 나머지를 채워 build() 한다.
+	 * 객체를 넘겨 고치던 이전 방식과 달리 반쯤 채워진 Brand 이(가) 밖에
+	 * 존재하지 않는다.
+	 */
+	private Brand.BrandBuilder editable() {
+		return Brand.builder()
+				.brandName(brandName)
+				.countryCode(countryCode)
+				.sortOrder(sortOrder == null ? 0 : sortOrder)
+				.useYn(useYnOrDefault());
 	}
 
 	public String useYnOrDefault() {

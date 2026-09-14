@@ -51,29 +51,35 @@ public record CodeSaveRequest(
 	}
 
 	public Code toNewCode(Long codeGroupSeq, String actorId) {
-		Code code = new Code();
-		code.setCodeGroupSeq(codeGroupSeq);
-		code.setCodeId(codeId);
-		code.setCreatedBy(actorId);
-		applyEditableFields(code);
-		return code;
+		return editable()
+				.codeGroupSeq(codeGroupSeq)
+				.codeId(codeId)
+				.createdBy(actorId)
+				.build();
 	}
 
 	public Code toUpdatedCode(Long codeSeq, String actorId) {
-		Code code = new Code();
-		code.setCodeSeq(codeSeq);
-		code.setUpdatedBy(actorId);
-		applyEditableFields(code);
-		return code;
+		return editable()
+				.codeSeq(codeSeq)
+				.updatedBy(actorId)
+				.build();
 	}
 
-	private void applyEditableFields(Code code) {
-		code.setCodeName(codeName);
-		code.setDescription(description);
-		code.setAttr1(color);
-		code.setAttr2(attr2);
-		code.setSortOrder(sortOrder == null ? 0 : sortOrder);
-		code.setUseYn(useYnOrDefault());
+	/**
+	 * 등록 · 수정이 공통으로 채우는 값.
+	 *
+	 * 덜 지은 빌더를 돌려주므로 부르는 쪽이 나머지를 채워 build() 한다.
+	 * 객체를 넘겨 고치던 이전 방식과 달리 반쯤 채워진 Code 이(가) 밖에
+	 * 존재하지 않는다.
+	 */
+	private Code.CodeBuilder editable() {
+		return Code.builder()
+				.codeName(codeName)
+				.description(description)
+				.attr1(color)
+				.attr2(attr2)
+				.sortOrder(sortOrder == null ? 0 : sortOrder)
+				.useYn(useYnOrDefault());
 	}
 
 	public String useYnOrDefault() {

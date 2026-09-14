@@ -98,14 +98,14 @@ public record UserSaveRequest(
 	 * @param passwordHash 인코딩된 초기 비밀번호
 	 */
 	public User toNewUser(Long orgSeq, String passwordHash, String actorId) {
-		User user = new User();
-		user.setUserId(userId);
-		user.setPasswordHash(passwordHash);
-		// 관리자와 담당자 두 사람이 같은 비밀번호를 아는 상태이므로 최초 로그인에서 반드시 바꾸게 한다
-		user.setMustChangePassword("Y");
-		user.setCreatedBy(actorId);
-		applyEditableFields(user, orgSeq);
-		return user;
+		return editable(orgSeq)
+				.userId(userId)
+				.passwordHash(passwordHash)
+				// 관리자와 담당자 두 사람이 같은 비밀번호를 아는 상태이므로
+				// 최초 로그인에서 반드시 바꾸게 한다
+				.mustChangePassword("Y")
+				.createdBy(actorId)
+				.build();
 	}
 
 	/**
@@ -116,23 +116,30 @@ public record UserSaveRequest(
 	 * 비밀번호·실패횟수·최종접속은 전용 경로로만 바뀌므로 여기서 다루지 않는다.
 	 */
 	public User toUpdatedUser(Long userSeq, Long orgSeq, String actorId) {
-		User user = new User();
-		user.setUserSeq(userSeq);
-		user.setUpdatedBy(actorId);
-		applyEditableFields(user, orgSeq);
-		return user;
+		return editable(orgSeq)
+				.userSeq(userSeq)
+				.updatedBy(actorId)
+				.build();
 	}
 
 	/** 등록·수정이 공통으로 채우는 항목 */
-	private void applyEditableFields(User user, Long orgSeq) {
-		user.setUserName(userName);
-		user.setOrgSeq(orgSeq);
-		user.setEmail(email);
-		user.setPhone(phone);
-		user.setDeptName(deptName);
-		user.setPositionName(positionName);
-		user.setStatus(status);
-		user.setApprovalLimit(approvalLimit == null ? 0L : approvalLimit);
-		user.setUseYn(useYn == null ? "Y" : useYn);
+	/**
+	 * 등록 · 수정이 공통으로 채우는 값.
+	 *
+	 * 덜 지은 빌더를 돌려주므로 부르는 쪽이 나머지를 채워 build() 한다.
+	 * 객체를 넘겨 고치던 이전 방식과 달리 반쯤 채워진 User 이(가) 밖에
+	 * 존재하지 않는다.
+	 */
+	private User.UserBuilder editable(Long orgSeq) {
+		return User.builder()
+				.userName(userName)
+				.orgSeq(orgSeq)
+				.email(email)
+				.phone(phone)
+				.deptName(deptName)
+				.positionName(positionName)
+				.status(status)
+				.approvalLimit(approvalLimit == null ? 0L : approvalLimit)
+				.useYn(useYn == null ? "Y" : useYn);
 	}
 }

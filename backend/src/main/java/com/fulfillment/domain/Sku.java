@@ -1,5 +1,8 @@
 package com.fulfillment.domain;
 
+import lombok.AccessLevel;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
@@ -16,10 +19,16 @@ import java.time.LocalDateTime;
  * 바코드는 전역 유일이며 비워 둘 수 있다 — 아직 발급하지 않은 상태다.
  * 변경 이력을 위한 별도 테이블은 두지 않는다. 감사로그가 컬럼 단위로
  * 전/후를 남기므로 MST-006 의 "이전 바코드 이력 보관" 이 그것으로 성립한다.
+ *
+ * 만들 때는 빌더를 쓴다 (X.builder()). setter 는 MyBatis 가 조회 결과를 담을 때
+ * 쓰므로 남겨 두지만, 우리 코드에서는 부르지 않는다.
  */
 @Getter
 @Setter
 @NoArgsConstructor
+// 빌더가 쓸 생성자다. 위치로 넘기는 실수를 막으려 패키지 밖으로는 열지 않는다.
+@AllArgsConstructor(access = AccessLevel.PACKAGE)
+@Builder
 public class Sku {
 
 	private Long skuSeq;

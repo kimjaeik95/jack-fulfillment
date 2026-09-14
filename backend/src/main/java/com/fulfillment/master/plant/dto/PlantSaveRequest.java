@@ -67,11 +67,10 @@ public record PlantSaveRequest(
 
 	/** @param orgSeq 검증을 마친 운영 조직의 순번 */
 	public Plant toNewPlant(Long orgSeq, String actorId) {
-		Plant plant = new Plant();
-		plant.setPlantId(plantId);
-		plant.setCreatedBy(actorId);
-		applyEditableFields(plant, orgSeq);
-		return plant;
+		return editable(orgSeq)
+				.plantId(plantId)
+				.createdBy(actorId)
+				.build();
 	}
 
 	/**
@@ -82,23 +81,30 @@ public record PlantSaveRequest(
 	 * 플랜트코드는 바꾸지 않는다 — 창고와 재고가 코드로 플랜트를 부른다.
 	 */
 	public Plant toUpdatedPlant(Long plantSeq, Long orgSeq, String actorId) {
-		Plant plant = new Plant();
-		plant.setPlantSeq(plantSeq);
-		plant.setUpdatedBy(actorId);
-		applyEditableFields(plant, orgSeq);
-		return plant;
+		return editable(orgSeq)
+				.plantSeq(plantSeq)
+				.updatedBy(actorId)
+				.build();
 	}
 
-	private void applyEditableFields(Plant plant, Long orgSeq) {
-		plant.setOrgSeq(orgSeq);
-		plant.setPlantName(plantName);
-		plant.setPlantType(plantType);
-		plant.setZipCode(zipCode);
-		plant.setAddress(address);
-		plant.setManagerName(managerName);
-		plant.setPhone(phone);
-		plant.setSortOrder(sortOrder == null ? 0 : sortOrder);
-		plant.setUseYn(useYnOrDefault());
+	/**
+	 * 등록 · 수정이 공통으로 채우는 값.
+	 *
+	 * 덜 지은 빌더를 돌려주므로 부르는 쪽이 나머지를 채워 build() 한다.
+	 * 객체를 넘겨 고치던 이전 방식과 달리 반쯤 채워진 Plant 이(가) 밖에
+	 * 존재하지 않는다.
+	 */
+	private Plant.PlantBuilder editable(Long orgSeq) {
+		return Plant.builder()
+				.orgSeq(orgSeq)
+				.plantName(plantName)
+				.plantType(plantType)
+				.zipCode(zipCode)
+				.address(address)
+				.managerName(managerName)
+				.phone(phone)
+				.sortOrder(sortOrder == null ? 0 : sortOrder)
+				.useYn(useYnOrDefault());
 	}
 
 	public String useYnOrDefault() {

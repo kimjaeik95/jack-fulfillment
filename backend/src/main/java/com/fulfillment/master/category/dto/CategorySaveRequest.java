@@ -59,11 +59,10 @@ public record CategorySaveRequest(
 
 	/** @param parentSeq 검증을 마친 상위 분류의 순번. 대분류면 null */
 	public Category toNewCategory(Long parentSeq, String actorId) {
-		Category category = new Category();
-		category.setCategoryId(categoryId);
-		category.setCreatedBy(actorId);
-		applyEditableFields(category, parentSeq);
-		return category;
+		return editable(parentSeq)
+				.categoryId(categoryId)
+				.createdBy(actorId)
+				.build();
 	}
 
 	/**
@@ -74,19 +73,26 @@ public record CategorySaveRequest(
 	 * 분류코드는 바꾸지 않는다 — 제품이 코드로 분류를 부른다.
 	 */
 	public Category toUpdatedCategory(Long categorySeq, Long parentSeq, String actorId) {
-		Category category = new Category();
-		category.setCategorySeq(categorySeq);
-		category.setUpdatedBy(actorId);
-		applyEditableFields(category, parentSeq);
-		return category;
+		return editable(parentSeq)
+				.categorySeq(categorySeq)
+				.updatedBy(actorId)
+				.build();
 	}
 
-	private void applyEditableFields(Category category, Long parentSeq) {
-		category.setCategoryName(categoryName);
-		category.setLevelNo(levelNo);
-		category.setParentSeq(parentSeq);
-		category.setSortOrder(sortOrder == null ? 0 : sortOrder);
-		category.setUseYn(useYnOrDefault());
+	/**
+	 * 등록 · 수정이 공통으로 채우는 값.
+	 *
+	 * 덜 지은 빌더를 돌려주므로 부르는 쪽이 나머지를 채워 build() 한다.
+	 * 객체를 넘겨 고치던 이전 방식과 달리 반쯤 채워진 Category 이(가) 밖에
+	 * 존재하지 않는다.
+	 */
+	private Category.CategoryBuilder editable(Long parentSeq) {
+		return Category.builder()
+				.categoryName(categoryName)
+				.levelNo(levelNo)
+				.parentSeq(parentSeq)
+				.sortOrder(sortOrder == null ? 0 : sortOrder)
+				.useYn(useYnOrDefault());
 	}
 
 	public String useYnOrDefault() {

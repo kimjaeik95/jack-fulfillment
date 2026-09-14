@@ -83,11 +83,10 @@ public record OrgSaveRequest(
 	 * @param parentSeq  검증을 마친 상위 조직의 순번. 최상위면 null
 	 */
 	public Org toNewOrg(Long companySeq, Long parentSeq, String actorId) {
-		Org org = new Org();
-		org.setOrgId(orgId);
-		org.setCreatedBy(actorId);
-		applyEditableFields(org, companySeq, parentSeq);
-		return org;
+		return editable(companySeq, parentSeq)
+				.orgId(orgId)
+				.createdBy(actorId)
+				.build();
 	}
 
 	/**
@@ -98,25 +97,32 @@ public record OrgSaveRequest(
 	 * 조직코드는 바꾸지 않는다 — 다른 테이블과 화면이 코드로 조직을 부른다.
 	 */
 	public Org toUpdatedOrg(Long orgSeq, Long companySeq, Long parentSeq, String actorId) {
-		Org org = new Org();
-		org.setOrgSeq(orgSeq);
-		org.setUpdatedBy(actorId);
-		applyEditableFields(org, companySeq, parentSeq);
-		return org;
+		return editable(companySeq, parentSeq)
+				.orgSeq(orgSeq)
+				.updatedBy(actorId)
+				.build();
 	}
 
 	/** 등록·수정이 공통으로 채우는 항목 */
-	private void applyEditableFields(Org org, Long companySeq, Long parentSeq) {
-		org.setCompanySeq(companySeq);
-		org.setOrgName(orgName);
-		org.setOrgType(orgType);
-		org.setParentSeq(parentSeq);
-		org.setManagerName(managerName);
-		org.setPhone(phone);
-		org.setAddress(address);
-		org.setZipCode(zipCode);
-		org.setSortOrder(sortOrder == null ? 0 : sortOrder);
-		org.setUseYn(useYnOrDefault());
+	/**
+	 * 등록 · 수정이 공통으로 채우는 값.
+	 *
+	 * 덜 지은 빌더를 돌려주므로 부르는 쪽이 나머지를 채워 build() 한다.
+	 * 객체를 넘겨 고치던 이전 방식과 달리 반쯤 채워진 Org 이(가) 밖에
+	 * 존재하지 않는다.
+	 */
+	private Org.OrgBuilder editable(Long companySeq, Long parentSeq) {
+		return Org.builder()
+				.companySeq(companySeq)
+				.orgName(orgName)
+				.orgType(orgType)
+				.parentSeq(parentSeq)
+				.managerName(managerName)
+				.phone(phone)
+				.address(address)
+				.zipCode(zipCode)
+				.sortOrder(sortOrder == null ? 0 : sortOrder)
+				.useYn(useYnOrDefault());
 	}
 
 	public String useYnOrDefault() {

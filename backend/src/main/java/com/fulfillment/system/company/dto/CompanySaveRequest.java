@@ -69,11 +69,10 @@ public record CompanySaveRequest(
 	}
 
 	public Company toNewCompany(String actorId) {
-		Company company = new Company();
-		company.setCompanyId(companyId);
-		company.setCreatedBy(actorId);
-		applyEditableFields(company);
-		return company;
+		return editable()
+				.companyId(companyId)
+				.createdBy(actorId)
+				.build();
 	}
 
 	/**
@@ -84,23 +83,30 @@ public record CompanySaveRequest(
 	 * 회사코드는 바꾸지 않는다 — 조직이 코드로 회사를 부른다.
 	 */
 	public Company toUpdatedCompany(Long companySeq, String actorId) {
-		Company company = new Company();
-		company.setCompanySeq(companySeq);
-		company.setUpdatedBy(actorId);
-		applyEditableFields(company);
-		return company;
+		return editable()
+				.companySeq(companySeq)
+				.updatedBy(actorId)
+				.build();
 	}
 
-	private void applyEditableFields(Company company) {
-		company.setCompanyName(companyName);
-		company.setBizRegNo(bizRegNo);
-		company.setCeoName(ceoName);
-		company.setZipCode(zipCode);
-		company.setAddress(address);
-		company.setPhone(phone);
-		company.setEmail(email);
-		company.setSortOrder(sortOrder == null ? 0 : sortOrder);
-		company.setUseYn(useYnOrDefault());
+	/**
+	 * 등록 · 수정이 공통으로 채우는 값.
+	 *
+	 * 덜 지은 빌더를 돌려주므로 부르는 쪽이 나머지를 채워 build() 한다.
+	 * 객체를 넘겨 고치던 이전 방식과 달리 반쯤 채워진 Company 이(가) 밖에
+	 * 존재하지 않는다.
+	 */
+	private Company.CompanyBuilder editable() {
+		return Company.builder()
+				.companyName(companyName)
+				.bizRegNo(bizRegNo)
+				.ceoName(ceoName)
+				.zipCode(zipCode)
+				.address(address)
+				.phone(phone)
+				.email(email)
+				.sortOrder(sortOrder == null ? 0 : sortOrder)
+				.useYn(useYnOrDefault());
 	}
 
 	public String useYnOrDefault() {
