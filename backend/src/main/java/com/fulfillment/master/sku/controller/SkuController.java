@@ -90,8 +90,8 @@ public class SkuController {
 		if (result.skippedCount() == 0) {
 			return null;
 		}
-		return ("%d건을 만들고 %d건은 건너뛰었습니다. 건너뛴 사유는 결과 목록에 있습니다.")
-				.formatted(result.createdCount(), result.skippedCount());
+		return ("%d건을 만들고 %d건은 건너뛰었습니다. 어느 제품의 무엇인지는 결과 목록에 "
+				+ "있습니다.").formatted(result.createdCount(), result.skippedCount());
 	}
 
 	/** 등록. 바코드를 비웠으면 라벨에 무엇이 찍히는지 warning 으로 알린다. */
