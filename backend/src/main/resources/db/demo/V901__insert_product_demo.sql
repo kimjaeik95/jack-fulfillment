@@ -32,14 +32,23 @@ SELECT r.role_seq, p.perm_seq, 'X', 'system'
  WHERE r.role_id = 'HQ_MASTER'
    AND p.perm_id IN ('MST_BRAND', 'MST_SKU');
 
--- 센터 인원도 제품 · SKU 를 읽어야 한다. 입고 검수와 피킹이 SKU 를 스캔하고,
--- 그때 무슨 제품인지 화면에 보여야 하기 때문이다.
+-- 제품 · SKU 는 여러 역할이 읽어야 한다.
+--   센터 인원  입고 검수와 피킹이 SKU 를 스캔하고, 그때 무슨 제품인지 보여야 한다
+--   구매 담당  무엇을 발주할지 고르려면 제품을 봐야 한다
 INSERT INTO tb_role_permission (role_seq, perm_seq, action_code, created_by)
 SELECT r.role_seq, p.perm_seq, 'R', 'system'
   FROM tb_role r
  CROSS JOIN tb_permission p
- WHERE r.role_id IN ('CENTER_MGR', 'INBOUND_WORKER', 'PICK_PACK')
+ WHERE r.role_id IN ('CENTER_MGR', 'INBOUND_WORKER', 'PICK_PACK', 'PURCHASER')
    AND p.perm_id IN ('MST_PRODUCT', 'MST_SKU');
+
+-- 구매 담당은 분류 · 브랜드로 제품을 좁혀 찾는다
+INSERT INTO tb_role_permission (role_seq, perm_seq, action_code, created_by)
+SELECT r.role_seq, p.perm_seq, 'R', 'system'
+  FROM tb_role r
+ CROSS JOIN tb_permission p
+ WHERE r.role_id = 'PURCHASER'
+   AND p.perm_id IN ('MST_CATEGORY', 'MST_BRAND');
 
 
 -- ============================================================================

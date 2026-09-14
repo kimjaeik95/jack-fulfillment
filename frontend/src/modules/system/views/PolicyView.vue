@@ -108,6 +108,8 @@ const {
   // 정책ID 는 서버가 채번하므로 폼이 아니라 응답에서 꺼낸다.
   async afterChange({ action, result }) {
     await reload()
+    // 역할 목록의 '정책 미등록' 배지는 역할 스토어의 policyCount 에서 나온다
+    roleStore.invalidate()
     if (action === 'create' && result?.policy?.policyId) {
       await nextTick()
       table.value?.goToKey(result.policy.policyId)

@@ -54,5 +54,13 @@ export const useOrgStore = defineStore('org', () => {
 
   const orgNameOf = (orgId) => orgMap.value[orgId]?.orgName ?? orgId
 
-  return { orgs, loading, loaded, denyReason, load, orgMap, orgOptions, orgNameOf }
+    /**
+   * 다른 화면이 이 데이터를 바꿨을 때 낡음으로 표시한다.
+   * 다음에 이 목록을 쓰는 화면이 열릴 때 load(false) 가 다시 읽는다.
+   */
+  function invalidate() {
+    loaded.value = false
+  }
+
+return { orgs, loading, loaded, denyReason, load, invalidate, orgMap, orgOptions, orgNameOf }
 })

@@ -97,6 +97,8 @@ const {
   },
   async afterChange({ action, key }) {
     await reload()
+    // 조직 목록의 플랜트 수가 낡는다
+    orgStore.invalidate()
     if (action === 'create') {
       await nextTick()
       table.value?.goToKey(key)

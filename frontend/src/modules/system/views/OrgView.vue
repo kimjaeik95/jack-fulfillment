@@ -113,6 +113,8 @@ const {
   // 아무 일도 없었던 것처럼 보인다. 해당 페이지로 옮겨준다.
   async afterChange({ action, key }) {
     await reload()
+    // 회사 목록의 소속 조직 수가 낡는다
+    hierarchy.invalidate('companies')
     if (action === "create") {
       await nextTick()
       table.value?.goToKey(key)

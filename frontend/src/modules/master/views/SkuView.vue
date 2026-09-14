@@ -138,6 +138,8 @@ const {
     } else {
       await fetchPage()
     }
+    // 제품 목록의 SKU 수가 낡는다
+    catalog.invalidate('products')
   },
   blank: () => ({
     skuId: '',

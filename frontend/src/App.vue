@@ -75,15 +75,19 @@ function toggleTheme() {
   localStorage.setItem('wms-admin-theme', theme.value)
 }
 
-/** 사이드바 항목별 건수 표시 — 키는 라우트 이름이다 (메뉴가 라우트를 가리킨다) */
+/**
+ * 사이드바 항목별 건수 표시 — 키는 라우트 이름이다 (메뉴가 라우트를 가리킨다).
+ *
+ * 서버에서 읽은 스토어만 쓴다. 전에는 사용자 · 변경이력 건수가 Mock 에서
+ * 나와 권한 현황 화면과 서로 다른 숫자를 말했다. 세어 줄 값이 없는 항목은
+ * 아예 표시하지 않는다 — 틀린 숫자보다 없는 편이 낫다.
+ */
 const counts = computed(() => ({
-  users: admin.users.length,
   orgs: orgStore.orgs.length,
   roles: roleStore.roles.length,
   permissions: permStore.permissions.length,
   'role-permissions': roleStore.roles.reduce((n, r) => n + (r.permCount ?? 0), 0),
   policies: policyStore.policies.length,
-  'audit-logs': admin.auditLogs.length,
 }))
 
 const routeByName = computed(() =>

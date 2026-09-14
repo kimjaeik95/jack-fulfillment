@@ -122,6 +122,16 @@ export const useCatalogStore = defineStore('catalog', () => {
   const productNameOf = (productId) =>
     products.value.find((p) => p.productId === productId)?.productName ?? productId
 
+  /**
+   * 다른 화면이 바꾼 종류를 낡음으로 표시한다. 종류를 주지 않으면 전부.
+   * 다음에 그 목록을 쓰는 화면이 열릴 때 다시 읽는다.
+   */
+  function invalidate(...kinds) {
+    const next = { ...loaded.value }
+    for (const k of kinds.length ? kinds : Object.keys(next)) next[k] = false
+    loaded.value = next
+  }
+
   return {
     categories,
     brands,
@@ -132,6 +142,7 @@ export const useCatalogStore = defineStore('catalog', () => {
     loadCategories,
     loadBrands,
     loadProducts,
+    invalidate,
     categoryOptions,
     leafCategoryOptions,
     parentCategoryOptions,

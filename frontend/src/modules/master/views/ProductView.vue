@@ -127,6 +127,8 @@ const {
     }
     // 제품 목록이 바뀌면 SKU 화면의 제품 드롭다운도 낡는다
     await catalog.loadProducts(true)
+    // 분류 · 브랜드 목록의 제품 수가 낡는다
+    catalog.invalidate('categories', 'brands')
   },
   blank: () => ({
     productId: '',

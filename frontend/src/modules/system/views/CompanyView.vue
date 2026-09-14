@@ -14,6 +14,7 @@ import { computed, nextTick, onMounted, reactive, ref } from 'vue'
 import { codeOptions } from '@/api/codes.js'
 import * as companyApi from '@/api/company.js'
 import { useHierarchyStore } from '@/stores/hierarchy.js'
+import { useOrgStore } from '@/stores/org.js'
 import { useSessionStore } from '@/stores/session.js'
 import { useToastStore } from '@/stores/toast.js'
 import { useCrud } from '@/composables/useCrud.js'
@@ -24,6 +25,8 @@ import FormField from '@/components/FormField.vue'
 import CodeBadge from '@/components/CodeBadge.vue'
 
 const hierarchy = useHierarchyStore()
+/** 조직 목록이 회사명을 함께 보여준다 — 회사를 고치면 그쪽이 낡는다 */
+const orgStore = useOrgStore()
 const session = useSessionStore()
 const toast = useToastStore()
 
@@ -91,6 +94,8 @@ const {
   },
   async afterChange({ action, key }) {
     await reload()
+    // 조직 목록에 회사명이 실린다
+    orgStore.invalidate()
     if (action === 'create') {
       await nextTick()
       table.value?.goToKey(key)

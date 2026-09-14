@@ -105,6 +105,8 @@ const {
   },
   async afterChange({ action, result }) {
     await reload()
+    // 플랜트 목록의 창고 수 · 빈 수가 낡는다
+    hierarchy.invalidate('plants')
     if (action === 'create' && result?.warehouse) {
       await nextTick()
       table.value?.goToKey(keyOf(result.warehouse))

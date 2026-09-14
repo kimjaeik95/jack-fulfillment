@@ -95,27 +95,24 @@
       그룹은 보이는 하위가 하나라도 있을 때만 내보낸다. 빈 그룹 머리글만
       남으면 사용자는 "뭔가 있는데 안 보인다"고 읽는다.
     -->
+    <!--
+      사이드바용 — 사용중인 메뉴 전부.
+
+      권한으로 거르지 않는다. 전에는 걸렀는데, 그러면 권한 없는 기능은 메뉴에
+      아예 나타나지 않아 그런 기능이 있다는 것조차 알 수 없었다. 구매 담당은
+      화면이 하나만 보였다.
+
+      권한이 없는 메뉴는 화면이 흐리게 표시하고, 눌러서 들어가면 각 화면이
+      "권한이 없습니다" 를 사유와 함께 보여준다. 메뉴가 보인다고 데이터가
+      나가는 것은 아니다 — 서버가 모든 진입점에서 권한을 다시 판정한다.
+
+      userSeq 를 그대로 받는 이유는 호출부(MenuService.myMenus)를 바꾸지 않기
+      위해서다. 권한별로 다시 거르게 될 때 이 자리가 필요하다.
+    -->
     <select id="selectVisible" resultMap="menuMap">
-        WITH granted AS (
-            SELECT DISTINCT rp.perm_seq
-              FROM tb_user_role ur
-              JOIN tb_role r            ON r.role_seq = ur.role_seq AND r.use_yn = 'Y'
-              JOIN tb_role_permission rp ON rp.role_seq = r.role_seq
-             WHERE ur.user_seq = #{userSeq}
-               AND rp.action_code = 'R'
-        ),
-        visible_item AS (
-            SELECT m.*
-              FROM tb_menu m
-             WHERE m.use_yn = 'Y'
-               AND m.parent_seq IS NOT NULL
-               AND ( m.perm_seq IS NULL OR m.perm_seq IN (SELECT perm_seq FROM granted) )
-        )
         SELECT <include refid="menuColumns"/>
         <include refid="fromMenu"/>
          WHERE m.use_yn = 'Y'
-           AND ( m.menu_seq IN (SELECT menu_seq FROM visible_item)
-              OR m.menu_seq IN (SELECT parent_seq FROM visible_item) )
         <include refid="menuOrder"/>
     </select>
 
