@@ -1,0 +1,179 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.fulfillment.master.sku.dao.SkuDao">
+
+    <resultMap id="skuMap" type="com.fulfillment.domain.Sku">
+        <id     property="skuSeq"        column="sku_seq"/>
+        <result property="skuId"         column="sku_id"/>
+        <result property="productSeq"    column="product_seq"/>
+        <result property="colorCode"     column="color_code"/>
+        <result property="sizeCode"      column="size_code"/>
+        <result property="barcode"       column="barcode"/>
+        <result property="status"        column="status"/>
+        <result property="sortOrder"     column="sort_order"/>
+        <result property="useYn"         column="use_yn"/>
+        <result property="createdBy"     column="created_by"/>
+        <result property="createdAt"     column="created_at"/>
+        <result property="updatedBy"     column="updated_by"/>
+        <result property="updatedAt"     column="updated_at"/>
+        <result property="productId"     column="product_id"/>
+        <result property="productName"   column="product_name"/>
+        <result property="productStatus" column="product_status"/>
+        <result property="categoryName"  column="category_name"/>
+        <result property="brandName"     column="brand_name"/>
+    </resultMap>
+
+    <!--
+      제품 · 분류 · 브랜드를 함께 읽는다. SKU 코드만으로는 무엇인지 알 수
+      없고, 현장에서 스캔한 결과를 확인하려면 제품명이 보여야 한다.
+    -->
+    <sql id="skuColumns">
+        s.sku_seq, s.sku_id, s.product_seq, s.color_code, s.size_code,
+        s.barcode, s.status, s.sort_order, s.use_yn,
+        s.created_by, s.created_at, s.updated_by, s.updated_at,
+        p.product_id    AS product_id,
+        p.product_name  AS product_name,
+        p.status        AS product_status,
+        c.category_name AS category_name,
+        b.brand_name    AS brand_name
+    </sql>
+
+    <sql id="skuFrom">
+        FROM tb_sku s
+        JOIN tb_product  p ON p.product_seq  = s.product_seq
+        JOIN tb_category c ON c.category_seq = p.category_seq
+        JOIN tb_brand    b ON b.brand_seq    = p.brand_seq
+    </sql>
+
+    <!--
+      분류로 거를 때는 상위 분류까지 본다. '상의' 를 고르면 티셔츠 · 셔츠의
+      SKU 가 함께 나와야 한다.
+    -->
+    <sql id="searchWhere">
+        <where>
+            <if test="productId != null and productId != ''">
+                AND p.product_id = #{productId}
+            </if>
+            <if test="categoryId != null and categoryId != ''">
+                AND #{categoryId} IN (
+                    c.category_id,
+                    (SELECT c1.category_id FROM tb_category c1 WHERE c1.category_seq = c.parent_seq),
+                    (SELECT c2.category_id FROM tb_category c2
+                       JOIN tb_category c1 ON c1.category_seq = c.parent_seq
+                      WHERE c2.category_seq = c1.parent_seq)
+                )
+            </if>
+            <if test="brandId != null and brandId != ''">
+                AND b.brand_id = #{brandId}
+            </if>
+            <if test="colorCode != null and colorCode != ''">
+                AND s.color_code = #{colorCode}
+            </if>
+            <if test="sizeCode != null and sizeCode != ''">
+                AND s.size_code = #{sizeCode}
+            </if>
+            <if test="status != null and status != ''">
+                AND s.status = #{status}
+            </if>
+            <!-- 바코드를 아직 발급하지 않은 SKU 만 추리는 데 쓴다 -->
+            <if test="barcodeYn == 'Y'.toString()">
+                AND s.barcode IS NOT NULL
+            </if>
+            <if test="barcodeYn == 'N'.toString()">
+                AND s.barcode IS NULL
+            </if>
+            <if test="useYn != null and useYn != ''">
+                AND s.use_yn = #{useYn}
+            </if>
+            <if test="keyword != null and keyword != ''">
+                AND ( LOWER(s.sku_id)       LIKE '%' || LOWER(#{keyword}) || '%'
+                   OR LOWER(s.barcode)      LIKE '%' || LOWER(#{keyword}) || '%'
+                   OR LOWER(p.product_name) LIKE '%' || LOWER(#{keyword}) || '%' )
+            </if>
+        </where>
+    </sql>
+
+    <select id="selectList" resultMap="skuMap">
+        SELECT <include refid="skuColumns"/>
+        <include refid="skuFrom"/>
+        <include refid="searchWhere"/>
+        <!-- ${} 치환 자리다. SkuSearch 가 화이트리스트로 걸러 SQL 인젝션을 막는다. -->
+         ORDER BY ${sortColumn} ${sortDirection}, s.sku_id ASC
+        <if test="size > 0">
+            LIMIT #{size} OFFSET #{offset}
+        </if>
+    </select>
+
+    <select id="countList" resultType="long">
+        SELECT COUNT(*)
+        <include refid="skuFrom"/>
+        <include refid="searchWhere"/>
+    </select>
+
+    <select id="selectBySkuId" resultMap="skuMap">
+        SELECT <include refid="skuColumns"/>
+        <include refid="skuFrom"/>
+         WHERE s.sku_id = #{skuId}
+    </select>
+
+    <select id="countBySkuId" resultType="int">
+        SELECT COUNT(*) FROM tb_sku WHERE sku_id = #{skuId}
+    </select>
+
+    <!-- 동일 제품 내 옵션 조합 중복 (MST-005) -->
+    <select id="countByOption" resultType="int">
+        SELECT COUNT(*) FROM tb_sku
+         WHERE product_seq = #{productSeq}
+           AND color_code  = #{colorCode}
+           AND size_code   = #{sizeCode}
+        <if test="exceptSkuSeq != null">
+            AND sku_seq &lt;&gt; #{exceptSkuSeq}
+        </if>
+    </select>
+
+    <!-- 바코드 전역 유일 (MST-006) -->
+    <select id="countByBarcode" resultType="int">
+        SELECT COUNT(*) FROM tb_sku
+         WHERE barcode = #{barcode}
+        <if test="exceptSkuId != null and exceptSkuId != ''">
+            AND sku_id &lt;&gt; #{exceptSkuId}
+        </if>
+    </select>
+
+    <insert id="insert" parameterType="com.fulfillment.domain.Sku"
+            useGeneratedKeys="true" keyProperty="skuSeq" keyColumn="sku_seq">
+        INSERT INTO tb_sku (
+            sku_id, product_seq, color_code, size_code, barcode, status,
+            sort_order, use_yn, created_by
+        ) VALUES (
+            #{skuId}, #{productSeq}, #{colorCode}, #{sizeCode}, #{barcode}, #{status},
+            #{sortOrder}, #{useYn}, #{createdBy}
+        )
+    </insert>
+
+    <!--
+      SKU 코드와 제품은 바꾸지 않는다. 재고와 주문이 이 SKU 를 가리키고
+      있으므로, 제품을 바꾸면 과거 거래가 엉뚱한 제품의 것으로 읽힌다.
+      바코드는 바꿀 수 있다 — 재발급이 정상 업무이고, 이전 값은 감사로그가
+      남긴다 (MST-006).
+    -->
+    <update id="update" parameterType="com.fulfillment.domain.Sku">
+        UPDATE tb_sku
+           SET color_code = #{colorCode},
+               size_code  = #{sizeCode},
+               barcode    = #{barcode},
+               status     = #{status},
+               sort_order = #{sortOrder},
+               use_yn     = #{useYn},
+               updated_by = #{updatedBy},
+               updated_at = CURRENT_TIMESTAMP
+         WHERE sku_seq = #{skuSeq}
+    </update>
+
+    <delete id="delete">
+        DELETE FROM tb_sku WHERE sku_seq = #{skuSeq}
+    </delete>
+
+</mapper>

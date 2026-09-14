@@ -1,0 +1,172 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.fulfillment.master.category.dao.CategoryDao">
+
+    <resultMap id="categoryMap" type="com.fulfillment.domain.Category">
+        <id     property="categorySeq"       column="category_seq"/>
+        <result property="categoryId"        column="category_id"/>
+        <result property="categoryName"      column="category_name"/>
+        <result property="parentSeq"         column="parent_seq"/>
+        <result property="levelNo"           column="level_no"/>
+        <result property="sortOrder"         column="sort_order"/>
+        <result property="useYn"             column="use_yn"/>
+        <result property="createdBy"         column="created_by"/>
+        <result property="createdAt"         column="created_at"/>
+        <result property="updatedBy"         column="updated_by"/>
+        <result property="updatedAt"         column="updated_at"/>
+        <result property="parentCategoryId"  column="parent_category_id"/>
+        <result property="parentCategoryName" column="parent_category_name"/>
+        <result property="pathName"          column="path_name"/>
+        <result property="childCount"        column="child_count"/>
+        <result property="productCount"      column="product_count"/>
+    </resultMap>
+
+    <!--
+      전체 경로(의류 > 상의 > 티셔츠)를 함께 만든다.
+      분류명만으로는 어느 갈래인지 알 수 없다 — 상의>티셔츠 와 아동>티셔츠 가
+      둘 다 있을 수 있기 때문이다. 목록 정렬도 이 경로를 기준으로 한다.
+
+      3단계 고정이라 재귀 대신 LEFT JOIN 두 번으로 만든다. 재귀 CTE 는
+      깊이가 열려 있을 때 쓰는 것이고, 여기서는 단계가 CHECK 로 1~3 에
+      묶여 있어 조인이 더 읽기 쉽다.
+    -->
+    <sql id="categoryColumns">
+        c.category_seq, c.category_id, c.category_name, c.parent_seq, c.level_no,
+        c.sort_order, c.use_yn,
+        c.created_by, c.created_at, c.updated_by, c.updated_at,
+        p1.category_id   AS parent_category_id,
+        p1.category_name AS parent_category_name,
+        CONCAT_WS(' &gt; ', p2.category_name, p1.category_name, c.category_name) AS path_name,
+        (SELECT COUNT(*) FROM tb_category ch WHERE ch.parent_seq  = c.category_seq) AS child_count,
+        (SELECT COUNT(*) FROM tb_product  pr WHERE pr.category_seq = c.category_seq) AS product_count
+    </sql>
+
+    <sql id="categoryFrom">
+        FROM tb_category c
+        LEFT JOIN tb_category p1 ON p1.category_seq = c.parent_seq
+        LEFT JOIN tb_category p2 ON p2.category_seq = p1.parent_seq
+    </sql>
+
+    <sql id="searchWhere">
+        <where>
+            <if test="levelNo != null">
+                AND c.level_no = #{levelNo}
+            </if>
+            <if test="parentId != null and parentId != ''">
+                AND p1.category_id = #{parentId}
+            </if>
+            <if test="useYn != null and useYn != ''">
+                AND c.use_yn = #{useYn}
+            </if>
+            <if test="keyword != null and keyword != ''">
+                AND ( LOWER(c.category_id)   LIKE '%' || LOWER(#{keyword}) || '%'
+                   OR LOWER(c.category_name) LIKE '%' || LOWER(#{keyword}) || '%' )
+            </if>
+        </where>
+    </sql>
+
+    <select id="selectList" resultMap="categoryMap">
+        SELECT <include refid="categoryColumns"/>
+        <include refid="categoryFrom"/>
+        <include refid="searchWhere"/>
+        <!-- ${} 치환 자리다. CategorySearch 가 화이트리스트로 걸러 SQL 인젝션을 막는다. -->
+         ORDER BY ${sortColumn} ${sortDirection}, c.sort_order ASC, c.category_id ASC
+        <if test="size > 0">
+            LIMIT #{size} OFFSET #{offset}
+        </if>
+    </select>
+
+    <select id="countList" resultType="long">
+        SELECT COUNT(*)
+        <include refid="categoryFrom"/>
+        <include refid="searchWhere"/>
+    </select>
+
+    <select id="selectByCategoryId" resultMap="categoryMap">
+        SELECT <include refid="categoryColumns"/>
+        <include refid="categoryFrom"/>
+         WHERE c.category_id = #{categoryId}
+    </select>
+
+    <select id="countByCategoryId" resultType="int">
+        SELECT COUNT(*) FROM tb_category WHERE category_id = #{categoryId}
+    </select>
+
+    <!--
+      분류명은 같은 부모 아래에서만 유일하다. 부모가 없는 대분류끼리도 서로
+      유일해야 하는데, NULL 비교는 = 로 되지 않으므로 IS NULL 로 나눠 쓴다.
+    -->
+    <select id="countByName" resultType="int">
+        SELECT COUNT(*) FROM tb_category
+         WHERE category_name = #{categoryName}
+        <choose>
+            <when test="parentSeq == null">
+                AND parent_seq IS NULL
+            </when>
+            <otherwise>
+                AND parent_seq = #{parentSeq}
+            </otherwise>
+        </choose>
+        <if test="exceptCategorySeq != null">
+            AND category_seq &lt;&gt; #{exceptCategorySeq}
+        </if>
+    </select>
+
+    <insert id="insert" parameterType="com.fulfillment.domain.Category"
+            useGeneratedKeys="true" keyProperty="categorySeq" keyColumn="category_seq">
+        INSERT INTO tb_category (
+            category_id, category_name, parent_seq, level_no,
+            sort_order, use_yn, created_by
+        ) VALUES (
+            #{categoryId}, #{categoryName}, #{parentSeq}, #{levelNo},
+            #{sortOrder}, #{useYn}, #{createdBy}
+        )
+    </insert>
+
+    <!-- 분류코드는 바꾸지 않는다. 제품이 코드로 분류를 부른다. -->
+    <update id="update" parameterType="com.fulfillment.domain.Category">
+        UPDATE tb_category
+           SET category_name = #{categoryName},
+               parent_seq    = #{parentSeq},
+               level_no      = #{levelNo},
+               sort_order    = #{sortOrder},
+               use_yn        = #{useYn},
+               updated_by    = #{updatedBy},
+               updated_at    = CURRENT_TIMESTAMP
+         WHERE category_seq = #{categorySeq}
+    </update>
+
+    <delete id="delete">
+        DELETE FROM tb_category WHERE category_seq = #{categorySeq}
+    </delete>
+
+    <select id="countChildren" resultType="int">
+        SELECT COUNT(*) FROM tb_category WHERE parent_seq = #{categorySeq}
+    </select>
+
+    <select id="countProducts" resultType="int">
+        SELECT COUNT(*) FROM tb_product WHERE category_seq = #{categorySeq}
+    </select>
+
+    <!--
+      상위로 거슬러 올라가며 만나는 분류 순번 (자기 자신 포함).
+      깊이 제한을 두는 이유는, 이미 잘못 저장된 순환이 있을 때 재귀 질의가
+      끝나지 않는 것을 막기 위해서다.
+    -->
+    <select id="selectAncestorSeqs" resultType="long">
+        WITH RECURSIVE ancestors(category_seq, parent_seq, depth) AS (
+            SELECT category_seq, parent_seq, 1
+              FROM tb_category
+             WHERE category_seq = #{categorySeq}
+            UNION ALL
+            SELECT c.category_seq, c.parent_seq, a.depth + 1
+              FROM tb_category c
+              JOIN ancestors a ON c.category_seq = a.parent_seq
+             WHERE a.depth &lt; 10
+        )
+        SELECT category_seq FROM ancestors
+    </select>
+
+</mapper>

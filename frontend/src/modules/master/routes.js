@@ -3,7 +3,8 @@
  *
  * 거점 3단계(플랜트 · 창고 · 빈)가 먼저 온다. 재고주소가 이 위에서
  * 정해지기 때문이다 — 플랜트 · 창고 · 빈 · 상품(SKU) · 거래처.
- * 제품 · SKU · 채널 · 공급처 · 고객은 이어서 붙는다.
+ * 이어서 분류 · 브랜드 · 제품 · SKU 가 붙는다. SKU 는 모든 트랜잭션의
+ * FK 기준이라 재고보다 먼저 서야 한다.
  *
  * 회사 · 조직은 system 모듈에 둔다. 사용자 소속과 데이터 범위의 기준이라
  * 인증 · 권한과 함께 읽는 편이 자연스럽다.
@@ -29,6 +30,30 @@ export const routes = [
     name: 'locations',
     component: () => import('./views/LocationView.vue'),
     meta: { title: '빈 관리', perm: 'MST_LOCATION' },
+  },
+  {
+    path: '/categories',
+    name: 'categories',
+    component: () => import('./views/CategoryView.vue'),
+    meta: { title: '카테고리 관리', perm: 'MST_CATEGORY' },
+  },
+  {
+    path: '/brands',
+    name: 'brands',
+    component: () => import('./views/BrandView.vue'),
+    meta: { title: '브랜드 관리', perm: 'MST_BRAND' },
+  },
+  {
+    path: '/products',
+    name: 'products',
+    component: () => import('./views/ProductView.vue'),
+    meta: { title: '제품 관리', perm: 'MST_PRODUCT' },
+  },
+  {
+    path: '/skus',
+    name: 'skus',
+    component: () => import('./views/SkuView.vue'),
+    meta: { title: 'SKU 관리', perm: 'MST_SKU' },
   },
 ]
 

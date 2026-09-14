@@ -19,7 +19,7 @@ import com.fulfillment.master.location.dto.LocationSaveRequest;
 import com.fulfillment.master.location.dto.LocationSearch;
 import com.fulfillment.master.plant.dao.PlantDao;
 import com.fulfillment.master.warehouse.dao.WarehouseDao;
-import com.fulfillment.system.code.dao.CodeDao;
+import com.fulfillment.common.code.CodeValues;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -57,18 +57,18 @@ public class LocationService {
 	/** 소속 창고 · 플랜트 확인 — 각 기능과 같은 조회를 쓴다 */
 	private final WarehouseDao warehouseDao;
 	private final PlantDao plantDao;
-	private final CodeDao codeDao;
+	private final CodeValues codeValues;
 	private final PermissionChecker permissionChecker;
 	private final DataScopeResolver dataScopes;
 	private final AuditRecorder auditRecorder;
 
 	public LocationService(LocationDao locationDao, WarehouseDao warehouseDao, PlantDao plantDao,
-			CodeDao codeDao, PermissionChecker permissionChecker, DataScopeResolver dataScopes,
+			CodeValues codeValues, PermissionChecker permissionChecker, DataScopeResolver dataScopes,
 			AuditRecorder auditRecorder) {
 		this.locationDao = locationDao;
 		this.warehouseDao = warehouseDao;
 		this.plantDao = plantDao;
-		this.codeDao = codeDao;
+		this.codeValues = codeValues;
 		this.permissionChecker = permissionChecker;
 		this.dataScopes = dataScopes;
 		this.auditRecorder = auditRecorder;
@@ -116,7 +116,7 @@ public class LocationService {
 							.formatted(request.locationId()));
 		}
 		validateBarcode(request.barcode(), null);
-		validateLocationType(request.locationType());
+		codeValues.require(CodeGroups.LOC_TYPE, request.locationType(), "빈유형");
 		String warning = warnOnTypeMismatch(warehouse, request.locationType());
 
 		Location location = request.toNewLocation(warehouse.getWarehouseSeq(), actorId(actor));
@@ -146,7 +146,7 @@ public class LocationService {
 		scope.requireOrg(plant.getOrgSeq(), "플랜트 " + plant.getPlantName());
 
 		validateBarcode(request.barcode(), locationId);
-		validateLocationType(request.locationType());
+		codeValues.require(CodeGroups.LOC_TYPE, request.locationType(), "빈유형");
 		String warning = warnOnTypeMismatch(warehouse, request.locationType());
 
 		Location target = request.toUpdatedLocation(before.getLocationSeq(),
@@ -181,21 +181,6 @@ public class LocationService {
 	/* ------------------------------------------------------------------ */
 	/* 검증                                                                */
 	/* ------------------------------------------------------------------ */
-
-	/**
-	 * 빈유형이 코드그룹 LOC_TYPE 안에 있는가.
-	 *
-	 * 목록을 코드에 적어 두지 않는다 — 화면의 셀렉트박스가 tb_code 를 읽으므로
-	 * 검증도 같은 곳을 읽어야 한다.
-	 */
-	private void validateLocationType(String locationType) {
-		List<String> allowed = codeDao.selectCodeIds(CodeGroups.LOC_TYPE);
-		if (!allowed.contains(locationType)) {
-			throw new BusinessException(ErrorCode.INVALID_INPUT,
-					"빈유형 값이 올바르지 않습니다. (%s) 사용 가능: %s"
-							.formatted(locationType, String.join(", ", allowed)));
-		}
-	}
 
 	/**
 	 * 바코드 중복.

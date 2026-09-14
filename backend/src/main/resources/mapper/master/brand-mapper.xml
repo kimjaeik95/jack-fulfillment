@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.fulfillment.master.brand.dao.BrandDao">
+
+    <resultMap id="brandMap" type="com.fulfillment.domain.Brand">
+        <id     property="brandSeq"     column="brand_seq"/>
+        <result property="brandId"      column="brand_id"/>
+        <result property="brandName"    column="brand_name"/>
+        <result property="countryCode"  column="country_code"/>
+        <result property="sortOrder"    column="sort_order"/>
+        <result property="useYn"        column="use_yn"/>
+        <result property="createdBy"    column="created_by"/>
+        <result property="createdAt"    column="created_at"/>
+        <result property="updatedBy"    column="updated_by"/>
+        <result property="updatedAt"    column="updated_at"/>
+        <result property="productCount" column="product_count"/>
+    </resultMap>
+
+    <!--
+      이 브랜드의 제품 수를 목록에서 함께 센다. 화면이 삭제 가능 여부를 미리
+      알아야, 버튼을 눌러 거부당한 뒤에야 이유를 알게 되는 흐름을 피할 수 있다.
+    -->
+    <sql id="brandColumns">
+        b.brand_seq, b.brand_id, b.brand_name, b.country_code,
+        b.sort_order, b.use_yn,
+        b.created_by, b.created_at, b.updated_by, b.updated_at,
+        (SELECT COUNT(*) FROM tb_product p WHERE p.brand_seq = b.brand_seq) AS product_count
+    </sql>
+
+    <sql id="searchWhere">
+        <where>
+            <if test="countryCode != null and countryCode != ''">
+                AND b.country_code = #{countryCode}
+            </if>
+            <if test="useYn != null and useYn != ''">
+                AND b.use_yn = #{useYn}
+            </if>
+            <if test="keyword != null and keyword != ''">
+                AND ( LOWER(b.brand_id)   LIKE '%' || LOWER(#{keyword}) || '%'
+                   OR LOWER(b.brand_name) LIKE '%' || LOWER(#{keyword}) || '%' )
+            </if>
+        </where>
+    </sql>
+
+    <select id="selectList" resultMap="brandMap">
+        SELECT <include refid="brandColumns"/>
+          FROM tb_brand b
+        <include refid="searchWhere"/>
+        <!-- ${} 치환 자리다. BrandSearch 가 화이트리스트로 걸러 SQL 인젝션을 막는다. -->
+         ORDER BY ${sortColumn} ${sortDirection}, b.brand_id ASC
+        <if test="size > 0">
+            LIMIT #{size} OFFSET #{offset}
+        </if>
+    </select>
+
+    <select id="countList" resultType="long">
+        SELECT COUNT(*) FROM tb_brand b
+        <include refid="searchWhere"/>
+    </select>
+
+    <select id="selectByBrandId" resultMap="brandMap">
+        SELECT <include refid="brandColumns"/>
+          FROM tb_brand b
+         WHERE b.brand_id = #{brandId}
+    </select>
+
+    <select id="countByBrandId" resultType="int">
+        SELECT COUNT(*) FROM tb_brand WHERE brand_id = #{brandId}
+    </select>
+
+    <select id="countByBrandName" resultType="int">
+        SELECT COUNT(*) FROM tb_brand
+         WHERE brand_name = #{brandName}
+        <if test="exceptBrandId != null and exceptBrandId != ''">
+            AND brand_id &lt;&gt; #{exceptBrandId}
+        </if>
+    </select>
+
+    <insert id="insert" parameterType="com.fulfillment.domain.Brand"
+            useGeneratedKeys="true" keyProperty="brandSeq" keyColumn="brand_seq">
+        INSERT INTO tb_brand (
+            brand_id, brand_name, country_code, sort_order, use_yn, created_by
+        ) VALUES (
+            #{brandId}, #{brandName}, #{countryCode}, #{sortOrder}, #{useYn}, #{createdBy}
+        )
+    </insert>
+
+    <!-- 브랜드코드는 바꾸지 않는다. 제품이 코드로 브랜드를 부른다. -->
+    <update id="update" parameterType="com.fulfillment.domain.Brand">
+        UPDATE tb_brand
+           SET brand_name   = #{brandName},
+               country_code = #{countryCode},
+               sort_order   = #{sortOrder},
+               use_yn       = #{useYn},
+               updated_by   = #{updatedBy},
+               updated_at   = CURRENT_TIMESTAMP
+         WHERE brand_seq = #{brandSeq}
+    </update>
+
+    <delete id="delete">
+        DELETE FROM tb_brand WHERE brand_seq = #{brandSeq}
+    </delete>
+
+    <select id="countProducts" resultType="int">
+        SELECT COUNT(*) FROM tb_product WHERE brand_seq = #{brandSeq}
+    </select>
+
+</mapper>

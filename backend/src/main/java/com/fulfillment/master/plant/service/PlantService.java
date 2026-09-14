@@ -16,7 +16,7 @@ import com.fulfillment.master.plant.dao.PlantDao;
 import com.fulfillment.master.plant.dto.PlantResponse;
 import com.fulfillment.master.plant.dto.PlantSaveRequest;
 import com.fulfillment.master.plant.dto.PlantSearch;
-import com.fulfillment.system.code.dao.CodeDao;
+import com.fulfillment.common.code.CodeValues;
 import com.fulfillment.system.org.dao.OrgDao;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -55,17 +55,17 @@ public class PlantService {
 	private final PlantDao plantDao;
 	/** 운영 조직 확인 — 조직 기능과 같은 조회를 쓴다 */
 	private final OrgDao orgDao;
-	private final CodeDao codeDao;
+	private final CodeValues codeValues;
 	private final PermissionChecker permissionChecker;
 	private final DataScopeResolver dataScopes;
 	private final AuditRecorder auditRecorder;
 
-	public PlantService(PlantDao plantDao, OrgDao orgDao, CodeDao codeDao,
+	public PlantService(PlantDao plantDao, OrgDao orgDao, CodeValues codeValues,
 			PermissionChecker permissionChecker, DataScopeResolver dataScopes,
 			AuditRecorder auditRecorder) {
 		this.plantDao = plantDao;
 		this.orgDao = orgDao;
-		this.codeDao = codeDao;
+		this.codeValues = codeValues;
 		this.permissionChecker = permissionChecker;
 		this.dataScopes = dataScopes;
 		this.auditRecorder = auditRecorder;
@@ -109,7 +109,7 @@ public class PlantService {
 			throw new BusinessException(ErrorCode.DUPLICATE,
 					"이미 사용 중인 플랜트명입니다. (%s)".formatted(request.plantName()));
 		}
-		validatePlantType(request.plantType());
+		codeValues.require(CodeGroups.PLANT_TYPE, request.plantType(), "플랜트유형");
 
 		// 범위 밖 조직에 플랜트를 달면 만든 사람도 그 플랜트를 못 보게 된다.
 		// 더 중요한 건, 범위 밖 조직의 자산을 늘리는 것 자체가 범위 우회다.
@@ -140,7 +140,7 @@ public class PlantService {
 			throw new BusinessException(ErrorCode.DUPLICATE,
 					"이미 사용 중인 플랜트명입니다. (%s)".formatted(request.plantName()));
 		}
-		validatePlantType(request.plantType());
+		codeValues.require(CodeGroups.PLANT_TYPE, request.plantType(), "플랜트유형");
 
 		// 옮겨 갈 조직도 범위 안이어야 한다. 범위 밖으로 옮기면 저장한 본인이
 		// 그 플랜트를 다시 볼 수 없게 된다.
@@ -186,22 +186,6 @@ public class PlantService {
 	/* ------------------------------------------------------------------ */
 	/* 검증                                                                */
 	/* ------------------------------------------------------------------ */
-
-	/**
-	 * 플랜트유형이 코드그룹 PLANT_TYPE 안에 있는가.
-	 *
-	 * 목록을 코드에 적어 두지 않는다. 화면의 셀렉트박스가 tb_code 를 읽으므로
-	 * 검증도 같은 곳을 읽어야 한다. 그래야 코드를 지운 순간부터 양쪽이
-	 * 함께 사라진다.
-	 */
-	private void validatePlantType(String plantType) {
-		List<String> allowed = codeDao.selectCodeIds(CodeGroups.PLANT_TYPE);
-		if (!allowed.contains(plantType)) {
-			throw new BusinessException(ErrorCode.INVALID_INPUT,
-					"플랜트유형 값이 올바르지 않습니다. (%s) 사용 가능: %s"
-							.formatted(plantType, String.join(", ", allowed)));
-		}
-	}
 
 	private Org mustFindOrg(String orgId) {
 		Org org = orgDao.selectByOrgId(orgId);

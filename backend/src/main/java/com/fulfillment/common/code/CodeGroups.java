@@ -42,6 +42,24 @@ public final class CodeGroups {
 	/** 빈 유형 (NORMAL/RETURN/DEFECT/TRANSIT) */
 	public static final String LOC_TYPE = "LOC_TYPE";
 
+	/** 제품 상태 (PLANNED/ACTIVE/DISCONTINUED) */
+	public static final String PRODUCT_STATUS = "PRODUCT_STATUS";
+
+	/** SKU 상태 (ACTIVE/HOLD/DISCARDED) — 폐기는 정책 P002 가 선행조건을 건다 */
+	public static final String SKU_STATUS = "SKU_STATUS";
+
+	/** SKU 색상 옵션 */
+	public static final String COLOR = "COLOR";
+
+	/** SKU 사이즈 옵션 — 상의(S/M/L)와 하의(28/30/32)를 함께 담는다 */
+	public static final String SIZE = "SIZE";
+
+	/** 시즌 (SS/FW/ALL) — 출시연도와 합쳐 24SS 처럼 읽는다 */
+	public static final String SEASON = "SEASON";
+
+	/** 국가 — 브랜드 국가 · 제품 생산지 */
+	public static final String COUNTRY = "COUNTRY";
+
 	/** 사용자 상태 (ACTIVE/LOCKED/DORMANT/RETIRED) */
 	public static final String USER_STATUS = "USER_STATUS";
 

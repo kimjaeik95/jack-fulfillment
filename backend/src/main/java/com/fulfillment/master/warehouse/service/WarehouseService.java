@@ -17,7 +17,7 @@ import com.fulfillment.master.warehouse.dao.WarehouseDao;
 import com.fulfillment.master.warehouse.dto.WarehouseResponse;
 import com.fulfillment.master.warehouse.dto.WarehouseSaveRequest;
 import com.fulfillment.master.warehouse.dto.WarehouseSearch;
-import com.fulfillment.system.code.dao.CodeDao;
+import com.fulfillment.common.code.CodeValues;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -52,17 +52,17 @@ public class WarehouseService {
 	private final WarehouseDao warehouseDao;
 	/** 소속 플랜트 확인 — 플랜트 기능과 같은 조회를 쓴다 */
 	private final PlantDao plantDao;
-	private final CodeDao codeDao;
+	private final CodeValues codeValues;
 	private final PermissionChecker permissionChecker;
 	private final DataScopeResolver dataScopes;
 	private final AuditRecorder auditRecorder;
 
-	public WarehouseService(WarehouseDao warehouseDao, PlantDao plantDao, CodeDao codeDao,
+	public WarehouseService(WarehouseDao warehouseDao, PlantDao plantDao, CodeValues codeValues,
 			PermissionChecker permissionChecker, DataScopeResolver dataScopes,
 			AuditRecorder auditRecorder) {
 		this.warehouseDao = warehouseDao;
 		this.plantDao = plantDao;
-		this.codeDao = codeDao;
+		this.codeValues = codeValues;
 		this.permissionChecker = permissionChecker;
 		this.dataScopes = dataScopes;
 		this.auditRecorder = auditRecorder;
@@ -112,7 +112,7 @@ public class WarehouseService {
 					"%s 안에 이미 같은 창고명이 있습니다. (%s)"
 							.formatted(plant.getPlantName(), request.warehouseName()));
 		}
-		validateWarehouseType(request.warehouseType());
+		codeValues.require(CodeGroups.WH_TYPE, request.warehouseType(), "창고유형");
 
 		Warehouse warehouse = request.toNewWarehouse(plant.getPlantSeq(), actorId(actor));
 		warehouseDao.insert(warehouse);
@@ -147,7 +147,7 @@ public class WarehouseService {
 					"%s 안에 이미 같은 창고명이 있습니다. (%s)"
 							.formatted(before.getPlantName(), request.warehouseName()));
 		}
-		validateWarehouseType(request.warehouseType());
+		codeValues.require(CodeGroups.WH_TYPE, request.warehouseType(), "창고유형");
 
 		String warning = warnOnTypeChange(before, request);
 
@@ -188,21 +188,6 @@ public class WarehouseService {
 	/* ------------------------------------------------------------------ */
 	/* 검증                                                                */
 	/* ------------------------------------------------------------------ */
-
-	/**
-	 * 창고유형이 코드그룹 WH_TYPE 안에 있는가.
-	 *
-	 * 목록을 코드에 적어 두지 않는다 — 화면의 셀렉트박스가 tb_code 를 읽으므로
-	 * 검증도 같은 곳을 읽어야 한다.
-	 */
-	private void validateWarehouseType(String warehouseType) {
-		List<String> allowed = codeDao.selectCodeIds(CodeGroups.WH_TYPE);
-		if (!allowed.contains(warehouseType)) {
-			throw new BusinessException(ErrorCode.INVALID_INPUT,
-					"창고유형 값이 올바르지 않습니다. (%s) 사용 가능: %s"
-							.formatted(warehouseType, String.join(", ", allowed)));
-		}
-	}
 
 	/**
 	 * 창고유형 변경 안내.
