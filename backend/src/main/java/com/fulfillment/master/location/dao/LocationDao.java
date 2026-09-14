@@ -9,8 +9,9 @@ import java.util.List;
 /**
  * 빈 조회 · 등록 · 수정 · 삭제.
  *
- * 빈코드는 전역 유일이므로 코드 하나로 찾을 수 있다. 창고 · 플랜트와
- * 다른 점이며, 현장에서 라벨 하나를 스캔해 위치를 특정하기 위한 설계다.
+ * 빈코드는 창고 안에서만 유일하다(V7). 재고 키가 '센터 + 창고타입 + 거래처 +
+ * 빈 + 제품' 이라 빈코드만으로는 한 곳이 정해지지 않기 때문이다. 그래서
+ * 단건은 순번으로 찾고, 중복 검사도 창고를 함께 본다.
  */
 public interface LocationDao {
 
@@ -18,9 +19,12 @@ public interface LocationDao {
 
 	long countList(LocationSearch search);
 
-	Location selectByLocationId(@Param("locationId") String locationId);
+	Location selectBySeq(@Param("locationSeq") Long locationSeq);
 
-	int countByLocationId(@Param("locationId") String locationId);
+	/** 같은 창고 안의 빈코드 중복 검사. 수정 시 자기 자신은 제외한다. */
+	int countByCode(@Param("warehouseSeq") Long warehouseSeq,
+			@Param("locationId") String locationId,
+			@Param("exceptLocationSeq") Long exceptLocationSeq);
 
 	/**
 	 * 바코드 중복 검사.
@@ -28,7 +32,7 @@ public interface LocationDao {
 	 * 지목되어야 하기 때문이다. 수정 시 자기 자신은 제외한다.
 	 */
 	int countByBarcode(@Param("barcode") String barcode,
-			@Param("exceptLocationId") String exceptLocationId);
+			@Param("exceptLocationSeq") Long exceptLocationSeq);
 
 	/** 등록 후 locationSeq 가 채워진다 */
 	void insert(Location location);

@@ -115,21 +115,35 @@
     </select>
 
     <!-- 빈코드는 전역 유일하므로 코드 하나로 찾는다 -->
-    <select id="selectByLocationId" resultMap="locationMap">
+    <!--
+      단건은 순번으로 찾는다. 빈코드는 창고 안에서만 유일해(V7) 코드
+      하나로는 한 곳이 정해지지 않는다.
+    -->
+    <select id="selectBySeq" resultMap="locationMap">
         SELECT <include refid="locationColumns"/>
         <include refid="locationFrom"/>
-         WHERE l.location_id = #{locationId}
+         WHERE l.location_seq = #{locationSeq}
     </select>
 
-    <select id="countByLocationId" resultType="int">
-        SELECT COUNT(*) FROM tb_location WHERE location_id = #{locationId}
+    <!-- 같은 창고 안의 빈코드 중복 (uk_location_wh_id 와 같은 규칙) -->
+    <select id="countByCode" resultType="int">
+        SELECT COUNT(*) FROM tb_location
+         WHERE warehouse_seq = #{warehouseSeq}
+           AND location_id   = #{locationId}
+        <if test="exceptLocationSeq != null">
+            AND location_seq &lt;&gt; #{exceptLocationSeq}
+        </if>
     </select>
 
+    <!--
+      바코드는 전역 유일을 유지한다 — 빈코드가 더 이상 스캔 한 번으로 한
+      곳을 지목하지 못하므로 그 역할을 바코드가 혼자 진다.
+    -->
     <select id="countByBarcode" resultType="int">
         SELECT COUNT(*) FROM tb_location
          WHERE barcode = #{barcode}
-        <if test="exceptLocationId != null and exceptLocationId != ''">
-            AND location_id &lt;&gt; #{exceptLocationId}
+        <if test="exceptLocationSeq != null">
+            AND location_seq &lt;&gt; #{exceptLocationSeq}
         </if>
     </select>
 

@@ -127,13 +127,14 @@ const {
   openCreate, openEdit, close, submit, confirmDelete, doDelete,
 } = useCrud({
   perm: 'MST_LOCATION',
-  pk: 'locationId',
+  // 빈코드는 창고 안에서만 유일하므로 행을 지목하려면 순번이 필요하다
+  pk: 'locationSeq',
   label: '빈',
-  nameOf: (l) => `${l.locationId} (${l.warehouseName})`,
+  nameOf: (l) => `${l.fullCode} (${l.warehouseName})`,
   api: {
     create: (payload) => locationApi.create(payload),
-    update: (locationId, payload) => locationApi.update(locationId, payload),
-    remove: (locationId) => locationApi.remove(locationId, '빈 삭제'),
+    update: (locationSeq, payload) => locationApi.update(locationSeq, payload),
+    remove: (locationSeq) => locationApi.remove(locationSeq, '빈 삭제'),
   },
   // 서버 페이징이라 현재 페이지만 다시 읽는다. 등록한 행이 다른 페이지에
   // 있을 수 있으므로, 코드로 찾아갈 수 있게 검색어에 넣어 주는 편이
@@ -148,6 +149,7 @@ const {
     }
   },
   blank: () => ({
+    locationSeq: null,
     locationId: '',
     plantId: filters.plantId || '',
     warehouseId: filters.warehouseId || '',
@@ -160,6 +162,7 @@ const {
     useYn: 'Y',
   }),
   toForm: (row) => ({
+    locationSeq: row.locationSeq,
     locationId: row.locationId,
     plantId: row.plantId,
     warehouseId: row.warehouseId,
@@ -221,8 +224,32 @@ const typeMismatchNotice = computed(() => {
   return `창고유형(${whType})과 빈유형(${locationType})이 다릅니다. 재고의 판매가능 여부는 창고유형이 정하므로, 의도한 구성인지 확인하세요.`
 })
 
-/** 바코드를 비우면 빈코드가 라벨이 된다 */
+/**
+ * 권장 바코드 — PL001GD1A0101.
+ *
+ * 빈코드는 창고 안에서만 유일해서 다른 센터와 겹칠 수 있다. 스캔 한 번으로
+ * 한 곳을 지목하려면 바코드가 센터 · 창고까지 담아야 한다. 구분자를 빼서
+ * 짧게 만든다 — 기계가 읽으므로 글자가 줄면 바가 굵어져 잘 읽힌다.
+ *
+ * 서버(Location.barcodeValue)와 같은 규칙이다.
+ */
+const suggestedBarcode = computed(() => {
+  const { plantId, warehouseId, locationId } = form.value
+  if (!plantId || !warehouseId || !locationId) return ''
+  return `${plantId}${warehouseId}${locationId.replace(/-/g, '')}`
+})
+
+/** 바코드를 비우면 빈코드가 라벨이 된다 — 그러면 다른 센터와 겹칠 수 있다 */
 const labelPreview = computed(() => form.value.barcode || form.value.locationId || '-')
+
+/** 비어 있을 때만 권한다. 이미 다른 체계로 붙여 둔 라벨이 있을 수 있다. */
+const canSuggestBarcode = computed(
+  () => !form.value.barcode && !!suggestedBarcode.value,
+)
+
+function applySuggestedBarcode() {
+  form.value.barcode = suggestedBarcode.value
+}
 
 const readDenyReason = computed(() => session.denyReason('MST_LOCATION', 'R'))
 const scopeNotice = computed(() => session.scopeNotice('MST_LOCATION'))
@@ -328,7 +355,7 @@ watch(
       <DataTable
         :columns="columns"
         :rows="rows"
-        row-key="locationId"
+        row-key="locationSeq"
         :page-size="0"
         :show-pager="false"
         :muted-when="(l) => l.useYn !== 'Y'"
@@ -400,7 +427,7 @@ watch(
     <ModalDialog
       v-if="dlgOpen"
       :title="mode === 'create' ? '빈 등록' : '빈 수정'"
-      :subtitle="mode === 'edit' ? form.locationId : '빈코드는 등록 후 변경할 수 없습니다 (라벨이 현장에 붙습니다).'"
+      :subtitle="mode === 'edit' ? form.locationId : '빈코드는 창고 안에서만 유일하면 됩니다. 등록 후에는 바꿀 수 없습니다 (라벨이 현장에 붙습니다).'"
       @close="close()"
     >
       <div v-if="serverError" class="alert alert-danger mb-2">
@@ -437,7 +464,7 @@ watch(
           placeholder="1A-01-01"
           :disabled="mode === 'edit'"
           :error="errors.locationId"
-          help="전사에서 유일해야 합니다. 영문 대문자·숫자·하이픈 2~30자"
+          help="같은 창고 안에서만 유일하면 됩니다. 영문 대문자·숫자·하이픈 2~30자"
         />
         <FormField
           v-model="form.locationType"
@@ -458,6 +485,23 @@ watch(
           :error="errors.barcode"
           :help="`라벨에 찍힐 값: ${labelPreview}`"
         />
+
+        <!--
+          빈코드가 창고 안에서만 유일해져, 바코드를 비우면 라벨에 찍히는
+          값이 다른 센터와 겹칠 수 있다. 센터 · 창고를 담은 값을 권한다.
+          강제하지는 않는다 — 이미 다른 체계로 붙여 둔 라벨이 있을 수 있다.
+        -->
+        <div v-if="canSuggestBarcode" class="field span-2 suggest">
+          <button class="btn btn-sm" @click="applySuggestedBarcode()">
+            ↓ 권장 바코드 넣기
+          </button>
+          <span class="small dim">
+            <strong class="code">{{ suggestedBarcode }}</strong>
+            — 센터·창고를 담아 전사에서 하나를 지목합니다. 비워 두면 빈코드({{
+              form.locationId || '…'
+            }})가 찍혀 다른 센터와 겹칠 수 있습니다.
+          </span>
+        </div>
         <FormField v-model="form.sortOrder" label="정렬순서" type="number" help="작을수록 위에 표시됩니다." />
         <FormField v-model="form.useYn" label="사용여부" type="switch" />
       </div>
@@ -491,6 +535,13 @@ watch(
 </template>
 
 <style scoped>
+.suggest {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 2px 0 6px;
+}
 .pager {
   display: flex;
   align-items: center;

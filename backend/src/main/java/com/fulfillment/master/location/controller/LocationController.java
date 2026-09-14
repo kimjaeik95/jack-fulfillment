@@ -24,14 +24,16 @@ import org.springframework.web.bind.annotation.RestController;
  *
  * 모든 경로가 MST_LOCATION 권한을 요구하며 판정은 서비스에서 수행한다.
  *
- * 경로에 빈코드만 쓰는 이유는 그 값이 전역 유일이기 때문이다.
- * 창고와 달리 플랜트를 함께 받지 않아도 한 곳이 정해진다.
+ * 경로에 순번을 쓴다. 빈코드는 창고 안에서만 유일해(V7) 코드 하나로는 한
+ * 곳이 정해지지 않는다. 업무키(플랜트 + 창고 + 빈코드) 세 토막을 경로에
+ * 늘어놓는 방법도 있지만, 창고코드를 바꾸면 링크가 통째로 깨진다.
+ * 채널 SKU 매핑에서 순번을 쓴 것과 같은 이유다.
  *
- *   GET    /api/locations              목록 (기본 100건 페이징)
- *   GET    /api/locations/{locationId} 상세
- *   POST   /api/locations              등록
- *   PUT    /api/locations/{locationId} 수정
- *   DELETE /api/locations/{locationId} 삭제
+ *   GET    /api/locations               목록 (기본 100건 페이징)
+ *   GET    /api/locations/{locationSeq} 상세
+ *   POST   /api/locations               등록
+ *   PUT    /api/locations/{locationSeq} 수정
+ *   DELETE /api/locations/{locationSeq} 삭제
  */
 @RestController
 @RequestMapping("/locations")
@@ -48,9 +50,9 @@ public class LocationController {
 		return ApiResponse.ok(locationService.search(CurrentUser.require(), search));
 	}
 
-	@GetMapping("/{locationId}")
-	public ApiResponse<LocationResponse> detail(@PathVariable String locationId) {
-		return ApiResponse.ok(locationService.get(CurrentUser.require(), locationId));
+	@GetMapping("/{locationSeq}")
+	public ApiResponse<LocationResponse> detail(@PathVariable Long locationSeq) {
+		return ApiResponse.ok(locationService.get(CurrentUser.require(), locationSeq));
 	}
 
 	/** 등록. 창고유형과 빈유형이 어긋나면 warning 으로 알린다. */
@@ -60,18 +62,18 @@ public class LocationController {
 		return ApiResponse.ok(result.location(), result.warning());
 	}
 
-	@PutMapping("/{locationId}")
-	public ApiResponse<LocationResponse> update(@PathVariable String locationId,
+	@PutMapping("/{locationSeq}")
+	public ApiResponse<LocationResponse> update(@PathVariable Long locationSeq,
 			@Valid @RequestBody LocationSaveRequest request) {
 		LocationService.Result result =
-				locationService.update(CurrentUser.require(), locationId, request);
+				locationService.update(CurrentUser.require(), locationSeq, request);
 		return ApiResponse.ok(result.location(), result.warning());
 	}
 
-	@DeleteMapping("/{locationId}")
-	public ApiResponse<Void> delete(@PathVariable String locationId,
+	@DeleteMapping("/{locationSeq}")
+	public ApiResponse<Void> delete(@PathVariable Long locationSeq,
 			@RequestBody(required = false) ReasonRequest request) {
-		locationService.delete(CurrentUser.require(), locationId,
+		locationService.delete(CurrentUser.require(), locationSeq,
 				request == null ? null : request.reason());
 		return ApiResponse.ok();
 	}

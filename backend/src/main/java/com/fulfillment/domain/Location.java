@@ -62,4 +62,31 @@ public class Location {
 	public String barcodeOrId() {
 		return barcode == null || barcode.isBlank() ? locationId : barcode;
 	}
+
+	/**
+	 * 사람이 읽는 전체 주소 — PL001-GD-1A-01-01.
+	 *
+	 * 빈코드는 창고 안에서만 유일하므로(V7) 그것만으로는 어느 빈인지
+	 * 말할 수 없다. 감사로그의 대상 키와 화면의 표시에 쓴다.
+	 */
+	public String fullCode() {
+		return "%s-%s-%s".formatted(plantId, warehouseId, locationId);
+	}
+
+	/**
+	 * 바코드에 담을 값 — PL001GD1A0101.
+	 *
+	 * 구분자를 빼서 짧게 만든다. 바코드는 기계가 읽으므로 사람이 읽기
+	 * 좋을 필요가 없고, 글자가 줄면 바가 굵어져 스캔이 더 잘 된다.
+	 *
+	 * 센터 · 창고를 담는 이유는 빈코드가 더 이상 전역 유일이 아니기
+	 * 때문이다. 빈코드만 찍으면 스캔값이 어느 센터 것인지 세션에 기대야
+	 * 하고, 세션이 틀리면 재고가 조용히 엉뚱한 센터에 잡힌다.
+	 *
+	 * 제안값일 뿐 강제하지 않는다 — 이미 다른 체계로 라벨을 붙여 둔
+	 * 현장이 있을 수 있어 사람이 고칠 수 있게 둔다.
+	 */
+	public String barcodeValue() {
+		return "%s%s%s".formatted(plantId, warehouseId, locationId.replace("-", ""));
+	}
 }
