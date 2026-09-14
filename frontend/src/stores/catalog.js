@@ -1,5 +1,5 @@
 /**
- * 제품 카탈로그 스토어 — 분류 · 브랜드.
+ * 제품 카탈로그 스토어 — 분류 · 브랜드 · 판매채널.
  *
  * 둘을 함께 두는 이유는 제품 화면과 SKU 화면이 모두 이 둘을 드롭다운으로
  * 쓰기 때문이다. 화면마다 따로 읽으면 한쪽에서 만든 분류가 다른 쪽에는 없는
@@ -15,16 +15,20 @@ import { computed, ref } from 'vue'
 import * as categoryApi from '@/api/category.js'
 import * as brandApi from '@/api/brand.js'
 import * as productApi from '@/api/product.js'
+import * as channelApi from '@/api/channel.js'
 
 export const useCatalogStore = defineStore('catalog', () => {
   const categories = ref([])
   const brands = ref([])
   const products = ref([])
+  // 채널도 여기에 둔다. 매핑 화면의 드롭다운이자 판매채널 화면의 목록인데,
+  // 수십 개를 넘지 않아 전체를 들고 있어도 된다.
+  const channels = ref([])
 
   const loading = ref(false)
   /** 조회 권한이 없어 목록을 받지 못한 경우의 사유 (종류별) */
-  const denyReason = ref({ categories: '', brands: '', products: '' })
-  const loaded = ref({ categories: false, brands: false, products: false })
+  const denyReason = ref({ categories: '', brands: '', products: '', channels: '' })
+  const loaded = ref({ categories: false, brands: false, products: false, channels: false })
 
   /**
    * 권한이 없어도 화면 전체를 실패로 만들지 않는다.
@@ -63,6 +67,12 @@ export const useCatalogStore = defineStore('catalog', () => {
     if (loaded.value.products && !force) return products.value
     products.value = await loadKind('products', () => productApi.list({ size: 0 }))
     return products.value
+  }
+
+  async function loadChannels(force = false) {
+    if (loaded.value.channels && !force) return channels.value
+    channels.value = await loadKind('channels', () => channelApi.list({ size: 0 }))
+    return channels.value
   }
 
   /* ── 드롭다운용 목록 ────────────────────────────────────────── */
@@ -116,6 +126,21 @@ export const useCatalogStore = defineStore('catalog', () => {
     })),
   )
 
+  /**
+   * 전체 채널. 중지한 채널도 목록에 남긴다 — 이미 걸린 매핑을 고치거나
+   * 지우려면 그 채널을 골라야 하기 때문이다. 고를 수는 있게 두되 중지
+   * 상태를 라벨에 표시한다.
+   */
+  const channelOptions = computed(() =>
+    channels.value.map((c) => ({
+      value: c.channelId,
+      label: c.useYn === 'Y' ? c.channelName : c.channelName + ' (중지)',
+    })),
+  )
+
+  const channelNameOf = (channelId) =>
+    channels.value.find((c) => c.channelId === channelId)?.channelName ?? channelId
+
   const categoryPathOf = (categoryId) =>
     categories.value.find((c) => c.categoryId === categoryId)?.pathName ?? categoryId
 
@@ -136,18 +161,22 @@ export const useCatalogStore = defineStore('catalog', () => {
     categories,
     brands,
     products,
+    channels,
     loading,
     loaded,
     denyReason,
     loadCategories,
     loadBrands,
     loadProducts,
+    loadChannels,
     invalidate,
     categoryOptions,
     leafCategoryOptions,
     parentCategoryOptions,
     brandOptions,
     productOptions,
+    channelOptions,
+    channelNameOf,
     categoryPathOf,
     productNameOf,
   }

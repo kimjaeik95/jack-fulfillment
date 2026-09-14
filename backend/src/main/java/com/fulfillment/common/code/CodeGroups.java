@@ -60,6 +60,12 @@ public final class CodeGroups {
 	/** 국가 — 브랜드 국가 · 제품 생산지 */
 	public static final String COUNTRY = "COUNTRY";
 
+	/** 채널 유형 (OWN 자사몰 / OPEN 오픈마켓) */
+	public static final String CHANNEL_TYPE = "CHANNEL_TYPE";
+
+	/** 매핑 상태 (PENDING/MAPPED/STOPPED) — 외부 상품코드와 SKU 의 연결 상태 */
+	public static final String MAPPING_STATUS = "MAPPING_STATUS";
+
 	/** 사용자 상태 (ACTIVE/LOCKED/DORMANT/RETIRED) */
 	public static final String USER_STATUS = "USER_STATUS";
 

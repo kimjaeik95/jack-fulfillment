@@ -6,6 +6,9 @@
  * 이어서 분류 · 브랜드 · 제품 · SKU 가 붙는다. SKU 는 모든 트랜잭션의
  * FK 기준이라 재고보다 먼저 서야 한다.
  *
+ * 판매채널과 채널 SKU 매핑은 SKU 뒤에 온다. 매핑이 SKU 를 가리키므로
+ * SKU 가 먼저 있어야 한다.
+ *
  * 회사 · 조직은 system 모듈에 둔다. 사용자 소속과 데이터 범위의 기준이라
  * 인증 · 권한과 함께 읽는 편이 자연스럽다.
  *
@@ -54,6 +57,18 @@ export const routes = [
     name: 'skus',
     component: () => import('./views/SkuView.vue'),
     meta: { title: 'SKU 관리', perm: 'MST_SKU' },
+  },
+  {
+    path: '/channels',
+    name: 'channels',
+    component: () => import('./views/ChannelView.vue'),
+    meta: { title: '판매채널 관리', perm: 'MST_CHANNEL' },
+  },
+  {
+    path: '/channel-skus',
+    name: 'channel-skus',
+    component: () => import('./views/ChannelSkuView.vue'),
+    meta: { title: '채널 SKU 매핑', perm: 'MST_CHANNEL_SKU' },
   },
 ]
 

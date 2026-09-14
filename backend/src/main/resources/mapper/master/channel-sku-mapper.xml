@@ -1,0 +1,219 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.fulfillment.master.channelsku.dao.ChannelSkuDao">
+
+    <resultMap id="mappingMap" type="com.fulfillment.domain.ChannelSku">
+        <id     property="mappingSeq"     column="mapping_seq"/>
+        <result property="channelSeq"     column="channel_seq"/>
+        <result property="skuSeq"         column="sku_seq"/>
+        <result property="extProductCode" column="ext_product_code"/>
+        <result property="extOptionCode"  column="ext_option_code"/>
+        <result property="extProductName" column="ext_product_name"/>
+        <result property="mappingStatus"  column="mapping_status"/>
+        <result property="mappedAt"       column="mapped_at"/>
+        <result property="useYn"          column="use_yn"/>
+        <result property="createdBy"      column="created_by"/>
+        <result property="createdAt"      column="created_at"/>
+        <result property="updatedBy"      column="updated_by"/>
+        <result property="updatedAt"      column="updated_at"/>
+        <result property="channelId"      column="channel_id"/>
+        <result property="channelName"    column="channel_name"/>
+        <result property="channelType"    column="channel_type"/>
+        <result property="channelUseYn"   column="channel_use_yn"/>
+        <result property="skuId"          column="sku_id"/>
+        <result property="colorCode"      column="color_code"/>
+        <result property="sizeCode"       column="size_code"/>
+        <result property="productId"      column="product_id"/>
+        <result property="productName"    column="product_name"/>
+    </resultMap>
+
+    <!-- 매핑 누락 SKU 는 SKU 자체를 돌려주므로 SKU 결과맵을 쓴다 -->
+    <resultMap id="skuMap" type="com.fulfillment.domain.Sku">
+        <id     property="skuSeq"      column="sku_seq"/>
+        <result property="skuId"       column="sku_id"/>
+        <result property="colorCode"   column="color_code"/>
+        <result property="sizeCode"    column="size_code"/>
+        <result property="status"      column="status"/>
+        <result property="productId"   column="product_id"/>
+        <result property="productName" column="product_name"/>
+    </resultMap>
+
+    <!--
+      채널 · SKU · 제품을 함께 읽는다. 외부 상품코드만으로는 무엇인지 알 수
+      없고, 매핑이 맞는지 확인하려면 내부 제품명이 보여야 한다.
+
+      채널의 사용여부도 가져온다. 중지한 채널의 매핑은 살아 있어도 주문이
+      자동 처리되지 않으므로(MST-007) 화면이 그걸 표시해야 한다.
+    -->
+    <sql id="mappingColumns">
+        m.mapping_seq, m.channel_seq, m.sku_seq,
+        m.ext_product_code, m.ext_option_code, m.ext_product_name,
+        m.mapping_status, m.mapped_at, m.use_yn,
+        m.created_by, m.created_at, m.updated_by, m.updated_at,
+        c.channel_id   AS channel_id,
+        c.channel_name AS channel_name,
+        c.channel_type AS channel_type,
+        c.use_yn       AS channel_use_yn,
+        s.sku_id       AS sku_id,
+        s.color_code   AS color_code,
+        s.size_code    AS size_code,
+        p.product_id   AS product_id,
+        p.product_name AS product_name
+    </sql>
+
+    <sql id="mappingFrom">
+        FROM tb_channel_sku m
+        JOIN tb_channel c ON c.channel_seq = m.channel_seq
+        JOIN tb_sku     s ON s.sku_seq     = m.sku_seq
+        JOIN tb_product p ON p.product_seq = s.product_seq
+    </sql>
+
+    <sql id="searchWhere">
+        <where>
+            <if test="channelId != null and channelId != ''">
+                AND c.channel_id = #{channelId}
+            </if>
+            <if test="skuId != null and skuId != ''">
+                AND s.sku_id = #{skuId}
+            </if>
+            <if test="productId != null and productId != ''">
+                AND p.product_id = #{productId}
+            </if>
+            <if test="mappingStatus != null and mappingStatus != ''">
+                AND m.mapping_status = #{mappingStatus}
+            </if>
+            <if test="useYn != null and useYn != ''">
+                AND m.use_yn = #{useYn}
+            </if>
+            <if test="keyword != null and keyword != ''">
+                AND ( LOWER(s.sku_id)            LIKE '%' || LOWER(#{keyword}) || '%'
+                   OR LOWER(m.ext_product_code)  LIKE '%' || LOWER(#{keyword}) || '%'
+                   OR LOWER(m.ext_option_code)   LIKE '%' || LOWER(#{keyword}) || '%'
+                   OR LOWER(m.ext_product_name)  LIKE '%' || LOWER(#{keyword}) || '%'
+                   OR LOWER(p.product_name)      LIKE '%' || LOWER(#{keyword}) || '%' )
+            </if>
+        </where>
+    </sql>
+
+    <select id="selectList" resultMap="mappingMap">
+        SELECT <include refid="mappingColumns"/>
+        <include refid="mappingFrom"/>
+        <include refid="searchWhere"/>
+        <!-- ${} 치환 자리다. ChannelSkuSearch 가 화이트리스트로 걸러 SQL 인젝션을 막는다. -->
+         ORDER BY ${sortColumn} ${sortDirection}, m.ext_product_code ASC, m.mapping_seq ASC
+        <if test="size > 0">
+            LIMIT #{size} OFFSET #{offset}
+        </if>
+    </select>
+
+    <select id="countList" resultType="long">
+        SELECT COUNT(*)
+        <include refid="mappingFrom"/>
+        <include refid="searchWhere"/>
+    </select>
+
+    <select id="selectBySeq" resultMap="mappingMap">
+        SELECT <include refid="mappingColumns"/>
+        <include refid="mappingFrom"/>
+         WHERE m.mapping_seq = #{mappingSeq}
+    </select>
+
+    <!--
+      동일 채널 내 외부코드 중복 (MST-008).
+
+      옵션코드가 없는 플랫폼이 있어 NULL 을 허용하는데, NULL 비교는 = 로
+      되지 않으므로 IS NULL 로 나눠 쓴다. DB 의 부분 유니크 인덱스와 같은
+      규칙이다.
+    -->
+    <select id="countByExtCode" resultType="int">
+        SELECT COUNT(*) FROM tb_channel_sku
+         WHERE channel_seq      = #{channelSeq}
+           AND ext_product_code = #{extProductCode}
+        <choose>
+            <when test="extOptionCode == null">
+                AND ext_option_code IS NULL
+            </when>
+            <otherwise>
+                AND ext_option_code = #{extOptionCode}
+            </otherwise>
+        </choose>
+        <if test="exceptMappingSeq != null">
+            AND mapping_seq &lt;&gt; #{exceptMappingSeq}
+        </if>
+    </select>
+
+    <insert id="insert" parameterType="com.fulfillment.domain.ChannelSku"
+            useGeneratedKeys="true" keyProperty="mappingSeq" keyColumn="mapping_seq">
+        INSERT INTO tb_channel_sku (
+            channel_seq, sku_seq, ext_product_code, ext_option_code, ext_product_name,
+            mapping_status, mapped_at, use_yn, created_by
+        ) VALUES (
+            #{channelSeq}, #{skuSeq}, #{extProductCode}, #{extOptionCode}, #{extProductName},
+            #{mappingStatus}, #{mappedAt}, #{useYn}, #{createdBy}
+        )
+    </insert>
+
+    <!--
+      채널은 바꾸지 않는다. 외부코드 체계가 채널마다 달라서, 채널만 바꾸면
+      그 코드가 새 채널에서 무엇을 가리키는지 알 수 없다. 서비스가 막는다.
+    -->
+    <update id="update" parameterType="com.fulfillment.domain.ChannelSku">
+        UPDATE tb_channel_sku
+           SET sku_seq          = #{skuSeq},
+               ext_product_code = #{extProductCode},
+               ext_option_code  = #{extOptionCode},
+               ext_product_name = #{extProductName},
+               mapping_status   = #{mappingStatus},
+               mapped_at        = #{mappedAt},
+               use_yn           = #{useYn},
+               updated_by       = #{updatedBy},
+               updated_at       = CURRENT_TIMESTAMP
+         WHERE mapping_seq = #{mappingSeq}
+    </update>
+
+    <delete id="delete">
+        DELETE FROM tb_channel_sku WHERE mapping_seq = #{mappingSeq}
+    </delete>
+
+    <!--
+      매핑 누락 점검 (MST-009).
+
+      이 채널에 매핑이 하나도 없는 SKU. 매핑 행의 '부재' 를 찾는 것이므로
+      SKU 테이블을 기준으로 읽고 NOT EXISTS 로 거른다.
+
+      폐기한 SKU 는 제외한다. 더 이상 팔지 않기로 한 것을 매핑하라고
+      재촉하면 목록이 소음이 된다.
+    -->
+    <sql id="unmappedWhere">
+        FROM tb_sku s
+        JOIN tb_product p ON p.product_seq = s.product_seq
+       WHERE s.status &lt;&gt; 'DISCARDED'
+         AND s.use_yn = 'Y'
+         AND NOT EXISTS (
+             SELECT 1 FROM tb_channel_sku m
+              WHERE m.sku_seq = s.sku_seq
+                AND m.channel_seq = #{channelSeq})
+        <if test="keyword != null and keyword != ''">
+            AND ( LOWER(s.sku_id)       LIKE '%' || LOWER(#{keyword}) || '%'
+               OR LOWER(p.product_name) LIKE '%' || LOWER(#{keyword}) || '%' )
+        </if>
+    </sql>
+
+    <select id="selectUnmappedSkus" resultMap="skuMap">
+        SELECT s.sku_seq, s.sku_id, s.color_code, s.size_code, s.status,
+               p.product_id AS product_id, p.product_name AS product_name
+        <include refid="unmappedWhere"/>
+         ORDER BY p.product_id, s.sort_order, s.sku_id
+        <if test="size > 0">
+            LIMIT #{size} OFFSET #{offset}
+        </if>
+    </select>
+
+    <select id="countUnmappedSkus" resultType="long">
+        SELECT COUNT(*)
+        <include refid="unmappedWhere"/>
+    </select>
+
+</mapper>
