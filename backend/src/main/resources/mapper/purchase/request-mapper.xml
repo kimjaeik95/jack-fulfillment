@@ -1,0 +1,330 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.fulfillment.purchase.request.dao.RequestDao">
+
+    <resultMap id="requestMap" type="com.fulfillment.domain.PurchaseRequest">
+        <id     property="requestSeq"      column="request_seq"/>
+        <result property="requestNo"       column="request_no"/>
+        <result property="plantSeq"        column="plant_seq"/>
+        <result property="requestStatus"   column="request_status"/>
+        <result property="reasonCode"      column="reason_code"/>
+        <result property="remark"          column="remark"/>
+        <result property="requestDate"     column="request_date"/>
+        <result property="requiredDate"    column="required_date"/>
+        <result property="requestedBy"     column="requested_by"/>
+        <result property="requestedAt"     column="requested_at"/>
+        <result property="decidedBy"       column="decided_by"/>
+        <result property="decidedAt"       column="decided_at"/>
+        <result property="decideRemark"    column="decide_remark"/>
+        <result property="createdBy"       column="created_by"/>
+        <result property="createdAt"       column="created_at"/>
+        <result property="updatedBy"       column="updated_by"/>
+        <result property="updatedAt"       column="updated_at"/>
+        <result property="plantId"         column="plant_id"/>
+        <result property="plantName"       column="plant_name"/>
+        <result property="orgSeq"          column="org_seq"/>
+        <result property="reasonName"      column="reason_name"/>
+        <result property="requestedByName" column="requested_by_name"/>
+        <result property="decidedByName"   column="decided_by_name"/>
+        <result property="lineCount"       column="line_count"/>
+        <result property="totalRequestQty" column="total_request_qty"/>
+        <result property="totalApprovedQty" column="total_approved_qty"/>
+    </resultMap>
+
+    <resultMap id="lineMap" type="com.fulfillment.domain.PurchaseRequestLine">
+        <id     property="lineSeq"          column="line_seq"/>
+        <result property="requestSeq"       column="request_seq"/>
+        <result property="lineNo"           column="line_no"/>
+        <result property="skuSeq"           column="sku_seq"/>
+        <result property="requestQty"       column="request_qty"/>
+        <result property="approvedQty"      column="approved_qty"/>
+        <result property="prefSupplierSeq"  column="pref_supplier_seq"/>
+        <result property="remark"           column="remark"/>
+        <result property="skuId"            column="sku_id"/>
+        <result property="colorCode"        column="color_code"/>
+        <result property="sizeCode"         column="size_code"/>
+        <result property="productId"        column="product_id"/>
+        <result property="productName"      column="product_name"/>
+        <result property="brandName"        column="brand_name"/>
+        <result property="prefSupplierId"   column="pref_supplier_id"/>
+        <result property="prefSupplierName" column="pref_supplier_name"/>
+        <result property="currentAvailable" column="current_available"/>
+    </resultMap>
+
+
+    <!--
+      사유코드의 이름을 함께 읽는다.
+
+      요청사유는 코드그룹이 REASON_PURCHASE 하나로 고정이라 그룹까지 조건에
+      넣는다. 그룹 없이 코드만으로 조인하면 다른 그룹의 같은 코드가 붙는다.
+
+      요청자 · 결재자의 이름도 읽는다. 결재함에서 'dc1.inv01' 만 보이면
+      누구인지 알 수 없다.
+    -->
+    <sql id="requestFrom">
+        FROM tb_purchase_request r
+        JOIN tb_plant p ON p.plant_seq = r.plant_seq
+        LEFT JOIN tb_code_group rg ON rg.code_group_id = 'REASON_PURCHASE'
+        LEFT JOIN tb_code       rc ON rc.code_group_seq = rg.code_group_seq
+                                  AND rc.code_id        = r.reason_code
+        LEFT JOIN tb_user ru ON ru.user_id = r.requested_by
+        LEFT JOIN tb_user du ON du.user_id = r.decided_by
+    </sql>
+
+    <!--
+      라인 수와 수량 합계를 함께 읽는다.
+
+      목록에서 요청마다 라인을 읽으면 요청 수만큼 질의가 늘어난다. LATERAL
+      로 한 번에 가져온다 — 요청당 라인이 수십 줄 수준이라 이 정도면 충분하다.
+
+      승인수량 합계는 결재 전에 NULL 이다. 0 으로 만들지 않는다 —
+      '아직 안 정해졌다' 와 '0 으로 정해졌다' 는 다른 사실이다.
+    -->
+    <sql id="requestCounts">
+        LEFT JOIN LATERAL (
+            SELECT COUNT(*)              AS line_count,
+                   SUM(l.request_qty)    AS total_request_qty,
+                   SUM(l.approved_qty)   AS total_approved_qty
+              FROM tb_purchase_request_line l
+             WHERE l.request_seq = r.request_seq
+        ) c ON TRUE
+    </sql>
+
+    <sql id="requestColumns">
+        r.request_seq, r.request_no, r.plant_seq, r.request_status,
+        r.reason_code, r.remark, r.request_date, r.required_date,
+        r.requested_by, r.requested_at, r.decided_by, r.decided_at, r.decide_remark,
+        r.created_by, r.created_at, r.updated_by, r.updated_at,
+        p.plant_id   AS plant_id,
+        p.plant_name AS plant_name,
+        p.org_seq    AS org_seq,
+        rc.code_name AS reason_name,
+        ru.user_name AS requested_by_name,
+        du.user_name AS decided_by_name,
+        c.line_count, c.total_request_qty, c.total_approved_qty
+    </sql>
+
+    <!--
+      데이터 범위 (COM-PG-004).
+
+      구매요청은 조직을 직접 갖지 않는다. 센터(플랜트) → 운영 조직으로
+      거슬러 판정한다. 센터 담당은 자기 센터 요청만 보고, 본사 구매
+      담당은 데이터범위가 ALL 이라 전부 본다.
+    -->
+    <sql id="scopeFilter">
+        <if test="!scope.unrestricted">
+            <choose>
+                <when test="scope.hasNoOrg">
+            AND r.requested_by = #{scope.ownerId}
+                </when>
+                <otherwise>
+            AND ( p.org_seq IN
+                  <foreach collection="scope.orgSeqs" item="o" open="(" separator="," close=")">
+                      #{o}
+                  </foreach>
+                  OR r.requested_by = #{scope.ownerId} )
+                </otherwise>
+            </choose>
+        </if>
+    </sql>
+
+    <sql id="requestWhere">
+        <where>
+            <if test="keyword != null">
+                AND (r.request_no ILIKE '%' || #{keyword} || '%'
+                  OR r.remark     ILIKE '%' || #{keyword} || '%'
+                  OR rc.code_name ILIKE '%' || #{keyword} || '%')
+            </if>
+            <if test="plantId != null">
+                AND p.plant_id = #{plantId}
+            </if>
+            <if test="requestStatus != null">
+                AND r.request_status = #{requestStatus}
+            </if>
+            <if test='pendingOnly == "Y"'>
+                AND r.request_status = 'REQUESTED'
+            </if>
+            <!-- 필요일이 지난 미결 요청. 끝난 요청은 늦었든 아니든 볼 것이 없다. -->
+            <if test='overdueOnly == "Y"'>
+                AND r.request_status = 'REQUESTED'
+                AND r.required_date &lt; CURRENT_DATE
+            </if>
+            <if test="reasonCode != null">
+                AND r.reason_code = #{reasonCode}
+            </if>
+            <if test="requestedBy != null">
+                AND r.requested_by = #{requestedBy}
+            </if>
+            <!-- 이 SKU 가 든 요청만. 중복 요청을 찾을 때 쓴다. -->
+            <if test="skuId != null">
+                AND EXISTS (SELECT 1 FROM tb_purchase_request_line l
+                              JOIN tb_sku k ON k.sku_seq = l.sku_seq
+                             WHERE l.request_seq = r.request_seq
+                               AND k.sku_id = #{skuId})
+            </if>
+            <if test="fromDate != null">
+                AND r.request_date &gt;= #{fromDate}
+            </if>
+            <if test="toDate != null">
+                AND r.request_date &lt;= #{toDate}
+            </if>
+            <include refid="scopeFilter"/>
+        </where>
+    </sql>
+
+    <select id="selectList" resultMap="requestMap">
+        SELECT <include refid="requestColumns"/>
+        <include refid="requestFrom"/>
+        <include refid="requestCounts"/>
+        <include refid="requestWhere"/>
+        ORDER BY ${sortColumn} ${sortDirection}, r.request_seq DESC
+        <if test="size > 0">
+            LIMIT #{size} OFFSET #{offset}
+        </if>
+    </select>
+
+    <select id="countList" resultType="long">
+        SELECT COUNT(*)
+        <include refid="requestFrom"/>
+        <include refid="requestWhere"/>
+    </select>
+
+    <select id="selectBySeq" resultMap="requestMap">
+        SELECT <include refid="requestColumns"/>
+        <include refid="requestFrom"/>
+        <include refid="requestCounts"/>
+         WHERE r.request_seq = #{requestSeq}
+    </select>
+
+    <!--
+      라인.
+
+      current_available 은 지금 이 SKU 의 판매가능 수량 합이다. 결재자가
+      "정말 모자란가" 를 판단하려면 요청수량만으로는 안 되고, 재고 화면을
+      따로 열게 하지 않으려면 여기 실어 보내야 한다.
+
+      센터를 가리지 않고 전사 합을 낸다. 구매는 전사 단위 업무라, 다른
+      센터에 남는 것이 있으면 사는 대신 옮기는 선택지가 있기 때문이다.
+    -->
+    <sql id="lineColumns">
+        l.line_seq, l.request_seq, l.line_no, l.sku_seq,
+        l.request_qty, l.approved_qty, l.pref_supplier_seq, l.remark,
+        k.sku_id        AS sku_id,
+        k.color_code    AS color_code,
+        k.size_code     AS size_code,
+        pr.product_id   AS product_id,
+        pr.product_name AS product_name,
+        b.brand_name    AS brand_name,
+        sp.supplier_id   AS pref_supplier_id,
+        sp.supplier_name AS pref_supplier_name,
+        COALESCE((SELECT SUM(s.qty_available) FROM tb_stock s
+                   WHERE s.sku_seq = l.sku_seq), 0) AS current_available
+    </sql>
+
+    <sql id="lineFrom">
+        FROM tb_purchase_request_line l
+        JOIN tb_sku     k  ON k.sku_seq     = l.sku_seq
+        JOIN tb_product pr ON pr.product_seq = k.product_seq
+        LEFT JOIN tb_brand    b  ON b.brand_seq    = pr.brand_seq
+        LEFT JOIN tb_supplier sp ON sp.supplier_seq = l.pref_supplier_seq
+    </sql>
+
+    <select id="selectLines" resultMap="lineMap">
+        SELECT <include refid="lineColumns"/>
+        <include refid="lineFrom"/>
+         WHERE l.request_seq = #{requestSeq}
+         ORDER BY l.line_no
+    </select>
+
+    <select id="selectLine" resultMap="lineMap">
+        SELECT <include refid="lineColumns"/>
+        <include refid="lineFrom"/>
+         WHERE l.line_seq = #{lineSeq}
+    </select>
+
+    <insert id="insert" parameterType="com.fulfillment.domain.PurchaseRequest"
+            useGeneratedKeys="true" keyProperty="requestSeq" keyColumn="request_seq">
+        INSERT INTO tb_purchase_request
+            (request_no, plant_seq, request_status, reason_code, remark,
+             required_date, requested_by, created_by)
+        VALUES
+            (#{requestNo}, #{plantSeq}, #{requestStatus}, #{reasonCode}, #{remark},
+             #{requiredDate}, #{requestedBy}, #{createdBy})
+    </insert>
+
+    <insert id="insertLine" parameterType="com.fulfillment.domain.PurchaseRequestLine"
+            useGeneratedKeys="true" keyProperty="lineSeq" keyColumn="line_seq">
+        INSERT INTO tb_purchase_request_line
+            (request_seq, line_no, sku_seq, request_qty, pref_supplier_seq, remark)
+        VALUES
+            (#{requestSeq}, #{lineNo}, #{skuSeq}, #{requestQty}, #{prefSupplierSeq}, #{remark})
+    </insert>
+
+    <update id="update" parameterType="com.fulfillment.domain.PurchaseRequest">
+        UPDATE tb_purchase_request
+           SET plant_seq     = #{plantSeq},
+               reason_code   = #{reasonCode},
+               remark        = #{remark},
+               required_date = #{requiredDate},
+               updated_by    = #{updatedBy},
+               updated_at    = CURRENT_TIMESTAMP
+         WHERE request_seq   = #{requestSeq}
+    </update>
+
+    <delete id="deleteLines">
+        DELETE FROM tb_purchase_request_line WHERE request_seq = #{requestSeq}
+    </delete>
+
+    <!--
+      상태 전이.
+
+      조건에 현재 상태를 넣는다. 두 명이 동시에 같은 요청을 결재하면 한 쪽은
+      0 행이 바뀌고, 서비스가 그것을 보고 거부한다 — 확인하지 않으면
+      승인수량이 나중 사람 것으로 덮인다.
+
+      취소는 요청자가 스스로 거두는 것이라 결재자를 남기지 않는다
+      (ck_purreq_decided 가 REQUESTED 와 CANCELED 를 예외로 둔 이유다).
+    -->
+    <update id="updateStatus">
+        UPDATE tb_purchase_request
+           SET request_status = #{toStatus},
+        <if test="decidedBy != null">
+               decided_by     = #{decidedBy},
+               decided_at     = CURRENT_TIMESTAMP,
+               decide_remark  = #{decideRemark},
+        </if>
+               updated_by     = COALESCE(#{decidedBy}, updated_by),
+               updated_at     = CURRENT_TIMESTAMP
+         WHERE request_seq    = #{requestSeq}
+           AND request_status = #{fromStatus}
+    </update>
+
+    <update id="updateLineApproved">
+        UPDATE tb_purchase_request_line
+           SET approved_qty = #{approvedQty}
+         WHERE line_seq     = #{lineSeq}
+    </update>
+
+    <!--
+      이 SKU 에 걸린 미결 요청 건수.
+
+      같은 SKU 를 두 사람이 따로 올리면 두 배로 발주될 수 있다. 막지는
+      않고 등록할 때 알린다 — 정말 두 배가 필요한 경우도 있다.
+
+      수정할 때는 자기 자신을 뺀다. 안 그러면 고칠 때마다 자기 요청을
+      중복으로 신고한다.
+    -->
+    <select id="countPendingBySku" resultType="int">
+        SELECT COUNT(*)
+          FROM tb_purchase_request_line l
+          JOIN tb_purchase_request r ON r.request_seq = l.request_seq
+         WHERE l.sku_seq = #{skuSeq}
+           AND r.request_status = 'REQUESTED'
+        <if test="exceptRequestSeq != null">
+           AND r.request_seq &lt;&gt; #{exceptRequestSeq}
+        </if>
+    </select>
+
+</mapper>

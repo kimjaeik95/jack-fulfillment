@@ -19,7 +19,8 @@ import java.time.format.DateTimeFormatter;
  * max+1 을 읽어 쓰면 동시에 두 명이 같은 번호를 받는데, 전표번호가 겹치면
  * 유니크 제약에 걸려 둘 중 하나가 이유 없이 실패한다.
  *
- * 조정 · 이동 · 실사가 지금 쓰고, 입고(6차) · 출고(9차)도 같은 표를 쓴다.
+ * 조정 · 이동 · 실사 · 구매요청이 지금 쓰고, 구매오더 · 입고 · 출고도 같은
+ * 표를 쓴다.
  */
 @Component
 public class DocNumbers {
@@ -30,6 +31,8 @@ public class DocNumbers {
 	public static final String MOVE = "MOV";
 	/** 재고실사 */
 	public static final String STOCKTAKE = "TAKE";
+	/** 구매요청 */
+	public static final String PURCHASE_REQUEST = "REQ";
 
 	private static final DateTimeFormatter DATE_PART = DateTimeFormatter.ofPattern("yyyyMMdd");
 
