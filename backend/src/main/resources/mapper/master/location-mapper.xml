@@ -125,6 +125,20 @@
          WHERE l.location_seq = #{locationSeq}
     </select>
 
+    <!--
+      창고 안에서 빈코드로 찾는다.
+
+      창고 순번이 함께 필요하다. 빈코드는 창고 안에서만 유일해서(V7) 코드만
+      으로는 한 곳이 정해지지 않는다 — 이천센터에도 김해센터에도 1A-01-01 이
+      있을 수 있다. 창고를 빼고 찾으면 조용히 다른 센터의 빈이 나온다.
+    -->
+    <select id="selectByCode" resultMap="locationMap">
+        SELECT <include refid="locationColumns"/>
+        <include refid="locationFrom"/>
+         WHERE l.warehouse_seq = #{warehouseSeq}
+           AND l.location_id   = #{locationId}
+    </select>
+
     <!-- 같은 창고 안의 빈코드 중복 (uk_location_wh_id 와 같은 규칙) -->
     <select id="countByCode" resultType="int">
         SELECT COUNT(*) FROM tb_location

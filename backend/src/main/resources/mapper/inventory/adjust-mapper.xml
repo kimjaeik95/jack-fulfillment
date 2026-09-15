@@ -1,0 +1,310 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.fulfillment.inventory.adjust.dao.AdjustDao">
+
+    <resultMap id="adjustMap" type="com.fulfillment.domain.StockAdjust">
+        <id     property="adjustSeq"     column="adjust_seq"/>
+        <result property="adjustNo"      column="adjust_no"/>
+        <result property="warehouseSeq"  column="warehouse_seq"/>
+        <result property="adjustStatus"  column="adjust_status"/>
+        <result property="reasonCode"    column="reason_code"/>
+        <result property="remark"        column="remark"/>
+        <result property="requestedBy"   column="requested_by"/>
+        <result property="requestedAt"   column="requested_at"/>
+        <result property="decidedBy"     column="decided_by"/>
+        <result property="decidedAt"     column="decided_at"/>
+        <result property="decideRemark"  column="decide_remark"/>
+        <result property="createdBy"     column="created_by"/>
+        <result property="createdAt"     column="created_at"/>
+        <result property="updatedBy"     column="updated_by"/>
+        <result property="updatedAt"     column="updated_at"/>
+        <result property="warehouseId"   column="warehouse_id"/>
+        <result property="warehouseName" column="warehouse_name"/>
+        <result property="plantId"       column="plant_id"/>
+        <result property="plantName"     column="plant_name"/>
+        <result property="orgSeq"        column="org_seq"/>
+        <result property="reasonName"    column="reason_name"/>
+        <result property="requestedByName" column="requested_by_name"/>
+        <result property="decidedByName"   column="decided_by_name"/>
+        <result property="lineCount"     column="line_count"/>
+        <result property="totalDelta"    column="total_delta"/>
+    </resultMap>
+
+    <resultMap id="lineMap" type="com.fulfillment.domain.StockAdjustLine">
+        <id     property="lineSeq"      column="line_seq"/>
+        <result property="adjustSeq"    column="adjust_seq"/>
+        <result property="lineNo"       column="line_no"/>
+        <result property="stockSeq"     column="stock_seq"/>
+        <result property="qtyField"     column="qty_field"/>
+        <result property="qtyBefore"    column="qty_before"/>
+        <result property="qtyAfter"     column="qty_after"/>
+        <result property="qtyDelta"     column="qty_delta"/>
+        <result property="reasonCode"   column="reason_code"/>
+        <result property="remark"       column="remark"/>
+        <result property="appliedHistorySeq" column="applied_history_seq"/>
+        <result property="locationId"   column="location_id"/>
+        <result property="warehouseId"  column="warehouse_id"/>
+        <result property="plantId"      column="plant_id"/>
+        <result property="skuId"        column="sku_id"/>
+        <result property="productName"  column="product_name"/>
+        <result property="colorCode"    column="color_code"/>
+        <result property="sizeCode"     column="size_code"/>
+        <result property="reasonName"   column="reason_name"/>
+        <result property="qtyCurrent"   column="qty_current"/>
+    </resultMap>
+
+
+    <!--
+      사유코드의 이름을 함께 읽는다.
+
+      조정 사유는 코드그룹이 REASON_ADJUST 하나로 고정이라 그룹까지 조건에
+      넣는다. 그룹 없이 코드만으로 조인하면 다른 그룹의 같은 코드가 붙는다
+      — DAMAGED 는 반품에도 검수불량에도 있다.
+
+      요청자 · 승인자의 이름도 읽는다. 결재함에서 'dc1.inv01' 만 보이면
+      누구인지 알 수 없다.
+    -->
+    <sql id="adjustFrom">
+        FROM tb_stock_adjust a
+        JOIN tb_warehouse w ON w.warehouse_seq = a.warehouse_seq
+        JOIN tb_plant     p ON p.plant_seq     = w.plant_seq
+        LEFT JOIN tb_code_group rg ON rg.code_group_id = 'REASON_ADJUST'
+        LEFT JOIN tb_code       rc ON rc.code_group_seq = rg.code_group_seq
+                                  AND rc.code_id        = a.reason_code
+        LEFT JOIN tb_user ru ON ru.user_id = a.requested_by
+        LEFT JOIN tb_user du ON du.user_id = a.decided_by
+    </sql>
+
+    <sql id="adjustColumns">
+        a.adjust_seq, a.adjust_no, a.warehouse_seq, a.adjust_status,
+        a.reason_code, a.remark,
+        a.requested_by, a.requested_at, a.decided_by, a.decided_at, a.decide_remark,
+        a.created_by, a.created_at, a.updated_by, a.updated_at,
+        w.warehouse_id   AS warehouse_id,
+        w.warehouse_name AS warehouse_name,
+        p.plant_id       AS plant_id,
+        p.plant_name     AS plant_name,
+        p.org_seq        AS org_seq,
+        rc.code_name     AS reason_name,
+        ru.user_name     AS requested_by_name,
+        du.user_name     AS decided_by_name,
+        <!--
+          라인 수와 변동 합계.
+
+          목록에서 전표마다 라인을 읽으면 전표 수만큼 질의가 늘어난다.
+          스칼라 서브쿼리로 한 번에 가져온다 — 전표당 라인이 수십 줄
+          수준이라 이 정도면 충분하다.
+
+          합계는 상쇄된다. 늘리는 줄과 줄이는 줄이 섞이면 0 이 될 수 있어
+          '규모' 가 아니라 '순변동' 이다. 화면이 그렇게 읽도록 이름을
+          totalDelta 로 뒀다.
+        -->
+        (SELECT COUNT(*)            FROM tb_stock_adjust_line l WHERE l.adjust_seq = a.adjust_seq) AS line_count,
+        (SELECT COALESCE(SUM(l.qty_delta), 0) FROM tb_stock_adjust_line l WHERE l.adjust_seq = a.adjust_seq) AS total_delta
+    </sql>
+
+    <!--
+      데이터 범위 (COM-PG-004, STK-001).
+
+      조정은 조직을 직접 갖지 않는다. 창고 → 플랜트 → 운영 조직으로 거슬러
+      판정한다. scope 를 넣지 않고 조회하면 ScopedSearch.getScope() 가
+      예외를 던진다.
+    -->
+    <sql id="scopeFilter">
+        <if test="scope != null and !scope.unrestricted">
+            <choose>
+                <when test="scope.hasNoOrg">
+            AND a.requested_by = #{scope.ownerId}
+                </when>
+                <otherwise>
+            AND (p.org_seq IN
+                    <foreach collection="scope.orgSeqs" item="orgSeq" open="(" close=")" separator=",">
+                        #{orgSeq}
+                    </foreach>
+                 <if test="scope.ownerId != null">
+                 OR a.requested_by = #{scope.ownerId}
+                 </if>
+                )
+                </otherwise>
+            </choose>
+        </if>
+    </sql>
+
+    <sql id="adjustWhere">
+        <where>
+            <if test="keyword != null">
+                AND (a.adjust_no ILIKE '%' || #{keyword} || '%'
+                  OR a.remark    ILIKE '%' || #{keyword} || '%'
+                  OR rc.code_name ILIKE '%' || #{keyword} || '%')
+            </if>
+            <if test="plantId != null">
+                AND p.plant_id = #{plantId}
+            </if>
+            <if test="warehouseId != null">
+                AND w.warehouse_id = #{warehouseId}
+            </if>
+            <if test="adjustStatus != null">
+                AND a.adjust_status = #{adjustStatus}
+            </if>
+            <if test='pendingOnly == "Y"'>
+                AND a.adjust_status = 'REQUESTED'
+            </if>
+            <if test="reasonCode != null">
+                AND a.reason_code = #{reasonCode}
+            </if>
+            <if test="requestedBy != null">
+                AND a.requested_by = #{requestedBy}
+            </if>
+            <if test="fromDate != null">
+                AND a.requested_at &gt;= #{fromDate}
+            </if>
+            <!-- 종료일은 그날 하루를 포함한다. 자정 이후 요청이 빠지면
+                 "오늘 올린 게 안 보인다" 가 된다. -->
+            <if test="toDate != null">
+                AND a.requested_at &lt; (#{toDate}::date + 1)
+            </if>
+            <include refid="scopeFilter"/>
+        </where>
+    </sql>
+
+    <select id="selectList" resultMap="adjustMap">
+        SELECT <include refid="adjustColumns"/>
+        <include refid="adjustFrom"/>
+        <include refid="adjustWhere"/>
+        ORDER BY ${sortColumn} ${sortDirection}, a.adjust_seq DESC
+        <if test="size > 0">
+            LIMIT #{size} OFFSET #{offset}
+        </if>
+    </select>
+
+    <select id="countList" resultType="long">
+        SELECT COUNT(*)
+        <include refid="adjustFrom"/>
+        <include refid="adjustWhere"/>
+    </select>
+
+    <select id="selectBySeq" resultMap="adjustMap">
+        SELECT <include refid="adjustColumns"/>
+        <include refid="adjustFrom"/>
+         WHERE a.adjust_seq = #{adjustSeq}
+    </select>
+
+    <!--
+      라인.
+
+      qty_current 는 지금 이 순간의 장부수량이다. 요청 시점 수량(qty_before)과
+      다르면 요청 뒤에 재고가 움직였다는 뜻이고, 승인자는 그것을 알고
+      결정해야 한다.
+
+      수량항목에 따라 읽을 컬럼이 달라 CASE 로 고른다.
+    -->
+    <select id="selectLines" resultMap="lineMap">
+        SELECT l.line_seq, l.adjust_seq, l.line_no, l.stock_seq,
+               l.qty_field, l.qty_before, l.qty_after, l.qty_delta,
+               l.reason_code, l.remark, l.applied_history_seq,
+               loc.location_id  AS location_id,
+               w.warehouse_id   AS warehouse_id,
+               p.plant_id       AS plant_id,
+               k.sku_id         AS sku_id,
+               pr.product_name  AS product_name,
+               k.color_code     AS color_code,
+               k.size_code      AS size_code,
+               rc.code_name     AS reason_name,
+               CASE l.qty_field
+                    WHEN 'ON_HAND'    THEN s.qty_on_hand
+                    WHEN 'UNSELLABLE' THEN s.qty_unsellable
+               END              AS qty_current
+          FROM tb_stock_adjust_line l
+          JOIN tb_stock     s   ON s.stock_seq      = l.stock_seq
+          JOIN tb_location  loc ON loc.location_seq = s.location_seq
+          JOIN tb_warehouse w   ON w.warehouse_seq  = loc.warehouse_seq
+          JOIN tb_plant     p   ON p.plant_seq      = w.plant_seq
+          JOIN tb_sku       k   ON k.sku_seq        = s.sku_seq
+          JOIN tb_product   pr  ON pr.product_seq   = k.product_seq
+          LEFT JOIN tb_code_group rg ON rg.code_group_id = 'REASON_ADJUST'
+          LEFT JOIN tb_code       rc ON rc.code_group_seq = rg.code_group_seq
+                                    AND rc.code_id        = l.reason_code
+         WHERE l.adjust_seq = #{adjustSeq}
+         ORDER BY l.line_no
+    </select>
+
+    <insert id="insert" parameterType="com.fulfillment.domain.StockAdjust"
+            useGeneratedKeys="true" keyProperty="adjustSeq" keyColumn="adjust_seq">
+        INSERT INTO tb_stock_adjust
+            (adjust_no, warehouse_seq, adjust_status, reason_code, remark,
+             requested_by, created_by)
+        VALUES
+            (#{adjustNo}, #{warehouseSeq}, #{adjustStatus}, #{reasonCode}, #{remark},
+             #{requestedBy}, #{createdBy})
+    </insert>
+
+    <insert id="insertLine" parameterType="com.fulfillment.domain.StockAdjustLine"
+            useGeneratedKeys="true" keyProperty="lineSeq" keyColumn="line_seq">
+        INSERT INTO tb_stock_adjust_line
+            (adjust_seq, line_no, stock_seq, qty_field, qty_before, qty_after,
+             reason_code, remark)
+        VALUES
+            (#{adjustSeq}, #{lineNo}, #{stockSeq}, #{qtyField}, #{qtyBefore}, #{qtyAfter},
+             #{reasonCode}, #{remark})
+    </insert>
+
+    <update id="update" parameterType="com.fulfillment.domain.StockAdjust">
+        UPDATE tb_stock_adjust
+           SET warehouse_seq = #{warehouseSeq},
+               reason_code   = #{reasonCode},
+               remark        = #{remark},
+               updated_by    = #{updatedBy},
+               updated_at    = CURRENT_TIMESTAMP
+         WHERE adjust_seq    = #{adjustSeq}
+    </update>
+
+    <delete id="deleteLines">
+        DELETE FROM tb_stock_adjust_line WHERE adjust_seq = #{adjustSeq}
+    </delete>
+
+    <!--
+      상태 전이.
+
+      조건에 현재 상태를 넣는다. 두 명이 동시에 같은 전표를 승인하면 한 쪽은
+      0 행이 바뀌고, 서비스가 그것을 보고 거부한다 — 확인하지 않으면 재고에
+      두 번 반영된다.
+
+      승인 · 반려에는 처리자와 시각을 함께 찍는다. 취소는 요청자가 스스로
+      거두는 것이라 처리자를 남기지 않는다 (ck_stadj_decided 가 REQUESTED 와
+      CANCELED 를 예외로 둔 이유다).
+    -->
+    <update id="updateStatus">
+        UPDATE tb_stock_adjust
+           SET adjust_status = #{toStatus},
+        <if test="decidedBy != null">
+               decided_by    = #{decidedBy},
+               decided_at    = CURRENT_TIMESTAMP,
+               decide_remark = #{decideRemark},
+        </if>
+               updated_by    = COALESCE(#{decidedBy}, updated_by),
+               updated_at    = CURRENT_TIMESTAMP
+         WHERE adjust_seq    = #{adjustSeq}
+           AND adjust_status = #{fromStatus}
+    </update>
+
+    <update id="updateLineApplied">
+        UPDATE tb_stock_adjust_line
+           SET applied_history_seq = #{historySeq}
+         WHERE line_seq = #{lineSeq}
+    </update>
+
+    <delete id="delete">
+        DELETE FROM tb_stock_adjust WHERE adjust_seq = #{adjustSeq}
+    </delete>
+
+    <select id="countPendingByStock" resultType="int">
+        SELECT COUNT(*)
+          FROM tb_stock_adjust_line l
+          JOIN tb_stock_adjust a ON a.adjust_seq = l.adjust_seq
+         WHERE l.stock_seq = #{stockSeq}
+           AND a.adjust_status = 'REQUESTED'
+    </select>
+
+</mapper>

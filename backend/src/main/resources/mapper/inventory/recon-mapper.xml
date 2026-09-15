@@ -1,0 +1,290 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.fulfillment.inventory.recon.dao.ReconDao">
+
+    <resultMap id="findingMap" type="com.fulfillment.inventory.recon.dto.ReconFinding">
+        <result property="stockSeq"    column="stock_seq"/>
+        <result property="plantId"     column="plant_id"/>
+        <result property="plantName"   column="plant_name"/>
+        <result property="warehouseId" column="warehouse_id"/>
+        <result property="locationId"  column="location_id"/>
+        <result property="skuId"       column="sku_id"/>
+        <result property="productName" column="product_name"/>
+        <result property="vendorId"    column="vendor_id"/>
+        <result property="bookQty"     column="book_qty"/>
+        <result property="computedQty" column="computed_qty"/>
+        <result property="diffQty"     column="diff_qty"/>
+        <result property="days"        column="days"/>
+        <result property="detail"      column="detail"/>
+    </resultMap>
+
+
+    <sql id="stockFrom">
+        FROM tb_stock s
+        JOIN tb_location  l  ON l.location_seq  = s.location_seq
+        JOIN tb_warehouse w  ON w.warehouse_seq = l.warehouse_seq
+        JOIN tb_plant     p  ON p.plant_seq     = w.plant_seq
+        JOIN tb_sku       k  ON k.sku_seq       = s.sku_seq
+        JOIN tb_product   pr ON pr.product_seq  = k.product_seq
+        LEFT JOIN tb_supplier v ON v.supplier_seq = s.vendor_seq
+    </sql>
+
+    <sql id="stockColumns">
+        s.stock_seq,
+        p.plant_id      AS plant_id,
+        p.plant_name    AS plant_name,
+        w.warehouse_id  AS warehouse_id,
+        l.location_id   AS location_id,
+        k.sku_id        AS sku_id,
+        pr.product_name AS product_name,
+        v.supplier_id   AS vendor_id
+    </sql>
+
+    <!--
+      데이터 범위 (COM-PG-004, STK-001).
+
+      대사도 재고를 읽는 일이라 같은 센터 격리를 받는다. 배치는
+      ScopeFilter.all() 로 전 조직을 본다 — 정합성은 센터별이 아니라
+      시스템 전체의 성질이다.
+    -->
+    <sql id="scopeFilter">
+        <if test="!scope.unrestricted">
+            <choose>
+                <when test="scope.hasNoOrg">
+            AND s.created_by = #{scope.ownerId}
+                </when>
+                <otherwise>
+            AND ( p.org_seq IN
+                  <foreach collection="scope.orgSeqs" item="o" open="(" separator="," close=")">
+                      #{o}
+                  </foreach>
+                  OR s.created_by = #{scope.ownerId} )
+                </otherwise>
+            </choose>
+        </if>
+    </sql>
+
+    <sql id="stockWhere">
+        <if test="plantId != null">
+            AND p.plant_id = #{plantId}
+        </if>
+        <if test="warehouseId != null">
+            AND w.warehouse_id = #{warehouseId}
+        </if>
+        <include refid="scopeFilter"/>
+    </sql>
+
+
+    <!-- ================================================================ -->
+    <!-- LEDGER — 장부 수량 ≠ 이력 합계                                   -->
+    <!--                                                                   -->
+    <!-- 가장 무거운 신호다. 수량 변경은 반드시 이력을 남기므로(P-02),     -->
+    <!-- 이력의 합은 현재 보유수량과 같아야 한다. 다르면 이력을 남기지     -->
+    <!-- 않고 수량을 바꾼 경로가 있다는 뜻이고, 그건 StockLedger 를        -->
+    <!-- 거치지 않은 코드가 있다는 뜻이다.                                 -->
+    <!--                                                                   -->
+    <!-- 이관으로 들여온 재고(개통 전 잔고)도 여기에 걸린다. 그런 재고는   -->
+    <!-- 개통시점 잔고를 이력 한 줄로 넣어 두는 것이 정석이고, 안 넣었다는 -->
+    <!-- 사실 자체가 확인할 가치가 있다.                                   -->
+    <!-- ================================================================ -->
+    <sql id="ledgerWhere">
+        WHERE s.qty_on_hand &lt;&gt; COALESCE((
+                  SELECT SUM(h.qty_delta)
+                    FROM tb_stock_history h
+                   WHERE h.stock_seq = s.stock_seq
+                     AND h.qty_field = 'ON_HAND'), 0)
+        <include refid="stockWhere"/>
+    </sql>
+
+    <select id="selectLedgerMismatch" resultMap="findingMap">
+        SELECT <include refid="stockColumns"/>,
+               s.qty_on_hand AS book_qty,
+               COALESCE((SELECT SUM(h.qty_delta) FROM tb_stock_history h
+                          WHERE h.stock_seq = s.stock_seq
+                            AND h.qty_field = 'ON_HAND'), 0) AS computed_qty,
+               s.qty_on_hand - COALESCE((SELECT SUM(h.qty_delta) FROM tb_stock_history h
+                          WHERE h.stock_seq = s.stock_seq
+                            AND h.qty_field = 'ON_HAND'), 0) AS diff_qty
+        <include refid="stockFrom"/>
+        <include refid="ledgerWhere"/>
+         ORDER BY ABS(s.qty_on_hand - COALESCE((SELECT SUM(h.qty_delta) FROM tb_stock_history h
+                          WHERE h.stock_seq = s.stock_seq
+                            AND h.qty_field = 'ON_HAND'), 0)) DESC
+         LIMIT #{limit}
+    </select>
+
+    <select id="countLedgerMismatch" resultType="int">
+        SELECT COUNT(*) <include refid="stockFrom"/> <include refid="ledgerWhere"/>
+    </select>
+
+
+    <!-- ================================================================ -->
+    <!-- ALLOC — 장부 할당수량 ≠ 할당이력 합계                            -->
+    <!--                                                                   -->
+    <!-- 아직 풀리지 않고 잡혀 있는 수량(할당 − 해제)의 합이 재고의        -->
+    <!-- 할당수량과 같아야 한다. 다르면 주문이 잡은 것과 재고가 잡혔다고   -->
+    <!-- 아는 것이 어긋나 있다 — 팔 수 없는 것을 팔거나 그 반대가 된다.    -->
+    <!--                                                                   -->
+    <!-- 출고소진(PICKED)은 이미 보유에서 빠져 할당에도 남지 않으므로      -->
+    <!-- 합계에서 제외한다.                                                -->
+    <!-- ================================================================ -->
+    <sql id="allocCalc">
+        COALESCE((SELECT SUM(a.qty_allocated - a.qty_released)
+                    FROM tb_stock_alloc a
+                   WHERE a.stock_seq = s.stock_seq
+                     AND a.alloc_status = 'ALLOCATED'), 0)
+    </sql>
+
+    <sql id="allocWhere">
+        WHERE s.qty_allocated &lt;&gt; <include refid="allocCalc"/>
+        <include refid="stockWhere"/>
+    </sql>
+
+    <select id="selectAllocMismatch" resultMap="findingMap">
+        SELECT <include refid="stockColumns"/>,
+               s.qty_allocated AS book_qty,
+               <include refid="allocCalc"/> AS computed_qty,
+               s.qty_allocated - <include refid="allocCalc"/> AS diff_qty
+        <include refid="stockFrom"/>
+        <include refid="allocWhere"/>
+         ORDER BY ABS(s.qty_allocated - <include refid="allocCalc"/>) DESC
+         LIMIT #{limit}
+    </select>
+
+    <select id="countAllocMismatch" resultType="int">
+        SELECT COUNT(*) <include refid="stockFrom"/> <include refid="allocWhere"/>
+    </select>
+
+
+    <!-- ================================================================ -->
+    <!-- NEGATIVE — 보유 &lt; 할당 + 판매불가                             -->
+    <!--                                                                   -->
+    <!-- DB 제약(ck_stock_available)이 막고 있어 이론상 나올 수 없다.      -->
+    <!-- 그래도 세는 이유는, 나왔다면 제약을 우회한 경로가 있다는 뜻이고   -->
+    <!-- 그 자체가 사건이기 때문이다. 검사 비용이 거의 없으므로 둔다.      -->
+    <!-- ================================================================ -->
+    <sql id="negativeWhere">
+        WHERE s.qty_available &lt; 0
+        <include refid="stockWhere"/>
+    </sql>
+
+    <select id="selectNegativeAvailable" resultMap="findingMap">
+        SELECT <include refid="stockColumns"/>,
+               s.qty_on_hand   AS book_qty,
+               s.qty_allocated + s.qty_unsellable AS computed_qty,
+               s.qty_available AS diff_qty
+        <include refid="stockFrom"/>
+        <include refid="negativeWhere"/>
+         ORDER BY s.qty_available
+         LIMIT #{limit}
+    </select>
+
+    <select id="countNegativeAvailable" resultType="int">
+        SELECT COUNT(*) <include refid="stockFrom"/> <include refid="negativeWhere"/>
+    </select>
+
+
+    <!-- ================================================================ -->
+    <!-- STALE — 오래 세지 않은 재고                                       -->
+    <!--                                                                   -->
+    <!-- 틀렸다는 뜻이 아니라 맞는지 아무도 확인하지 않았다는 뜻이다.      -->
+    <!-- 다음 실사 계획(INV-PG-008)이 여기서 나온다.                       -->
+    <!--                                                                   -->
+    <!-- 재고가 0 인 행은 뺀다. 없는 물건을 세러 갈 이유가 없고, 넣으면    -->
+    <!-- 목록이 0 짜리 행으로 가득 차 정작 볼 것이 묻힌다.                 -->
+    <!-- ================================================================ -->
+    <sql id="staleWhere">
+        WHERE s.qty_on_hand &gt; 0
+          AND (s.last_counted_at IS NULL
+            OR s.last_counted_at &lt; CURRENT_TIMESTAMP - (#{staleDays} || ' days')::interval)
+        <include refid="stockWhere"/>
+    </sql>
+
+    <select id="selectStaleCount" resultMap="findingMap">
+        SELECT <include refid="stockColumns"/>,
+               s.qty_on_hand AS book_qty,
+               NULL::integer AS computed_qty,
+               NULL::integer AS diff_qty,
+               CASE WHEN s.last_counted_at IS NULL THEN NULL
+                    ELSE EXTRACT(DAY FROM CURRENT_TIMESTAMP - s.last_counted_at)::integer
+               END AS days,
+               CASE WHEN s.last_counted_at IS NULL THEN '실사 이력 없음'
+                    ELSE TO_CHAR(s.last_counted_at, 'YYYY-MM-DD') || ' 마지막 실사'
+               END AS detail
+        <include refid="stockFrom"/>
+        <include refid="staleWhere"/>
+         ORDER BY s.last_counted_at NULLS FIRST, s.qty_on_hand DESC
+         LIMIT #{limit}
+    </select>
+
+    <select id="countStaleCount" resultType="int">
+        SELECT COUNT(*) <include refid="stockFrom"/> <include refid="staleWhere"/>
+    </select>
+
+
+    <!-- ================================================================ -->
+    <!-- PENDING — 오래 묵은 승인대기 조정                                 -->
+    <!--                                                                   -->
+    <!-- 결재가 멈춰 있으면 "틀린 줄 알면서 고치지 않고 있는" 상태가       -->
+    <!-- 이어진다. 재고가 아니라 전표를 세는 유일한 검사라 조회 경로도     -->
+    <!-- 다르다.                                                           -->
+    <!-- ================================================================ -->
+    <sql id="pendingFrom">
+        FROM tb_stock_adjust a
+        JOIN tb_warehouse w ON w.warehouse_seq = a.warehouse_seq
+        JOIN tb_plant     p ON p.plant_seq     = w.plant_seq
+    </sql>
+
+    <sql id="pendingWhere">
+        WHERE a.adjust_status = 'REQUESTED'
+          AND a.requested_at &lt; CURRENT_TIMESTAMP - (#{pendingDays} || ' days')::interval
+        <if test="plantId != null">
+          AND p.plant_id = #{plantId}
+        </if>
+        <if test="warehouseId != null">
+          AND w.warehouse_id = #{warehouseId}
+        </if>
+        <if test="!scope.unrestricted">
+            <choose>
+                <when test="scope.hasNoOrg">
+          AND a.requested_by = #{scope.ownerId}
+                </when>
+                <otherwise>
+          AND ( p.org_seq IN
+                <foreach collection="scope.orgSeqs" item="o" open="(" separator="," close=")">
+                    #{o}
+                </foreach>
+                OR a.requested_by = #{scope.ownerId} )
+                </otherwise>
+            </choose>
+        </if>
+    </sql>
+
+    <select id="selectPendingAdjust" resultMap="findingMap">
+        SELECT NULL::bigint  AS stock_seq,
+               p.plant_id     AS plant_id,
+               p.plant_name   AS plant_name,
+               w.warehouse_id AS warehouse_id,
+               NULL           AS location_id,
+               NULL           AS sku_id,
+               NULL           AS product_name,
+               NULL           AS vendor_id,
+               NULL::integer  AS book_qty,
+               NULL::integer  AS computed_qty,
+               (SELECT COALESCE(SUM(l.qty_delta), 0) FROM tb_stock_adjust_line l
+                 WHERE l.adjust_seq = a.adjust_seq) AS diff_qty,
+               EXTRACT(DAY FROM CURRENT_TIMESTAMP - a.requested_at)::integer AS days,
+               a.adjust_no || ' (' || a.requested_by || ')' AS detail
+        <include refid="pendingFrom"/>
+        <include refid="pendingWhere"/>
+         ORDER BY a.requested_at
+         LIMIT #{limit}
+    </select>
+
+    <select id="countPendingAdjust" resultType="int">
+        SELECT COUNT(*) <include refid="pendingFrom"/> <include refid="pendingWhere"/>
+    </select>
+
+</mapper>

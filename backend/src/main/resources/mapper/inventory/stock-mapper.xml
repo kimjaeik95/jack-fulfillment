@@ -424,4 +424,97 @@
         <include refid="allocWhere"/>
     </select>
 
+
+    <!-- ================================================================ -->
+    <!-- 갱신 — StockLedger 전용                                           -->
+    <!--                                                                   -->
+    <!-- 이 아래의 문장은 StockLedger 만 부른다. 서비스가 직접 부르면       -->
+    <!-- 수량만 바뀌고 이력이 빠진 경로가 생긴다 (P-02).                    -->
+    <!-- ================================================================ -->
+
+    <!--
+      행을 잠그고 읽는다.
+
+      FOR UPDATE 는 조인한 테이블까지 잠그려 들기 때문에 대상 테이블을
+      명시한다(OF s). 빈 · SKU 같은 기준정보까지 잠그면 재고를 하나 고치는
+      동안 그 빈을 쓰는 다른 작업이 모두 멈춘다.
+    -->
+    <select id="selectForUpdate" resultMap="stockMap">
+        SELECT <include refid="stockColumns"/>
+        <include refid="stockFrom"/>
+         WHERE s.stock_seq = #{stockSeq}
+           FOR UPDATE OF s
+    </select>
+
+    <!--
+      로케이션 × SKU × 거래처.
+
+      거래처가 NULL 인 경우를 = 로 비교하면 늘 거짓이라 자사 재고를 영영
+      못 찾는다. tb_stock 의 유니크 인덱스를 둘로 나눈 것과 같은 이유다.
+    -->
+    <select id="selectByKey" resultMap="stockMap">
+        SELECT <include refid="stockColumns"/>
+        <include refid="stockFrom"/>
+         WHERE s.location_seq = #{locationSeq}
+           AND s.sku_seq      = #{skuSeq}
+        <choose>
+            <when test="vendorSeq != null">
+           AND s.vendor_seq = #{vendorSeq}
+            </when>
+            <otherwise>
+           AND s.vendor_seq IS NULL
+            </otherwise>
+        </choose>
+    </select>
+
+    <insert id="insert" parameterType="com.fulfillment.domain.Stock"
+            useGeneratedKeys="true" keyProperty="stockSeq" keyColumn="stock_seq">
+        INSERT INTO tb_stock (location_seq, sku_seq, vendor_seq,
+                              qty_on_hand, qty_allocated, qty_unsellable, created_by)
+        VALUES (#{locationSeq}, #{skuSeq}, #{vendorSeq},
+                #{qtyOnHand}, #{qtyAllocated}, #{qtyUnsellable}, #{createdBy})
+    </insert>
+
+    <!--
+      수량항목 이름이 컬럼명이라 바인딩할 수 없다. 그래서 세 갈래를 직접
+      적는다 — ${} 로 컬럼명을 치환하면 그 자리가 곧 SQL 주입 경로가 된다.
+      StockLedger 가 값을 미리 검사하지만, 그 검사를 지우면 바로 뚫리는
+      구조를 남겨 두지 않는다.
+    -->
+    <update id="updateQty">
+        UPDATE tb_stock
+           SET
+        <choose>
+            <when test='qtyField == "ON_HAND"'>     qty_on_hand    = #{qtyAfter}</when>
+            <when test='qtyField == "ALLOCATED"'>   qty_allocated  = #{qtyAfter}</when>
+            <when test='qtyField == "UNSELLABLE"'>  qty_unsellable = #{qtyAfter}</when>
+            <otherwise>
+                <!-- 여기 오면 StockLedger 의 검사가 뚫린 것이다. 아무것도
+                     바꾸지 않고 DB 가 문법 오류를 내게 둔다. -->
+                qty_on_hand = NULL
+            </otherwise>
+        </choose>
+             , updated_by = #{updatedBy}
+             , updated_at = CURRENT_TIMESTAMP
+         WHERE stock_seq = #{stockSeq}
+    </update>
+
+    <update id="updateLastCounted">
+        UPDATE tb_stock
+           SET last_counted_at = CURRENT_TIMESTAMP,
+               updated_by      = #{updatedBy},
+               updated_at      = CURRENT_TIMESTAMP
+         WHERE stock_seq = #{stockSeq}
+    </update>
+
+    <insert id="insertHistory" parameterType="com.fulfillment.domain.StockHistory"
+            useGeneratedKeys="true" keyProperty="historySeq" keyColumn="history_seq">
+        INSERT INTO tb_stock_history
+            (stock_seq, move_type, qty_field, qty_delta, qty_before, qty_after,
+             reason_code, reason_group, remark, ref_type, ref_no, created_by)
+        VALUES
+            (#{stockSeq}, #{moveType}, #{qtyField}, #{qtyDelta}, #{qtyBefore}, #{qtyAfter},
+             #{reasonCode}, #{reasonGroup}, #{remark}, #{refType}, #{refNo}, #{createdBy})
+    </insert>
+
 </mapper>

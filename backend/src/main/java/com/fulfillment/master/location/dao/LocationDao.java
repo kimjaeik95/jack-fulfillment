@@ -21,6 +21,19 @@ public interface LocationDao {
 
 	Location selectBySeq(@Param("locationSeq") Long locationSeq);
 
+	/**
+	 * 창고 안에서 빈코드로 찾는다.
+	 *
+	 * 창고 순번이 함께 필요하다. 빈코드는 창고 안에서만 유일해서(V7)
+	 * 코드만으로는 한 곳이 정해지지 않는다 — 이천센터에도 김해센터에도
+	 * 1A-01-01 이 있을 수 있다.
+	 *
+	 * 실사가 계획에 없던 물건을 추가할 때 쓴다. 현장은 순번이 아니라
+	 * 빈코드를 읽고 스캔한다.
+	 */
+	Location selectByCode(@Param("warehouseSeq") Long warehouseSeq,
+			@Param("locationId") String locationId);
+
 	/** 같은 창고 안의 빈코드 중복 검사. 수정 시 자기 자신은 제외한다. */
 	int countByCode(@Param("warehouseSeq") Long warehouseSeq,
 			@Param("locationId") String locationId,

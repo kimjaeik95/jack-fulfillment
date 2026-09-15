@@ -1,0 +1,428 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.fulfillment.inventory.stocktake.dao.StocktakeDao">
+
+    <resultMap id="takeMap" type="com.fulfillment.domain.Stocktake">
+        <id     property="takeSeq"          column="take_seq"/>
+        <result property="takeNo"           column="take_no"/>
+        <result property="takeName"         column="take_name"/>
+        <result property="warehouseSeq"     column="warehouse_seq"/>
+        <result property="takeType"         column="take_type"/>
+        <result property="takeStatus"       column="take_status"/>
+        <result property="blindYn"          column="blind_yn"/>
+        <result property="targetZone"       column="target_zone"/>
+        <result property="targetSkuKeyword" column="target_sku_keyword"/>
+        <result property="plannedDate"      column="planned_date"/>
+        <result property="startedAt"        column="started_at"/>
+        <result property="closedBy"         column="closed_by"/>
+        <result property="closedAt"         column="closed_at"/>
+        <result property="remark"           column="remark"/>
+        <result property="createdBy"        column="created_by"/>
+        <result property="createdAt"        column="created_at"/>
+        <result property="updatedBy"        column="updated_by"/>
+        <result property="updatedAt"        column="updated_at"/>
+        <result property="warehouseId"      column="warehouse_id"/>
+        <result property="warehouseName"    column="warehouse_name"/>
+        <result property="plantId"          column="plant_id"/>
+        <result property="plantName"        column="plant_name"/>
+        <result property="orgSeq"           column="org_seq"/>
+        <result property="closedByName"     column="closed_by_name"/>
+        <result property="lineCount"        column="line_count"/>
+        <result property="countedCount"     column="counted_count"/>
+        <result property="diffCount"        column="diff_count"/>
+    </resultMap>
+
+    <resultMap id="takeLineMap" type="com.fulfillment.domain.StocktakeLine">
+        <id     property="lineSeq"      column="line_seq"/>
+        <result property="takeSeq"      column="take_seq"/>
+        <result property="locationSeq"  column="location_seq"/>
+        <result property="skuSeq"       column="sku_seq"/>
+        <result property="vendorSeq"    column="vendor_seq"/>
+        <result property="stockSeq"     column="stock_seq"/>
+        <result property="qtyBook"      column="qty_book"/>
+        <result property="qtyCounted"   column="qty_counted"/>
+        <result property="countedBy"    column="counted_by"/>
+        <result property="countedAt"    column="counted_at"/>
+        <result property="qtyRecount"   column="qty_recount"/>
+        <result property="recountBy"    column="recount_by"/>
+        <result property="recountAt"    column="recount_at"/>
+        <result property="qtyFinal"     column="qty_final"/>
+        <result property="qtyDiff"      column="qty_diff"/>
+        <result property="lineStatus"   column="line_status"/>
+        <result property="reasonCode"   column="reason_code"/>
+        <result property="remark"       column="remark"/>
+        <result property="appliedHistorySeq" column="applied_history_seq"/>
+        <result property="locationId"   column="location_id"/>
+        <result property="warehouseId"  column="warehouse_id"/>
+        <result property="plantId"      column="plant_id"/>
+        <result property="zoneCode"     column="zone_code"/>
+        <result property="skuId"        column="sku_id"/>
+        <result property="productName"  column="product_name"/>
+        <result property="colorCode"    column="color_code"/>
+        <result property="sizeCode"     column="size_code"/>
+        <result property="reasonName"   column="reason_name"/>
+        <result property="qtyCurrent"   column="qty_current"/>
+    </resultMap>
+
+
+    <sql id="takeFrom">
+        FROM tb_stocktake t
+        JOIN tb_warehouse w ON w.warehouse_seq = t.warehouse_seq
+        JOIN tb_plant     p ON p.plant_seq     = w.plant_seq
+        LEFT JOIN tb_user cu ON cu.user_id = t.closed_by
+    </sql>
+
+    <!--
+      진행 상황을 함께 읽는다.
+
+      실사는 며칠에 걸치는 일이라 "얼마나 남았나" 가 목록에서 바로 보여야
+      한다. 전표를 열어야만 알 수 있으면 관리자가 매번 다 열어 본다.
+
+      세 수를 한 번의 스칼라 서브쿼리로 뽑는다 — 대상 · 센 것 · 차이 난 것을
+      따로 세면 같은 테이블을 세 번 훑는다.
+    -->
+    <sql id="takeColumns">
+        t.take_seq, t.take_no, t.take_name, t.warehouse_seq,
+        t.take_type, t.take_status, t.blind_yn,
+        t.target_zone, t.target_sku_keyword,
+        t.planned_date, t.started_at, t.closed_by, t.closed_at, t.remark,
+        t.created_by, t.created_at, t.updated_by, t.updated_at,
+        w.warehouse_id   AS warehouse_id,
+        w.warehouse_name AS warehouse_name,
+        p.plant_id       AS plant_id,
+        p.plant_name     AS plant_name,
+        p.org_seq        AS org_seq,
+        cu.user_name     AS closed_by_name,
+        c.line_count, c.counted_count, c.diff_count
+    </sql>
+
+    <sql id="takeCounts">
+        LEFT JOIN LATERAL (
+            SELECT COUNT(*)                                                    AS line_count,
+                   COUNT(*) FILTER (WHERE l.qty_counted IS NOT NULL)           AS counted_count,
+                   COUNT(*) FILTER (WHERE l.qty_diff IS NOT NULL
+                                      AND l.qty_diff &lt;&gt; 0)              AS diff_count
+              FROM tb_stocktake_line l
+             WHERE l.take_seq = t.take_seq
+        ) c ON TRUE
+    </sql>
+
+    <!--
+      데이터 범위 (COM-PG-004, STK-001).
+
+      실사는 조직을 직접 갖지 않는다. 창고 → 플랜트 → 운영 조직으로 거슬러
+      판정한다. scope 를 넣지 않고 조회하면 ScopedSearch.getScope() 가
+      예외를 던진다.
+    -->
+    <sql id="scopeFilter">
+        <if test="!scope.unrestricted">
+            <choose>
+                <when test="scope.hasNoOrg">
+            AND t.created_by = #{scope.ownerId}
+                </when>
+                <otherwise>
+            AND ( p.org_seq IN
+                  <foreach collection="scope.orgSeqs" item="o" open="(" separator="," close=")">
+                      #{o}
+                  </foreach>
+                  OR t.created_by = #{scope.ownerId} )
+                </otherwise>
+            </choose>
+        </if>
+    </sql>
+
+    <sql id="takeWhere">
+        <where>
+            <if test="keyword != null">
+                AND (t.take_no   ILIKE '%' || #{keyword} || '%'
+                  OR t.take_name ILIKE '%' || #{keyword} || '%')
+            </if>
+            <if test="plantId != null">
+                AND p.plant_id = #{plantId}
+            </if>
+            <if test="warehouseId != null">
+                AND w.warehouse_id = #{warehouseId}
+            </if>
+            <if test="takeStatus != null">
+                AND t.take_status = #{takeStatus}
+            </if>
+            <if test="takeType != null">
+                AND t.take_type = #{takeType}
+            </if>
+            <if test='openOnly == "Y"'>
+                AND t.take_status IN ('PLANNED', 'COUNTING')
+            </if>
+            <if test="fromDate != null">
+                AND t.planned_date &gt;= #{fromDate}
+            </if>
+            <if test="toDate != null">
+                AND t.planned_date &lt;= #{toDate}
+            </if>
+            <include refid="scopeFilter"/>
+        </where>
+    </sql>
+
+    <select id="selectList" resultMap="takeMap">
+        SELECT <include refid="takeColumns"/>
+        <include refid="takeFrom"/>
+        <include refid="takeCounts"/>
+        <include refid="takeWhere"/>
+        ORDER BY ${sortColumn} ${sortDirection}, t.take_seq DESC
+        <if test="size > 0">
+            LIMIT #{size} OFFSET #{offset}
+        </if>
+    </select>
+
+    <select id="countList" resultType="long">
+        SELECT COUNT(*)
+        <include refid="takeFrom"/>
+        <include refid="takeWhere"/>
+    </select>
+
+    <select id="selectBySeq" resultMap="takeMap">
+        SELECT <include refid="takeColumns"/>
+        <include refid="takeFrom"/>
+        <include refid="takeCounts"/>
+         WHERE t.take_seq = #{takeSeq}
+    </select>
+
+    <insert id="insert" parameterType="com.fulfillment.domain.Stocktake"
+            useGeneratedKeys="true" keyProperty="takeSeq" keyColumn="take_seq">
+        INSERT INTO tb_stocktake
+            (take_no, take_name, warehouse_seq, take_type, take_status, blind_yn,
+             target_zone, target_sku_keyword, planned_date, remark, created_by)
+        VALUES
+            (#{takeNo}, #{takeName}, #{warehouseSeq}, #{takeType}, #{takeStatus}, #{blindYn},
+             #{targetZone}, #{targetSkuKeyword}, #{plannedDate}, #{remark}, #{createdBy})
+    </insert>
+
+    <update id="update" parameterType="com.fulfillment.domain.Stocktake">
+        UPDATE tb_stocktake
+           SET take_name          = #{takeName},
+               warehouse_seq      = #{warehouseSeq},
+               take_type          = #{takeType},
+               blind_yn           = #{blindYn},
+               target_zone        = #{targetZone},
+               target_sku_keyword = #{targetSkuKeyword},
+               planned_date       = #{plannedDate},
+               remark             = #{remark},
+               updated_by         = #{updatedBy},
+               updated_at         = CURRENT_TIMESTAMP
+         WHERE take_seq           = #{takeSeq}
+    </update>
+
+    <!--
+      상태 전이.
+
+      조건에 현재 상태를 넣는다. 두 명이 동시에 마감을 누르면 한 쪽은 0 행이
+      바뀌고, 서비스가 그것을 보고 거부한다 — 확인하지 않으면 차이가 두 번
+      반영된다.
+
+      시작 시각과 마감 시각은 그때 찍는다. 화면이 보낸 시각을 쓰면 시계가
+      틀린 PC 의 시각이 들어온다.
+    -->
+    <update id="updateStatus">
+        UPDATE tb_stocktake
+           SET take_status = #{toStatus},
+        <if test='toStatus == "COUNTING"'>
+               started_at   = CURRENT_TIMESTAMP,
+        </if>
+        <if test='toStatus == "CLOSED"'>
+               closed_by    = #{closedBy},
+               closed_at    = CURRENT_TIMESTAMP,
+        </if>
+               updated_by   = COALESCE(#{closedBy}, updated_by),
+               updated_at   = CURRENT_TIMESTAMP
+         WHERE take_seq     = #{takeSeq}
+           AND take_status  = #{fromStatus}
+    </update>
+
+    <!--
+      대상 생성 — 창고의 재고를 훑어 라인으로 만든다.
+
+      INSERT ... SELECT 한 문장으로 끝낸다. 재고를 애플리케이션으로 끌어와
+      한 줄씩 넣으면 전수실사에서 수만 번 왕복한다.
+
+      재고 0 인 행도 담는다. 장부가 0 인데 실물이 있는 경우를 잡는 것이
+      실사의 목적 중 하나라, 0 이라고 빼면 그 경우를 영영 못 찾는다.
+
+      재고 한 행이 라인 한 줄이다. 화주가 다른 같은 SKU 가 한 빈에 있으면
+      두 줄이 된다 — 합치지 않는다. 합쳐서 세면 차이가 났을 때 그것이
+      누구 물건인지 정할 수 없고, 한쪽에 몰아 반영하면 남의 재고가 조용히
+      줄어든다. 애초에 화주가 섞이지 않게 구역을 나누는 것이 현장의 관행이고,
+      그 관행이 깨졌다는 사실도 실사가 드러내야 한다.
+    -->
+    <insert id="insertTargets">
+        INSERT INTO tb_stocktake_line
+            (take_seq, location_seq, sku_seq, vendor_seq, stock_seq, qty_book)
+        SELECT #{takeSeq},
+               s.location_seq,
+               s.sku_seq,
+               s.vendor_seq,
+               s.stock_seq,
+               s.qty_on_hand
+          FROM tb_stock     s
+          JOIN tb_location  l  ON l.location_seq = s.location_seq
+          JOIN tb_sku       k  ON k.sku_seq      = s.sku_seq
+          JOIN tb_product   pr ON pr.product_seq = k.product_seq
+         WHERE l.warehouse_seq = #{warehouseSeq}
+           AND l.use_yn        = 'Y'
+        <if test="zoneCode != null">
+           AND l.zone_code = #{zoneCode}
+        </if>
+        <if test="skuKeyword != null">
+           AND (k.sku_id       ILIKE '%' || #{skuKeyword} || '%'
+             OR pr.product_name ILIKE '%' || #{skuKeyword} || '%')
+        </if>
+    </insert>
+
+    <!--
+      계획에 없던 줄 하나.
+
+      장부에 없는 물건이라 stock_seq 가 비어 있고 계획수량은 0 이다.
+      마감할 때 재고 행을 새로 만들고 센 수량만큼 올린다.
+    -->
+    <insert id="insertExtraLine">
+        INSERT INTO tb_stocktake_line
+            (take_seq, location_seq, sku_seq, vendor_seq, stock_seq, qty_book)
+        VALUES
+            (#{takeSeq}, #{locationSeq}, #{skuSeq}, #{vendorSeq}, #{stockSeq}, #{qtyBook})
+    </insert>
+
+    <select id="countLineByKey" resultType="int">
+        SELECT COUNT(*) FROM tb_stocktake_line
+         WHERE take_seq = #{takeSeq}
+           AND location_seq = #{locationSeq}
+           AND sku_seq = #{skuSeq}
+    </select>
+
+    <select id="selectLineSeqByKey" resultType="long">
+        SELECT line_seq FROM tb_stocktake_line
+         WHERE take_seq = #{takeSeq}
+           AND location_seq = #{locationSeq}
+           AND sku_seq = #{skuSeq}
+    </select>
+
+    <delete id="deleteLines">
+        DELETE FROM tb_stocktake_line WHERE take_seq = #{takeSeq}
+    </delete>
+
+    <!--
+      라인.
+
+      qty_current 는 지금 이 순간의 장부수량이다. 계획 시점(qty_book)과
+      다르면 세는 사이에 입고 · 출고가 있었다는 뜻이고, 마감이 그 사실을
+      알려야 한다.
+
+      무적재고(장부에 없던 물건)는 stock_seq 가 비어 있어 LEFT JOIN 이다.
+    -->
+    <select id="selectLines" resultMap="takeLineMap">
+        SELECT tl.line_seq, tl.take_seq, tl.location_seq, tl.sku_seq, tl.vendor_seq, tl.stock_seq,
+               tl.qty_book, tl.qty_counted, tl.counted_by, tl.counted_at,
+               tl.qty_recount, tl.recount_by, tl.recount_at,
+               tl.qty_final, tl.qty_diff, tl.line_status,
+               tl.reason_code, tl.remark, tl.applied_history_seq,
+               l.location_id  AS location_id,
+               l.zone_code    AS zone_code,
+               w.warehouse_id AS warehouse_id,
+               p.plant_id     AS plant_id,
+               k.sku_id       AS sku_id,
+               pr.product_name AS product_name,
+               k.color_code   AS color_code,
+               k.size_code    AS size_code,
+               rc.code_name   AS reason_name,
+               s.qty_on_hand  AS qty_current
+          FROM tb_stocktake_line tl
+          JOIN tb_location  l  ON l.location_seq = tl.location_seq
+          JOIN tb_warehouse w  ON w.warehouse_seq = l.warehouse_seq
+          JOIN tb_plant     p  ON p.plant_seq     = w.plant_seq
+          JOIN tb_sku       k  ON k.sku_seq       = tl.sku_seq
+          JOIN tb_product   pr ON pr.product_seq  = k.product_seq
+          LEFT JOIN tb_stock s ON s.stock_seq     = tl.stock_seq
+          LEFT JOIN tb_code_group rg ON rg.code_group_id = 'REASON_ADJUST'
+          LEFT JOIN tb_code       rc ON rc.code_group_seq = rg.code_group_seq
+                                    AND rc.code_id        = tl.reason_code
+         WHERE tl.take_seq = #{takeSeq}
+        <if test='diffOnly == "Y"'>
+           AND tl.qty_diff IS NOT NULL AND tl.qty_diff &lt;&gt; 0
+        </if>
+        <if test='uncountedOnly == "Y"'>
+           AND tl.qty_counted IS NULL
+        </if>
+         ORDER BY l.location_id, k.sku_id
+    </select>
+
+    <select id="selectLine" resultMap="takeLineMap">
+        SELECT tl.line_seq, tl.take_seq, tl.location_seq, tl.sku_seq, tl.vendor_seq, tl.stock_seq,
+               tl.qty_book, tl.qty_counted, tl.counted_by, tl.counted_at,
+               tl.qty_recount, tl.recount_by, tl.recount_at,
+               tl.qty_final, tl.qty_diff, tl.line_status,
+               tl.reason_code, tl.remark, tl.applied_history_seq,
+               l.location_id  AS location_id,
+               w.warehouse_id AS warehouse_id,
+               p.plant_id     AS plant_id,
+               k.sku_id       AS sku_id
+          FROM tb_stocktake_line tl
+          JOIN tb_location  l ON l.location_seq  = tl.location_seq
+          JOIN tb_warehouse w ON w.warehouse_seq = l.warehouse_seq
+          JOIN tb_plant     p ON p.plant_seq     = w.plant_seq
+          JOIN tb_sku       k ON k.sku_seq       = tl.sku_seq
+         WHERE tl.line_seq = #{lineSeq}
+    </select>
+
+    <!--
+      수량 입력.
+
+      1 차와 재계수를 다른 컬럼에 넣는다. 덮어쓰면 "처음엔 얼마로 셌나" 가
+      사라지는데, 두 번 센 값이 다를 때 어느 쪽이 맞는지 판단하려면 둘 다
+      있어야 한다.
+
+      사유와 비고는 값이 올 때만 덮는다. 재계수하면서 사유를 비워 보내면
+      1 차에 적어 둔 사유가 지워지기 때문이다.
+    -->
+    <update id="updateCount">
+        UPDATE tb_stocktake_line
+           SET
+        <choose>
+            <when test="recount">
+               qty_recount = #{qty},
+               recount_by  = #{actor},
+               recount_at  = CURRENT_TIMESTAMP,
+            </when>
+            <otherwise>
+               qty_counted = #{qty},
+               counted_by  = #{actor},
+               counted_at  = CURRENT_TIMESTAMP,
+            </otherwise>
+        </choose>
+        <if test="reasonCode != null">
+               reason_code = #{reasonCode},
+        </if>
+        <if test="remark != null">
+               remark      = #{remark},
+        </if>
+               line_status = #{lineStatus}
+         WHERE line_seq    = #{lineSeq}
+    </update>
+
+    <update id="updateLineApplied">
+        UPDATE tb_stocktake_line
+           SET applied_history_seq = #{historySeq}
+         WHERE line_seq = #{lineSeq}
+    </update>
+
+    <!-- 마감할 때 센 줄을 확정으로 넘긴다. 차이가 없어도 '확인했다' 는 기록이다. -->
+    <update id="confirmLines">
+        UPDATE tb_stocktake_line
+           SET line_status = 'CONFIRMED'
+         WHERE take_seq    = #{takeSeq}
+           AND qty_counted IS NOT NULL
+    </update>
+
+    <delete id="delete">
+        DELETE FROM tb_stocktake WHERE take_seq = #{takeSeq}
+    </delete>
+
+</mapper>

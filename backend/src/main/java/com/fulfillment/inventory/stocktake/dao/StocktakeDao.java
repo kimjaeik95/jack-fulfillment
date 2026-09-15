@@ -1,0 +1,104 @@
+package com.fulfillment.inventory.stocktake.dao;
+
+import com.fulfillment.domain.Stocktake;
+import com.fulfillment.domain.StocktakeLine;
+import com.fulfillment.inventory.stocktake.dto.StocktakeSearch;
+import org.apache.ibatis.annotations.Param;
+
+import java.util.List;
+
+/**
+ * 재고실사 (D섹터 — INV-PG-008, INV-PG-009).
+ */
+public interface StocktakeDao {
+
+	List<Stocktake> selectList(StocktakeSearch search);
+
+	long countList(StocktakeSearch search);
+
+	Stocktake selectBySeq(@Param("takeSeq") Long takeSeq);
+
+	void insert(Stocktake take);
+
+	void update(Stocktake take);
+
+	/**
+	 * 상태 전이.
+	 *
+	 * 조건에 현재 상태를 넣는다. 두 명이 동시에 마감을 누르면 한 쪽은 0 행이
+	 * 바뀌고, 서비스가 그것을 보고 거부한다 — 안 그러면 차이가 두 번 반영된다.
+	 */
+	int updateStatus(@Param("takeSeq") Long takeSeq,
+			@Param("fromStatus") String fromStatus,
+			@Param("toStatus") String toStatus,
+			@Param("closedBy") String closedBy);
+
+	/* ── 대상 ────────────────────────────────────────────────── */
+
+	/**
+	 * 대상 생성 — 창고의 재고를 훑어 라인으로 만든다.
+	 *
+	 * INSERT ... SELECT 한 문장으로 끝낸다. 재고를 애플리케이션으로 끌어와
+	 * 한 줄씩 넣으면 전수실사에서 수만 번 왕복한다.
+	 *
+	 * 재고 0 인 행도 담는다. 장부가 0 인데 실물이 있는 경우를 잡는 것이
+	 * 실사의 목적 중 하나라, 0 이라고 빼면 그 경우를 영영 못 찾는다.
+	 */
+	int insertTargets(@Param("takeSeq") Long takeSeq,
+			@Param("warehouseSeq") Long warehouseSeq,
+			@Param("zoneCode") String zoneCode,
+			@Param("skuKeyword") String skuKeyword);
+
+	/**
+	 * 계획에 없던 줄을 하나 추가한다 (INV-PG-009).
+	 *
+	 * 장부에 없는 물건이라 stock_seq 가 비어 있고 계획수량은 0 이다.
+	 * 마감할 때 재고 행을 새로 만든다.
+	 */
+	void insertExtraLine(@Param("takeSeq") Long takeSeq,
+			@Param("locationSeq") Long locationSeq,
+			@Param("skuSeq") Long skuSeq,
+			@Param("vendorSeq") Long vendorSeq,
+			@Param("stockSeq") Long stockSeq,
+			@Param("qtyBook") int qtyBook);
+
+	/** 이 실사에 이미 같은 자리 · 같은 물건의 줄이 있나 */
+	int countLineByKey(@Param("takeSeq") Long takeSeq,
+			@Param("locationSeq") Long locationSeq,
+			@Param("skuSeq") Long skuSeq);
+
+	/** 방금 넣은 줄의 순번 — 넣자마자 수량을 기록해야 한다 */
+	Long selectLineSeqByKey(@Param("takeSeq") Long takeSeq,
+			@Param("locationSeq") Long locationSeq,
+			@Param("skuSeq") Long skuSeq);
+
+	void deleteLines(@Param("takeSeq") Long takeSeq);
+
+	List<StocktakeLine> selectLines(@Param("takeSeq") Long takeSeq,
+			@Param("diffOnly") String diffOnly,
+			@Param("uncountedOnly") String uncountedOnly);
+
+	StocktakeLine selectLine(@Param("lineSeq") Long lineSeq);
+
+	/**
+	 * 수량 입력.
+	 *
+	 * 1 차인지 재계수인지는 서버가 정한다 (recount). 화면이 판단하면 낡은
+	 * 상태를 들고 있을 때 1 차 수량을 덮어쓴다.
+	 */
+	void updateCount(@Param("lineSeq") Long lineSeq,
+			@Param("qty") Integer qty,
+			@Param("recount") boolean recount,
+			@Param("lineStatus") String lineStatus,
+			@Param("reasonCode") String reasonCode,
+			@Param("remark") String remark,
+			@Param("actor") String actor);
+
+	void updateLineApplied(@Param("lineSeq") Long lineSeq,
+			@Param("historySeq") Long historySeq);
+
+	/** 마감할 때 남은 대상 줄을 확정 처리한다 — 차이가 없어도 '확인했다' 는 기록이다 */
+	void confirmLines(@Param("takeSeq") Long takeSeq);
+
+	void delete(@Param("takeSeq") Long takeSeq);
+}
