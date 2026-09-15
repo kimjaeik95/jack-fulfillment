@@ -137,7 +137,7 @@ public class OrgService {
 		Org saved = mustFind(request.orgId());
 		auditRecorder.recordCreate(actor, TABLE, saved.getOrgId(), saved, AUDIT_FIELDS,
 				defaultReason(request.reason(), "조직 등록"));
-		return new Result(OrgResponse.of(saved), null);
+		return new Result(OrgResponse.of(saved), warnOnNoApprover(saved));
 	}
 
 	/* ------------------------------------------------------------------ */
@@ -174,7 +174,11 @@ public class OrgService {
 		// 실제로 바뀐 컬럼만 전/후로 기록한다 (COM-PG-009)
 		auditRecorder.recordUpdate(actor, TABLE, orgId, before, after, AUDIT_FIELDS,
 				defaultReason(request.reason(), "조직 수정"));
-		return new Result(OrgResponse.of(after), warning);
+		// 승인자 없음도 함께 알린다. 조직을 열어 저장하는 순간이 '이 센터
+		// 설정이 끝났나' 를 되짚는 자리라, 그때 한 번 더 보이는 편이 낫다.
+		// 중지 경고가 이미 있으면 둘 다 보여 준다 — 하나를 고르면 다른 하나를
+		// 영영 못 보게 된다.
+		return new Result(OrgResponse.of(after), joinWarnings(warning, warnOnNoApprover(after)));
 	}
 
 	/* ------------------------------------------------------------------ */
@@ -225,6 +229,44 @@ public class OrgService {
 		orgDao.delete(before.getOrgSeq());
 		auditRecorder.recordDelete(actor, TABLE, orgId, before, AUDIT_FIELDS,
 				defaultReason(reason, "조직 삭제"));
+	}
+
+	/** 경고가 둘이면 한 줄로 잇는다. 하나만 고르면 다른 하나를 영영 못 본다. */
+	private static String joinWarnings(String first, String second) {
+		if (first == null) {
+			return second;
+		}
+		if (second == null) {
+			return first;
+		}
+		return first + " " + second;
+	}
+
+	/**
+	 * 재고 결재를 할 사람이 없는 물류센터를 알린다.
+	 *
+	 * 막지는 않는다. 조직을 만드는 시점에는 소속 인원이 없는 것이 당연하고,
+	 * 계정을 먼저 만들 수도 없다 — 소속시킬 조직이 있어야 계정을 만든다.
+	 *
+	 * 그래도 알리는 이유는 막히는 시점이 한참 뒤이기 때문이다. 센터를 열고,
+	 * 거점을 세우고, 재고를 넣고, 조정을 올린 다음에야 '승인할 사람이
+	 * 없다' 를 만난다. 그때는 왜 막혔는지 짚기 어렵고, 전사 범위인 시스템
+	 * 관리자마저 못 하므로(업무 수량은 관리자도 못 건드린다) 더 헤맨다.
+	 *
+	 * 본사(HQ)는 세지 않는다. 재고 결재는 센터에서 일어나는 일이라 본사에
+	 * 승인자가 없다고 알리면 늘 뜨는 문구가 되고, 늘 뜨면 아무도 안 읽는다.
+	 */
+	private String warnOnNoApprover(Org org) {
+		if (!"DC".equals(org.getOrgType())) {
+			return null;
+		}
+		if (orgDao.countStockApprovers(org.getOrgSeq()) > 0) {
+			return null;
+		}
+		return ("이 센터에서 재고조정 · 실사를 승인할 수 있는 계정이 없습니다. "
+				+ "승인 권한(INV_ADJ_APPROVE · INV_COUNT_APPROVE)을 가진 역할로 계정을 "
+				+ "만들거나, 기존 역할의 조직범위에 %s 을(를) 더하세요. "
+				+ "없으면 조정 · 실사가 결재 단계에서 멈춥니다.").formatted(org.getOrgName());
 	}
 
 	/* ------------------------------------------------------------------ */

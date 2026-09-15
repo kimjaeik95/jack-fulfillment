@@ -232,4 +232,34 @@
         SELECT org_seq FROM ancestors
     </select>
 
+
+    <!--
+      이 조직의 재고 결재를 할 수 있는 사람 수.
+
+      두 갈래를 센다.
+        소속      그 조직에 직접 소속된 사람
+        역할범위  역할 조직범위(tb_role_org_scope)로 그 조직에 닿는 사람
+
+      뒤쪽이 없으면 '옆 센터장이 겸임하는' 실제 운영 형태를 승인자 없음으로
+      잘못 본다. 한 사람이 두 역할로 닿을 수 있어 DISTINCT 로 센다.
+
+      쉬는 계정은 빼고 센다. 잠기거나 휴면인 사람은 결재를 못 하므로
+      있어도 없는 것과 같다.
+    -->
+    <select id="countStockApprovers" resultType="int">
+        SELECT COUNT(DISTINCT u.user_seq)
+          FROM tb_user u
+          JOIN tb_user_role       ur ON ur.user_seq = u.user_seq
+          JOIN tb_role_permission rp ON rp.role_seq = ur.role_seq
+          JOIN tb_permission      p  ON p.perm_seq  = rp.perm_seq
+         WHERE u.use_yn = 'Y'
+           AND u.status = 'ACTIVE'
+           AND rp.action_code = 'A'
+           AND p.perm_id IN ('INV_ADJ_APPROVE', 'INV_COUNT_APPROVE')
+           AND ( u.org_seq = #{orgSeq}
+              OR EXISTS (SELECT 1 FROM tb_role_org_scope s
+                          WHERE s.role_seq = ur.role_seq
+                            AND s.org_seq  = #{orgSeq}) )
+    </select>
+
 </mapper>

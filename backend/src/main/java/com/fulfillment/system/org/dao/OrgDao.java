@@ -55,4 +55,17 @@ public interface OrgDao {
 	 * A→B→A 같은 두 단계 이상의 순환은 여기서 잡아야 한다.
 	 */
 	List<Long> selectAncestorSeqs(@Param("orgSeq") Long orgSeq);
+
+	/**
+	 * 이 조직의 재고 결재를 할 수 있는 사람이 몇 명인가.
+	 *
+	 * 물류센터를 열어 두고 승인자를 안 붙이면 조정 · 실사가 결재 단계에서
+	 * 멈춘다. 그런데 막히는 시점은 한참 뒤(조정을 올린 뒤)라, 그때는 왜
+	 * 막혔는지 짚기 어렵다. 조직을 만들 때 미리 알린다.
+	 *
+	 * 두 갈래를 다 센다 — 그 조직에 소속된 사람과, 역할 조직범위로 그 조직에
+	 * 닿는 사람. 뒤쪽이 없으면 '옆 센터장이 겸임하는' 실제 운영 형태를
+	 * 승인자 없음으로 잘못 보게 된다.
+	 */
+	int countStockApprovers(@Param("orgSeq") Long orgSeq);
 }
