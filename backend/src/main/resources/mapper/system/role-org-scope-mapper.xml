@@ -1,0 +1,134 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.fulfillment.system.roleorgscope.dao.RoleOrgScopeDao">
+
+    <resultMap id="scopeMap" type="com.fulfillment.domain.RoleOrgScope">
+        <result property="roleSeq"        column="role_seq"/>
+        <result property="orgSeq"         column="org_seq"/>
+        <result property="includeChildYn" column="include_child_yn"/>
+        <result property="createdBy"      column="created_by"/>
+        <result property="createdAt"      column="created_at"/>
+        <result property="roleId"         column="role_id"/>
+        <result property="orgId"          column="org_id"/>
+        <result property="orgName"        column="org_name"/>
+        <result property="orgType"        column="org_type"/>
+        <result property="parentOrgName"  column="parent_org_name"/>
+        <result property="orgUseYn"       column="org_use_yn"/>
+    </resultMap>
+
+    <!--
+      조직명 · 유형 · 상위를 함께 읽는다. 조직코드(DC002)만으로는 어디인지
+      알 수 없고, 화면에서 코드를 이름으로 바꾸려고 조직 목록을 따로 받아
+      맞춰 보게 하면 그 사이에 조직이 바뀌면 어긋난다.
+
+      org_use_yn 을 싣는 이유는, 지정한 뒤에 조직이 사용중지될 수 있어서다.
+      그 줄은 남아 있지만 실제로는 열리지 않으므로 화면이 표시해야 한다.
+    -->
+    <select id="selectByRoleSeq" resultMap="scopeMap">
+        SELECT s.role_seq, s.org_seq, s.include_child_yn, s.created_by, s.created_at,
+               r.role_id      AS role_id,
+               o.org_id       AS org_id,
+               o.org_name     AS org_name,
+               o.org_type     AS org_type,
+               o.use_yn       AS org_use_yn,
+               po.org_name    AS parent_org_name
+          FROM tb_role_org_scope s
+          JOIN tb_role r  ON r.role_seq = s.role_seq
+          JOIN tb_org  o  ON o.org_seq  = s.org_seq
+          LEFT JOIN tb_org po ON po.org_seq = o.parent_seq
+         WHERE s.role_seq = #{roleSeq}
+         ORDER BY o.sort_order, o.org_id
+    </select>
+
+    <delete id="deleteByRoleSeq">
+        DELETE FROM tb_role_org_scope WHERE role_seq = #{roleSeq}
+    </delete>
+
+    <insert id="insertScopes">
+        INSERT INTO tb_role_org_scope (role_seq, org_seq, include_child_yn, created_by)
+        <foreach collection="rows" item="row" separator=" UNION ALL ">
+            SELECT #{roleSeq}, #{row.orgSeq}, #{row.includeChildYn}, #{createdBy}
+        </foreach>
+    </insert>
+
+    <!--
+      지정한 조직을 한 번에 읽는다. 사용중지된 것도 함께 읽어야
+      '없다' 와 '쓸 수 없다' 를 구분해 말해 줄 수 있다.
+    -->
+    <select id="selectOrgsByIds" resultType="com.fulfillment.domain.Org">
+        SELECT org_seq, org_id, org_name, org_type, use_yn
+          FROM tb_org
+         WHERE org_id IN
+        <foreach collection="orgIds" item="orgId" open="(" separator="," close=")">
+            #{orgId}
+        </foreach>
+    </select>
+
+    <select id="countUsers" resultType="int">
+        SELECT COUNT(*) FROM tb_user_role WHERE role_seq = #{roleSeq}
+    </select>
+
+    <!--
+      이 역할에서 실제로 조직범위를 쓰는 권한의 수.
+
+      유효 데이터범위는 COALESCE(rp.data_scope, r.default_data_scope) 다.
+      역할 기본값이 전사여도 개별 권한이 소속 조직으로 덮여 있을 수 있어,
+      기본값만 보고는 '조직범위가 쓰이는지' 를 말할 수 없다.
+
+      미사용 역할 · 권한은 유효권한 계산에서 빠지므로 여기서도 뺀다.
+    -->
+    <select id="countOwnOrgGrants" resultType="int">
+        SELECT COUNT(*)
+          FROM tb_role_permission rp
+          JOIN tb_role r       ON r.role_seq = rp.role_seq AND r.use_yn = 'Y'
+          JOIN tb_permission p ON p.perm_seq = rp.perm_seq AND p.use_yn = 'Y'
+         WHERE rp.role_seq = #{roleSeq}
+           AND COALESCE(rp.data_scope, r.default_data_scope) = 'OWN_ORG'
+    </select>
+
+    <!--
+      다른 지정 조직의 하위에 있는 조직.
+
+      상위를 '하위 포함' 으로 넣고 그 아래를 또 넣으면 두 번째 줄은 아무것도
+      더 열지 않는다. 재귀로 조상을 거슬러 올라가 부모 후보에 닿는지 본다 —
+      계층 깊이를 코드에 박아 두면 계층이 하나 늘 때 조용히 빠진다.
+
+      자기 자신은 제외한다. 안 그러면 모든 줄이 자기 자신 때문에 중복으로
+      잡힌다.
+    -->
+    <select id="selectRedundantOrgIds" resultType="string">
+        WITH RECURSIVE target AS (
+            SELECT org_seq, org_id, parent_seq
+              FROM tb_org
+             WHERE org_id IN
+            <foreach collection="orgIds" item="orgId" open="(" separator="," close=")">
+                #{orgId}
+            </foreach>
+        ),
+        parents AS (
+            SELECT org_seq
+              FROM tb_org
+             WHERE org_id IN
+            <foreach collection="parentOrgIds" item="orgId" open="(" separator="," close=")">
+                #{orgId}
+            </foreach>
+        ),
+        climb AS (
+            -- 시작은 각 지정 조직의 부모부터. 자기 자신은 세지 않는다.
+            SELECT t.org_id, t.parent_seq AS ancestor_seq
+              FROM target t
+             WHERE t.parent_seq IS NOT NULL
+            UNION ALL
+            SELECT c.org_id, o.parent_seq
+              FROM climb c
+              JOIN tb_org o ON o.org_seq = c.ancestor_seq
+             WHERE o.parent_seq IS NOT NULL
+        )
+        SELECT DISTINCT c.org_id
+          FROM climb c
+          JOIN parents p ON p.org_seq = c.ancestor_seq
+         ORDER BY c.org_id
+    </select>
+</mapper>

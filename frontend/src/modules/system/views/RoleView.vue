@@ -12,6 +12,8 @@ import { computed, nextTick, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { codeOptions } from '@/api/codes.js'
 import * as roleApi from '@/api/role.js'
+import * as orgApi from '@/api/org.js'
+import * as orgScopeApi from '@/api/roleOrgScope.js'
 import { useRoleStore } from '@/stores/role.js'
 import { useAdminStore } from '@/stores/admin.js'
 import * as exportApi from '@/api/export.js'
@@ -195,6 +197,112 @@ const readDenyReason = computed(() => session.denyReason('SYS_ROLE', 'R'))
 function goMapping(row) {
   router.push({ name: 'role-permissions', query: { roleId: row.roleId } })
 }
+
+/* ------------------------------------------------------------------ */
+/* 조직범위 — 겸직 (COM-PG-004)                                        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 데이터 범위가 '소속 조직' 일 때 기본은 그 사람이 속한 조직과 그 하위다.
+ * 대부분은 그것으로 맞는다 — 이천 담당자는 이천만 본다.
+ *
+ * 맞지 않는 경우가 겸직이다. 한 사람이 이천과 김해를 함께 맡으면 소속은
+ * 하나인데 봐야 할 곳은 둘이다. 그 둘째 조직을 여기서 연다.
+ *
+ * 권한 매핑처럼 별도 화면으로 빼지 않았다. 매핑은 권한 수십 개짜리
+ * 매트릭스지만 조직범위는 보통 한두 줄이라, 화면을 옮겨 다니게 하는
+ * 비용이 더 크다.
+ */
+const scopeOpen = ref(false)
+const scopeRole = ref(null)
+const scopeInfo = ref(null)
+const scopeRows = ref([])
+const scopeReason = ref('')
+const scopeError = ref('')
+const scopeBusy = ref(false)
+const orgs = ref([])
+
+async function openScopes(row) {
+  scopeRole.value = row
+  scopeError.value = ''
+  scopeReason.value = ''
+  scopeOpen.value = true
+  scopeInfo.value = null
+  scopeRows.value = []
+  try {
+    // 사용중인 조직만 고를 수 있다. 사용중지된 곳은 지정해도 열리지 않는다.
+    if (!orgs.value.length) {
+      const data = await orgApi.list({ useYn: 'Y', size: 0 })
+      orgs.value = data.rows
+    }
+    const info = await orgScopeApi.fetchScopes(row.roleId)
+    scopeInfo.value = info
+    scopeRows.value = info.scopes.map((s) => ({
+      orgId: s.orgId,
+      includeChildYn: s.includeChildYn,
+    }))
+  } catch (e) {
+    scopeError.value = e.message
+  }
+}
+
+const scopeOrgOptions = computed(() =>
+  orgs.value.map((o) => ({ value: o.orgId, label: `${o.orgName} (${o.orgId})` })),
+)
+
+/** 이미 담은 조직은 다시 못 고르게 한다 — 같은 조직 두 줄은 저장이 거부된다 */
+const scopeAvailable = computed(() => {
+  const taken = new Set(scopeRows.value.map((r) => r.orgId))
+  return scopeOrgOptions.value.filter((o) => !taken.has(o.value))
+})
+
+function addScopeRow() {
+  const first = scopeAvailable.value[0]
+  if (!first) return
+  scopeRows.value = [...scopeRows.value, { orgId: first.value, includeChildYn: 'Y' }]
+}
+
+function removeScopeRow(i) {
+  scopeRows.value = scopeRows.value.filter((_, idx) => idx !== i)
+}
+
+const orgNameOf = (orgId) => orgs.value.find((o) => o.orgId === orgId)?.orgName ?? orgId
+
+/** 한 조직을 두 줄에 담았나 — 서버도 거부하지만 저장 전에 보여 준다 */
+const scopeDuplicated = computed(() => {
+  const seen = new Set()
+  const dup = new Set()
+  for (const r of scopeRows.value) {
+    if (seen.has(r.orgId)) dup.add(r.orgId)
+    seen.add(r.orgId)
+  }
+  return [...dup]
+})
+
+const scopeValid = computed(() => !scopeDuplicated.value.length && !scopeBusy.value)
+
+async function submitScopes() {
+  scopeBusy.value = true
+  scopeError.value = ''
+  try {
+    const { scope, warning } = await orgScopeApi.save(
+      scopeRole.value.roleId,
+      scopeRows.value.map((r) => ({ orgId: r.orgId, includeChildYn: r.includeChildYn })),
+      scopeReason.value || null,
+    )
+    toast.success(
+      scope.scopes.length
+        ? `${scope.roleName} — 조직 ${scope.scopes.length} 곳을 열었습니다.`
+        : `${scope.roleName} 의 겸직 지정을 모두 해제했습니다.`,
+    )
+    if (warning) toast.warn(warning)
+    scopeOpen.value = false
+  } catch (e) {
+    scopeError.value = e.message
+  } finally {
+    scopeBusy.value = false
+  }
+}
 /* ------------------------------------------------------------------ */
 /* CSV 다운로드 (COM-PG-011)                                           */
 /* ------------------------------------------------------------------ */
@@ -347,6 +455,14 @@ async function downloadAs(format) {
         <template #cell-_act="{ row }">
           <div class="btn-row" style="justify-content: flex-end">
             <button class="btn btn-sm" title="권한 매핑 화면으로 이동" @click="goMapping(row)">권한</button>
+            <button
+              class="btn btn-sm"
+              :disabled="!canUpdate"
+              :title="updateDenyReason ?? '겸직으로 열어 줄 조직 지정'"
+              @click="openScopes(row)"
+            >
+              조직범위
+            </button>
             <button class="btn btn-sm" :disabled="!canUpdate" :title="updateDenyReason ?? '수정'" @click="openEdit(row)">
               수정
             </button>
@@ -500,5 +616,172 @@ async function downloadAs(format) {
       @cancel="askDelete = null"
       @confirm="doDelete()"
     />
+
+    <!-- ── 조직범위 (겸직) ──────────────────────────────────── -->
+    <ModalDialog
+      v-if="scopeOpen"
+      title="조직범위"
+      :subtitle="scopeRole ? `${scopeRole.roleName} (${scopeRole.roleId})` : ''"
+      size="wide"
+      @close="scopeOpen = false"
+    >
+      <div v-if="scopeError" class="alert alert-danger mb-2">
+        <span class="alert-icon">⛔</span>
+        <span style="white-space: pre-line">{{ scopeError }}</span>
+      </div>
+
+      <p class="small">
+        이 역할을 가진 사람은 <strong>자기 소속 조직과 그 하위</strong>를 기본으로 봅니다.
+        여기서 지정한 조직은 <strong>거기에 더해</strong> 열립니다 — 한 사람이 두 센터를
+        겸해 맡는 경우에 씁니다. 비워 두면 소속 조직만 봅니다.
+      </p>
+
+      <!-- 지정해도 안 열리는 경우를 저장 전에 말해 준다 -->
+      <div v-if="scopeInfo && scopeInfo.ownOrgGrantCount === 0" class="alert alert-warn mb-2 mt-2">
+        <span class="alert-icon">⚠</span>
+        <span>
+          이 역할에는 '소속 조직' 범위로 동작하는 권한이 없어 <strong>지정해도 열리지
+          않습니다.</strong> 역할의 데이터 범위가
+          <strong>{{ DATA_SCOPES.find((s) => s.value === scopeInfo.defaultDataScope)?.label
+            ?? scopeInfo.defaultDataScope }}</strong>
+          입니다 — 겸직을 열려면 '소속 조직' 이어야 합니다.
+        </span>
+      </div>
+      <div v-else-if="scopeInfo" class="detail-head mt-2">
+        <span>
+          데이터 범위
+          <strong>{{ DATA_SCOPES.find((s) => s.value === scopeInfo.defaultDataScope)?.label
+            ?? scopeInfo.defaultDataScope }}</strong>
+        </span>
+        <span>
+          이 역할 사용자
+          <strong :class="scopeInfo.userCount ? 'warn' : 'dim'">{{ scopeInfo.userCount }}</strong> 명
+        </span>
+      </div>
+
+      <div class="lines-head">
+        <strong>열어 줄 조직 {{ scopeRows.length }} 곳</strong>
+        <button
+          class="btn btn-sm btn-primary"
+          :disabled="!scopeAvailable.length"
+          :title="scopeAvailable.length ? '조직 추가' : '더 담을 조직이 없습니다'"
+          @click="addScopeRow()"
+        >
+          + 조직 담기
+        </button>
+      </div>
+
+      <div v-if="!scopeRows.length" class="empty-note">
+        지정한 조직이 없습니다. 이 역할을 가진 사람은 자기 소속 조직만 봅니다.
+      </div>
+
+      <table v-else class="table lines">
+        <thead>
+          <tr>
+            <th style="width: 260px">조직</th>
+            <th style="width: 150px">하위 포함</th>
+            <th>설명</th>
+            <th style="width: 40px"></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="(r, i) in scopeRows" :key="`${r.orgId}-${i}`">
+            <td>
+              <select v-model="r.orgId" class="select">
+                <option v-for="o in scopeOrgOptions" :key="o.value" :value="o.value">
+                  {{ o.label }}
+                </option>
+              </select>
+            </td>
+            <td>
+              <select v-model="r.includeChildYn" class="select">
+                <option value="Y">하위까지 포함</option>
+                <option value="N">이 조직만</option>
+              </select>
+            </td>
+            <!-- 하위 포함이 기본인 이유를 화면에서 한 번 더 말해 준다 -->
+            <td class="small dim">
+              <template v-if="r.includeChildYn === 'Y'">
+                {{ orgNameOf(r.orgId) }} 아래 조직이 나중에 생겨도 자동으로 포함됩니다.
+              </template>
+              <template v-else>
+                {{ orgNameOf(r.orgId) }} 만 열립니다. 아래 조직은 따로 지정해야 합니다.
+              </template>
+            </td>
+            <td><button class="btn btn-sm btn-danger" @click="removeScopeRow(i)">×</button></td>
+          </tr>
+          <tr v-if="scopeDuplicated.length">
+            <td colspan="4" class="small danger">
+              같은 조직이 두 번 있습니다 ({{ scopeDuplicated.join(', ') }}) — 하위 포함 여부가
+              둘이면 어느 쪽이 맞는지 정할 수 없습니다.
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="form-grid mt-2">
+        <FormField
+          v-model="scopeReason"
+          label="변경 사유"
+          placeholder="예: 김해센터 겸임 발령"
+          help="감사로그에 남습니다. 권한을 넓히는 변경이라 나중에 반드시 '왜 줬나' 를 묻게 됩니다."
+        />
+      </div>
+
+      <template #footer>
+        <span class="left small dim">
+          저장하면 이 역할을 가진 사람이 <strong>다음 로그인부터</strong> 적용됩니다.
+        </span>
+        <button class="btn" :disabled="scopeBusy" @click="scopeOpen = false">닫기</button>
+        <button class="btn btn-primary" :disabled="!scopeValid" @click="submitScopes()">
+          <span v-if="scopeBusy" class="spinner"></span>
+          저장
+        </button>
+      </template>
+    </ModalDialog>
   </div>
 </template>
+
+<style scoped>
+/* 조직범위 모달 — 다른 줄 편집 화면(구매오더 · 구매요청)과 같은 모양으로 맞춘다 */
+.lines-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 14px 0 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line, #e5e7eb);
+}
+.lines th,
+.lines td {
+  padding: 6px 8px;
+  vertical-align: middle;
+}
+.lines .select {
+  min-height: 28px;
+  padding: 3px 6px;
+  font-size: 13px;
+  width: 100%;
+}
+.empty-note {
+  padding: 24px 16px;
+  text-align: center;
+  color: var(--fg-dim, #6b7280);
+  font-size: 13px;
+}
+.detail-head {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  align-items: center;
+  font-size: 13px;
+  margin-bottom: 6px;
+}
+.danger {
+  color: var(--c-red, #dc2626);
+}
+.warn {
+  color: var(--c-amber, #b45309);
+}
+</style>
