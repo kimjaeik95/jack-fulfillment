@@ -4,6 +4,7 @@ import com.fulfillment.common.exception.BusinessException;
 import com.fulfillment.common.exception.ErrorCode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -120,6 +121,67 @@ public class GlobalExceptionHandler {
 						? "%s 메서드는 이 경로에서 지원하지 않습니다.".formatted(e.getMethod())
 						: "%s 메서드는 이 경로에서 지원하지 않습니다. 사용 가능: %s"
 								.formatted(e.getMethod(), allowedText)));
+	}
+
+	/**
+	 * DB 제약 위반 — 중복 · 참조 · CHECK.
+	 *
+	 * 서비스가 미리 보고 막는 것이 원칙이지만, 두 요청이 <b>동시에</b> 들어오면
+	 * 둘 다 검사를 통과한 뒤 DB 에서 한쪽이 걸린다. 서비스의 검사는 읽고
+	 * 쓰는 사이에 틈이 있고, DB 제약에는 그 틈이 없기 때문이다.
+	 *
+	 * 이 핸들러가 없으면 그런 요청이 500 "처리 중 오류가 발생했습니다" 로
+	 * 나간다. 사용자는 무엇이 잘못됐는지 알 수 없고, 정작 <b>다시 누르면
+	 * 되는</b> 상황이라 더 나쁘다.
+	 *
+	 * 무엇이 걸렸는지는 SQLState 로 가른다. 제약 이름으로 가르면 제약을
+	 * 추가할 때마다 여기에 줄이 늘고, 늘리는 것을 잊으면 조용히 500 으로
+	 * 돌아간다.
+	 *
+	 * 어느 경우든 상세(SQL · 테이블명 · 제약명)는 응답에 싣지 않는다.
+	 * 스키마를 그대로 알려 주는 셈이 되기 때문이다 — 로그에는 남긴다.
+	 */
+	@ExceptionHandler(DataIntegrityViolationException.class)
+	public ResponseEntity<ApiResponse<Void>> handleDataIntegrity(
+			DataIntegrityViolationException e) {
+		log.warn("DB 제약 위반", e);
+
+		ErrorCode code = ErrorCode.DUPLICATE;
+		String message = switch (sqlStateOf(e)) {
+			// 23505 unique_violation — 같은 값이 이미 있다
+			case "23505" -> "이미 있는 값이라 저장하지 못했습니다. 같은 값이 동시에 "
+					+ "들어왔을 수 있으니 화면을 새로 고친 뒤 다시 시도하세요.";
+			// 23503 foreign_key_violation — 가리키는 대상이 없거나, 남이 쓰고 있다
+			case "23503" -> "다른 데이터와 연결되어 있어 처리하지 못했습니다. 가리키는 "
+					+ "대상이 있는지, 이 데이터를 쓰는 곳이 없는지 확인하세요.";
+			// 23514 check_violation — 값 자체가 규칙을 벗어났다.
+			// 재고 수량이 음수가 되는 경우가 여기로 온다 (ck_stock_available).
+			case "23514" -> "저장할 수 없는 값입니다. 그 사이에 데이터가 바뀌었을 수 "
+					+ "있으니 화면을 새로 고쳐 현재 값을 확인하세요.";
+			// 23502 not_null_violation — 필수값이 비었다. 화면이 안 보낸 것이다.
+			case "23502" -> "필수값이 비어 있어 저장하지 못했습니다.";
+			default -> "데이터 규칙에 맞지 않아 처리하지 못했습니다.";
+		};
+		return ResponseEntity.status(code.getStatus())
+				.body(ApiResponse.fail(code.name(), message));
+	}
+
+	/**
+	 * 원인 사슬을 타고 내려가 SQLState 를 찾는다.
+	 *
+	 * Spring 이 감싼 예외라 맨 위에는 SQLState 가 없다. 바로 아래가 아닐
+	 * 수도 있어(MyBatis 가 한 겹 더 감싼다) 끝까지 내려간다.
+	 */
+	private static String sqlStateOf(Throwable e) {
+		for (Throwable t = e; t != null; t = t.getCause()) {
+			if (t instanceof java.sql.SQLException sql && sql.getSQLState() != null) {
+				return sql.getSQLState();
+			}
+			if (t.getCause() == t) {
+				break;
+			}
+		}
+		return "";
 	}
 
 	/** 그 외 — 상세는 로그에만 남기고 응답에는 일반 메시지만 */

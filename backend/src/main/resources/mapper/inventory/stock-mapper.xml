@@ -467,12 +467,25 @@
         </choose>
     </select>
 
-    <insert id="insert" parameterType="com.fulfillment.domain.Stock"
-            useGeneratedKeys="true" keyProperty="stockSeq" keyColumn="stock_seq">
+    <!--
+      재고 행 만들기.
+
+      ON CONFLICT DO NOTHING 으로 넣는다. 읽고 나서 넣는 사이에 남이 먼저
+      넣었으면 아무 일도 하지 않고, 부르는 쪽이 다시 읽어 그것을 쓴다.
+
+      대상 인덱스를 적지 않는다. 거래처 유무에 따라 걸리는 인덱스가 둘로
+      나뉘어 있어(ux_stock_key_vendor · ux_stock_key_novendor) 하나를 지목할
+      수 없다. 어느 쪽에 걸리든 하려는 일은 같다 — 넣지 말고 넘어간다.
+
+      순번을 돌려받지 않는다. 건너뛴 경우에는 돌려줄 것이 없어서,
+      useGeneratedKeys 를 쓰면 그때 빈 결과로 터진다.
+    -->
+    <insert id="insertIfAbsent" parameterType="com.fulfillment.domain.Stock">
         INSERT INTO tb_stock (location_seq, sku_seq, vendor_seq,
                               qty_on_hand, qty_allocated, qty_unsellable, created_by)
         VALUES (#{locationSeq}, #{skuSeq}, #{vendorSeq},
                 #{qtyOnHand}, #{qtyAllocated}, #{qtyUnsellable}, #{createdBy})
+        ON CONFLICT DO NOTHING
     </insert>
 
     <!--

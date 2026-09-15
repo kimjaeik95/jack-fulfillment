@@ -71,8 +71,14 @@ public interface StockDao {
 			@Param("skuSeq") Long skuSeq,
 			@Param("vendorSeq") Long vendorSeq);
 
-	/** 수량 0 인 재고 행을 만든다. 수량은 이력과 함께 올라간다. */
-	void insert(Stock stock);
+	/**
+	 * 수량 0 인 재고 행을 만든다. 수량은 이력과 함께 올라간다.
+	 *
+	 * 같은 조합이 이미 있으면 아무 일도 하지 않는다. 읽고 나서 넣는 사이에
+	 * 남이 먼저 넣었을 수 있는데, 그때 유니크 위반으로 실패하는 대신 조용히
+	 * 넘기고 부르는 쪽이 다시 읽게 한다.
+	 */
+	void insertIfAbsent(Stock stock);
 
 	/**
 	 * 한 수량항목을 지정한 값으로 바꾼다.

@@ -155,6 +155,14 @@ public class StockLedger {
 	 *
 	 * 0 으로 만들어 두고 수량 변경은 apply 가 한다. 처음부터 수량을 넣어
 	 * 만들면 그 수량에 대한 이력이 없는 재고가 생긴다.
+	 *
+	 * 읽고 나서 넣는 사이에 틈이 있다. 두 사람이 같은 빈에 같은 물건을
+	 * <b>동시에</b> 옮기면 둘 다 '없다' 를 보고 둘 다 넣으려 하고, 유니크
+	 * 인덱스에 걸린 쪽이 실패한다. 다시 누르면 되는 상황인데 오류로 끝난다.
+	 *
+	 * 그래서 넣을 때 ON CONFLICT DO NOTHING 으로 넣고 다시 읽는다. 내가
+	 * 넣었든 그 사이 남이 넣었든, 다시 읽으면 거기 있다. 전표번호 채번
+	 * (tb_doc_number)에서 쓴 것과 같은 방식이다.
 	 */
 	@Transactional(propagation = Propagation.MANDATORY)
 	public Stock findOrCreate(LoginUser actor, Long locationSeq, Long skuSeq, Long vendorSeq) {
@@ -162,7 +170,7 @@ public class StockLedger {
 		if (found != null) {
 			return found;
 		}
-		Stock created = Stock.builder()
+		stockDao.insertIfAbsent(Stock.builder()
 				.locationSeq(locationSeq)
 				.skuSeq(skuSeq)
 				.vendorSeq(vendorSeq)
@@ -170,9 +178,16 @@ public class StockLedger {
 				.qtyAllocated(0)
 				.qtyUnsellable(0)
 				.createdBy(actorId(actor))
-				.build();
-		stockDao.insert(created);
-		return stockDao.selectBySeq(created.getStockSeq());
+				.build());
+
+		// 넣었으면 그것이, 남이 먼저 넣었으면 남의 것이 나온다. 어느 쪽이든
+		// 수량은 0 이고 이력도 없으니 이어지는 apply 가 똑같이 동작한다.
+		Stock after = stockDao.selectByKey(locationSeq, skuSeq, vendorSeq);
+		if (after == null) {
+			throw new BusinessException(ErrorCode.INTERNAL_ERROR,
+					"재고 행을 만들지 못했습니다. (빈 %s · SKU %s)".formatted(locationSeq, skuSeq));
+		}
+		return after;
 	}
 
 	/* ------------------------------------------------------------------ */
