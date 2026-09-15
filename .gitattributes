@@ -5,6 +5,17 @@
 # 전체 줄이 변경된 것처럼 보여 diff 와 blame 이 쓸모없어진다.
 * text=auto
 
+# 마이그레이션(.sql)은 작업 트리에서도 LF 를 강제한다.
+#
+# Flyway 는 파일 내용으로 체크섬을 내고 그 값을 flyway_schema_history 에
+# 남긴다. 체크섬은 줄바꿈까지 포함하므로, 같은 SQL 이라도 LF 가 CRLF 로
+# 바뀌면 값이 달라지고 다음 기동에서 'Migration checksum mismatch' 로
+# 애플리케이션이 아예 뜨지 않는다.
+#
+# Windows 에서 git checkout 을 한 번만 해도 이 일이 일어난다. 커밋별 빌드를
+# 확인하느라 브랜치를 오가다 V11 이 CRLF 가 되어 실제로 겪었다.
+*.sql    text eol=lf
+
 # 텍스트로 확실히 취급할 것
 *.java   text
 *.js     text
