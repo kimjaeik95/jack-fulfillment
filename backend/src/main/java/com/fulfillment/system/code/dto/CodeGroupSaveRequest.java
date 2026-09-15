@@ -25,6 +25,15 @@ public record CodeGroupSaveRequest(
 
 		@Size(max = 300) String description,
 
+		/**
+		 * 누가 관리하는 코드인가 — SYSTEM · REASON (V8).
+		 *
+		 * 화면이 자기 구분을 채워 보낸다. 비우면 SYSTEM 으로 본다 — 느슨한
+		 * 쪽(REASON)으로 기본값을 두면 사유코드 권한만 가진 사람이 시스템
+		 * 코드를 만들 수 있게 된다.
+		 */
+		String groupKind,
+
 		String useYn,
 
 		/** 변경 사유 — 감사로그에 기록된다 */
@@ -35,6 +44,7 @@ public record CodeGroupSaveRequest(
 		codeGroupId = Texts.trimToNull(codeGroupId);
 		codeGroupName = Texts.trimToNull(codeGroupName);
 		description = Texts.trimToNull(description);
+		groupKind = Texts.trimToNull(groupKind);
 		useYn = Texts.trimToNull(useYn);
 		reason = Texts.trimToNull(reason);
 	}
@@ -68,10 +78,16 @@ public record CodeGroupSaveRequest(
 		return CodeGroup.builder()
 				.codeGroupName(codeGroupName)
 				.description(description)
+				.groupKind(groupKindOrDefault())
 				.useYn(useYnOrDefault());
 	}
 
 	public String useYnOrDefault() {
 		return useYn == null ? "Y" : useYn;
+	}
+
+	/** 비우면 SYSTEM — 더 좁은 쪽이 기본이다 */
+	public String groupKindOrDefault() {
+		return groupKind == null ? "SYSTEM" : groupKind;
 	}
 }

@@ -23,6 +23,7 @@
         <result property="codeId"       column="code_id"/>
         <result property="codeName"     column="code_name"/>
         <result property="description"  column="description"/>
+        <result property="groupKind"    column="group_kind"/>
         <result property="attr1"        column="attr1"/>
         <result property="attr2"        column="attr2"/>
         <result property="sortOrder"    column="sort_order"/>
@@ -35,7 +36,8 @@
     </resultMap>
 
     <sql id="groupColumns">
-        g.code_group_seq, g.code_group_id, g.code_group_name, g.description, g.use_yn,
+        g.code_group_seq, g.code_group_id, g.code_group_name, g.description,
+        g.group_kind, g.use_yn,
         g.created_by, g.created_at, g.updated_by, g.updated_at,
         (SELECT COUNT(*) FROM tb_code c WHERE c.code_group_seq = g.code_group_seq) AS code_count
     </sql>
@@ -100,6 +102,9 @@
                    OR LOWER(g.code_group_name) LIKE '%' || LOWER(#{keyword}) || '%'
                    OR LOWER(COALESCE(g.description, '')) LIKE '%' || LOWER(#{keyword}) || '%' )
             </if>
+            <if test="groupKind != null and groupKind != ''">
+                AND g.group_kind = #{groupKind}
+            </if>
         </where>
          ORDER BY g.code_group_id
     </select>
@@ -116,8 +121,8 @@
 
     <insert id="insertGroup" parameterType="com.fulfillment.domain.CodeGroup"
             useGeneratedKeys="true" keyProperty="codeGroupSeq" keyColumn="code_group_seq">
-        INSERT INTO tb_code_group (code_group_id, code_group_name, description, use_yn, created_by)
-        VALUES (#{codeGroupId}, #{codeGroupName}, #{description}, #{useYn}, #{createdBy})
+        INSERT INTO tb_code_group (code_group_id, code_group_name, description, group_kind, use_yn, created_by)
+        VALUES (#{codeGroupId}, #{codeGroupName}, #{description}, #{groupKind}, #{useYn}, #{createdBy})
     </insert>
 
     <!-- 그룹ID 는 바꾸지 않는다. 화면·서버 코드가 문자열로 참조한다. -->
@@ -125,6 +130,7 @@
         UPDATE tb_code_group
            SET code_group_name = #{codeGroupName},
                description     = #{description},
+               group_kind      = #{groupKind},
                use_yn          = #{useYn},
                updated_by      = #{updatedBy},
                updated_at      = CURRENT_TIMESTAMP

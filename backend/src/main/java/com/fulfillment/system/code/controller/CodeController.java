@@ -67,7 +67,11 @@ public class CodeController {
 	public ApiResponse<List<CodeGroupResponse>> groups(
 			@RequestParam(required = false) String keyword,
 			@RequestParam(required = false) String useYn) {
-		return ApiResponse.ok(codeService.searchGroups(CurrentUser.require(), keyword, useYn));
+		// 사유코드는 별도 화면(MST-PG-014)이 다룬다. 이 화면에는 시스템 코드만
+		// 보인다 — DATA_SCOPE · PERM_ACTION 처럼 건드리면 권한 판정이 깨지는
+		// 것들이라 다루는 사람이 다르다.
+		return ApiResponse.ok(codeService.searchGroups(CurrentUser.require(), keyword, useYn,
+				CodeService.KIND_SYSTEM));
 	}
 
 	@GetMapping("/code-groups/{codeGroupId}")

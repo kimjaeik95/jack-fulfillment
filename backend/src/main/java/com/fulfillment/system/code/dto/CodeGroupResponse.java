@@ -15,6 +15,7 @@ public record CodeGroupResponse(
 		String codeGroupId,
 		String codeGroupName,
 		String description,
+		String groupKind,
 		String useYn,
 		Integer codeCount,
 		List<CodeResponse> codes,
@@ -26,7 +27,7 @@ public record CodeGroupResponse(
 
 	public static CodeGroupResponse of(CodeGroup g, List<CodeResponse> codes) {
 		return new CodeGroupResponse(
-				g.getCodeGroupId(), g.getCodeGroupName(), g.getDescription(), g.getUseYn(),
+				g.getCodeGroupId(), g.getCodeGroupName(), g.getDescription(), g.getGroupKind(), g.getUseYn(),
 				g.getCodeCount(), codes,
 				g.getCreatedBy(), g.getCreatedAt(), g.getUpdatedBy(), g.getUpdatedAt());
 	}

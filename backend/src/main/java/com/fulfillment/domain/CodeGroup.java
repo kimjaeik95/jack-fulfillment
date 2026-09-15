@@ -29,6 +29,15 @@ public class CodeGroup {
 	private String codeGroupId;
 	private String codeGroupName;
 	private String description;
+	/**
+	 * 누가 관리하는 코드인가 (V8).
+	 *
+	 *   SYSTEM  시스템이 동작하는 데 쓰는 값. 바꾸면 권한 판정이 깨진다.
+	 *   REASON  업무가 예외를 설명하는 값. 현장이 늘린다.
+	 *
+	 * 구조가 같아 테이블은 나누지 않고 이 값으로 화면과 권한을 가른다.
+	 */
+	private String groupKind;
 	private String useYn;
 
 	private String createdBy;

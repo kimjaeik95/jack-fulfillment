@@ -196,7 +196,8 @@ public class ExportService {
 		int count = 0;
 		// 목록 조회는 그룹만 준다. 코드값은 그룹별로 한 번 더 읽어야 한다 —
 		// 코드그룹은 열 개 남짓이라 이 정도 조회는 문제가 되지 않는다.
-		for (CodeGroupResponse summary : codeService.searchGroups(actor, keyword, useYn)) {
+		for (CodeGroupResponse summary : codeService.searchGroups(actor, keyword, useYn,
+				CodeService.KIND_SYSTEM)) {
 			CodeGroupResponse g = codeService.getGroup(actor, summary.codeGroupId());
 			for (CodeResponse c : g.codes()) {
 				csv.row(g.codeGroupId(), g.codeGroupName(), c.codeId(), c.codeName(),

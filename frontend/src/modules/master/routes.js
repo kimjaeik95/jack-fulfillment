@@ -9,6 +9,9 @@
  * 판매채널과 채널 SKU 매핑은 SKU 뒤에 온다. 매핑이 SKU 를 가리키므로
  * SKU 가 먼저 있어야 한다.
  *
+ * 거래처(공급처 · 고객)와 사유코드가 마지막이다. 앞의 것들과 달리 서로
+ * 참조하지 않고, 구매(5차) · 판매오더(11차) · 각 예외 처리가 쓴다.
+ *
  * 회사 · 조직은 system 모듈에 둔다. 사용자 소속과 데이터 범위의 기준이라
  * 인증 · 권한과 함께 읽는 편이 자연스럽다.
  *
@@ -78,6 +81,26 @@ export const routes = [
     name: 'channel-skus',
     component: () => import('./views/ChannelSkuView.vue'),
     meta: { title: '채널 SKU 매핑', perm: 'MST_CHANNEL_SKU' },
+  },
+  {
+    path: '/suppliers',
+    name: 'suppliers',
+    component: () => import('./views/SupplierView.vue'),
+    meta: { title: '공급처 관리', perm: 'MST_SUPPLIER' },
+  },
+  {
+    path: '/customers',
+    name: 'customers',
+    component: () => import('./views/CustomerView.vue'),
+    meta: { title: '고객·배송지 관리', perm: 'MST_CUSTOMER' },
+  },
+  {
+    // 저장은 공통코드와 같은 테이블이지만 화면과 권한은 다르다.
+    // 공통코드에는 건드리면 권한 판정이 깨지는 값들이 있어 다루는 사람이 다르다.
+    path: '/reasons',
+    name: 'reasons',
+    component: () => import('./views/ReasonView.vue'),
+    meta: { title: '사유코드 관리', perm: 'MST_REASON' },
   },
 ]
 

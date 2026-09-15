@@ -38,8 +38,14 @@ public interface CodeDao {
 
 	/* 관리용 — SYS_CODE 권한 -------------------------------------------- */
 
-	/** 미사용 그룹까지 포함한 전체 목록 */
-	List<CodeGroup> selectGroups(@Param("keyword") String keyword, @Param("useYn") String useYn);
+	/**
+	 * 미사용 그룹까지 포함한 전체 목록.
+	 *
+	 * groupKind 로 화면을 가른다 — 공통코드 화면은 SYSTEM, 사유코드 화면은
+	 * REASON 만 본다. null 이면 구분 없이 전부.
+	 */
+	List<CodeGroup> selectGroups(@Param("keyword") String keyword, @Param("useYn") String useYn,
+			@Param("groupKind") String groupKind);
 
 	CodeGroup selectGroup(@Param("codeGroupId") String codeGroupId);
 

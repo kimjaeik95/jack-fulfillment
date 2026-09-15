@@ -67,6 +67,15 @@ public final class CodeGroups {
 	public static final String MAPPING_STATUS = "MAPPING_STATUS";
 
 	/** 사용자 상태 (ACTIVE/LOCKED/DORMANT/RETIRED) */
+	/** 거래처 상태 — 거래중 · 거래중지 · 거래종료. 거래중이 아니면 신규 발주 불가 */
+	public static final String PARTNER_STATUS = "PARTNER_STATUS";
+
+	/** 결제조건 — 선결제 · 착불 · 30일 · 60일 · 월말결산 */
+	public static final String PAY_TERM = "PAY_TERM";
+
+	/** 고객 유형 — B2B · B2C */
+	public static final String CUSTOMER_TYPE = "CUSTOMER_TYPE";
+
 	public static final String USER_STATUS = "USER_STATUS";
 
 	/** 감사 행위 구분 */

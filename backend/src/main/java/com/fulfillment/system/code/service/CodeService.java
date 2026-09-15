@@ -35,7 +35,25 @@ import java.util.Map;
 @Service
 public class CodeService {
 
+	/** 시스템 코드 — 권한 판정 · 상태 전이에 쓰이는 값 */
 	private static final String PERM = "SYS_CODE";
+
+	/** 사유 코드 — 업무가 예외를 설명하는 값 (MST-PG-014) */
+	private static final String PERM_REASON = "MST_REASON";
+
+	public static final String KIND_SYSTEM = "SYSTEM";
+	public static final String KIND_REASON = "REASON";
+
+	/**
+	 * 그 구분을 다룰 권한.
+	 *
+	 * 공통코드에는 DATA_SCOPE · PERM_ACTION 처럼 건드리면 권한 판정이 깨지는
+	 * 것들이 있다. 현장이 결품 사유 하나를 추가하려고 그 권한까지 받아야
+	 * 한다면, 같은 사람이 데이터 범위 코드도 지울 수 있게 된다.
+	 */
+	private static String permOf(String groupKind) {
+		return KIND_REASON.equals(groupKind) ? PERM_REASON : PERM;
+	}
 	private static final String TABLE_GROUP = "tb_code_group";
 	private static final String TABLE_CODE = "tb_code";
 
@@ -103,16 +121,17 @@ public class CodeService {
 	/* ------------------------------------------------------------------ */
 
 	@Transactional(readOnly = true)
-	public List<CodeGroupResponse> searchGroups(LoginUser actor, String keyword, String useYn) {
-		permissionChecker.require(actor, PERM, "R");
-		return codeDao.selectGroups(keyword, useYn).stream()
+	public List<CodeGroupResponse> searchGroups(LoginUser actor, String keyword, String useYn,
+			String groupKind) {
+		permissionChecker.require(actor, permOf(groupKind), "R");
+		return codeDao.selectGroups(keyword, useYn, groupKind).stream()
 				.map(g -> CodeGroupResponse.of(g, List.of()))
 				.toList();
 	}
 
 	@Transactional(readOnly = true)
 	public CodeGroupResponse getGroup(LoginUser actor, String codeGroupId) {
-		permissionChecker.require(actor, PERM, "R");
+		permissionChecker.require(actor, permOf(kindOf(codeGroupId)), "R");
 		CodeGroup group = mustFindGroup(codeGroupId);
 		List<CodeResponse> codes = codeDao.selectCodes(group.getCodeGroupSeq()).stream()
 				.map(CodeResponse::of)
@@ -122,7 +141,7 @@ public class CodeService {
 
 	@Transactional
 	public CodeGroupResponse createGroup(LoginUser actor, CodeGroupSaveRequest request) {
-		permissionChecker.require(actor, PERM, "C");
+		permissionChecker.require(actor, permOf(request.groupKind()), "C");
 
 		if (codeDao.countGroupById(request.codeGroupId()) > 0) {
 			throw new BusinessException(ErrorCode.DUPLICATE,
@@ -141,7 +160,7 @@ public class CodeService {
 	@Transactional
 	public CodeGroupResponse updateGroup(LoginUser actor, String codeGroupId,
 			CodeGroupSaveRequest request) {
-		permissionChecker.require(actor, PERM, "U");
+		permissionChecker.require(actor, permOf(kindOf(codeGroupId)), "U");
 
 		CodeGroup before = mustFindGroup(codeGroupId);
 		guardProtectedDisable(codeGroupId, before.getUseYn(), request.useYnOrDefault());
@@ -161,7 +180,7 @@ public class CodeService {
 	 */
 	@Transactional
 	public void deleteGroup(LoginUser actor, String codeGroupId, String reason) {
-		permissionChecker.require(actor, PERM, "D");
+		permissionChecker.require(actor, permOf(kindOf(codeGroupId)), "D");
 
 		CodeGroup before = mustFindGroup(codeGroupId);
 
@@ -189,7 +208,7 @@ public class CodeService {
 
 	@Transactional
 	public CodeResponse createCode(LoginUser actor, String codeGroupId, CodeSaveRequest request) {
-		permissionChecker.require(actor, PERM, "C");
+		permissionChecker.require(actor, permOf(kindOf(codeGroupId)), "C");
 
 		CodeGroup group = mustFindGroup(codeGroupId);
 		if (codeDao.countCodeById(group.getCodeGroupSeq(), request.codeId()) > 0) {
@@ -209,7 +228,7 @@ public class CodeService {
 	@Transactional
 	public CodeResponse updateCode(LoginUser actor, String codeGroupId, String codeId,
 			CodeSaveRequest request) {
-		permissionChecker.require(actor, PERM, "U");
+		permissionChecker.require(actor, permOf(kindOf(codeGroupId)), "U");
 
 		CodeGroup group = mustFindGroup(codeGroupId);
 		Code before = mustFindCode(group.getCodeGroupSeq(), codeId);
@@ -231,7 +250,7 @@ public class CodeService {
 	 */
 	@Transactional
 	public void deleteCode(LoginUser actor, String codeGroupId, String codeId, String reason) {
-		permissionChecker.require(actor, PERM, "D");
+		permissionChecker.require(actor, permOf(kindOf(codeGroupId)), "D");
 
 		CodeGroup group = mustFindGroup(codeGroupId);
 		Code before = mustFindCode(group.getCodeGroupSeq(), codeId);
@@ -295,4 +314,15 @@ public class CodeService {
 	private String defaultReason(String reason, String fallback) {
 		return reason == null ? fallback : reason;
 	}
+	/**
+	 * 그룹의 구분. 없는 그룹이면 SYSTEM 으로 본다 — 어차피 이어지는 조회가
+	 * NOT_FOUND 를 던지고, 여기서 더 느슨한 권한을 주지 않기 위해서다.
+	 */
+	private String kindOf(String codeGroupId) {
+		CodeGroup group = codeDao.selectGroup(codeGroupId);
+		return group == null || group.getGroupKind() == null
+				? KIND_SYSTEM
+				: group.getGroupKind();
+	}
+
 }
