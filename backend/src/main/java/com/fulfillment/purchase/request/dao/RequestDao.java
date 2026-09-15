@@ -24,6 +24,15 @@ public interface RequestDao {
 	PurchaseRequest selectBySeq(@Param("requestSeq") Long requestSeq);
 
 	/**
+	 * 요청번호로 단건.
+	 *
+	 * 구매오더가 근거 요청을 달 때 쓴다. 화면에서 고르는 값이 사람이 읽고
+	 * 전화로 부르는 번호(REQ-20260915-0001)라서, 순번으로 한 번 더 바꿔
+	 * 넘기게 하지 않는다.
+	 */
+	PurchaseRequest selectByRequestNo(@Param("requestNo") String requestNo);
+
+	/**
 	 * 요청의 라인.
 	 *
 	 * 지금 이 SKU 의 판매가능 수량을 함께 읽는다. 결재자가 "정말 모자란가"

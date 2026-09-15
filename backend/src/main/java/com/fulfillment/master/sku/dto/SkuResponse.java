@@ -2,6 +2,7 @@ package com.fulfillment.master.sku.dto;
 
 import com.fulfillment.domain.Sku;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 /**
@@ -24,6 +25,14 @@ public record SkuResponse(
 		String sizeCode,
 		String barcode,
 		String labelBarcode,
+		/**
+		 * 제품의 현재 원가.
+		 *
+		 * 구매오더 화면이 SKU 를 담을 때 발주 단가를 미리 채우는 데 쓴다.
+		 * 비워 두면 서버가 같은 값을 복사하지만, 화면에서 금액을 못 보면
+		 * 얼마짜리 발주를 내는지 모르는 채로 확정하게 된다.
+		 */
+		BigDecimal costAmount,
 		String status,
 		Integer sortOrder,
 		String useYn,
@@ -38,6 +47,7 @@ public record SkuResponse(
 				s.getSkuId(), s.getProductId(), s.getProductName(), s.getProductStatus(),
 				s.getCategoryName(), s.getBrandName(),
 				s.getColorCode(), s.getSizeCode(), s.getBarcode(), s.barcodeOrId(),
+				s.getCostAmount(),
 				s.getStatus(), s.getSortOrder(), s.getUseYn(),
 				s.getCreatedBy(), s.getCreatedAt(), s.getUpdatedBy(), s.getUpdatedAt());
 	}

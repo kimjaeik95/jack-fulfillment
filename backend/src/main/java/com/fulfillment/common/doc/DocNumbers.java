@@ -33,6 +33,8 @@ public class DocNumbers {
 	public static final String STOCKTAKE = "TAKE";
 	/** 구매요청 */
 	public static final String PURCHASE_REQUEST = "REQ";
+	/** 구매오더 */
+	public static final String PURCHASE_ORDER = "PO";
 
 	private static final DateTimeFormatter DATE_PART = DateTimeFormatter.ofPattern("yyyyMMdd");
 

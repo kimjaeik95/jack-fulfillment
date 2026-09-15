@@ -7,6 +7,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 /**
@@ -55,6 +56,14 @@ public class Sku {
 	private String productStatus;
 	private String categoryName;
 	private String brandName;
+	/**
+	 * 제품의 현재 원가 (tb_product.cost_amount).
+	 *
+	 * 구매오더가 단가를 비워 보낼 때 여기서 복사한다. 복사한 뒤로는 발주
+	 * 라인이 제 값을 들고 있어서, 나중에 이 값이 바뀌어도 지난 발주의
+	 * 금액은 움직이지 않는다 (PUR-004).
+	 */
+	private BigDecimal costAmount;
 
 	/** 라벨에 찍을 값. 바코드를 아직 발급하지 않았으면 SKU 코드를 쓴다. */
 	public String barcodeOrId() {

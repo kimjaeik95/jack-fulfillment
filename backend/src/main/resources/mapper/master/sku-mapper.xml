@@ -23,6 +23,7 @@
         <result property="productStatus" column="product_status"/>
         <result property="categoryName"  column="category_name"/>
         <result property="brandName"     column="brand_name"/>
+        <result property="costAmount"    column="cost_amount"/>
     </resultMap>
 
     <!--
@@ -36,6 +37,7 @@
         p.product_id    AS product_id,
         p.product_name  AS product_name,
         p.status        AS product_status,
+        p.cost_amount   AS cost_amount,
         c.category_name AS category_name,
         b.brand_name    AS brand_name
     </sql>

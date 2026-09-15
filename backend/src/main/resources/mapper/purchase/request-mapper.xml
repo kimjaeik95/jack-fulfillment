@@ -199,6 +199,18 @@
     </select>
 
     <!--
+      요청번호로 단건 (구매오더가 근거 요청을 달 때).
+
+      request_no 에는 유니크 제약이 있어 한 건만 나온다.
+    -->
+    <select id="selectByRequestNo" resultMap="requestMap">
+        SELECT <include refid="requestColumns"/>
+        <include refid="requestFrom"/>
+        <include refid="requestCounts"/>
+         WHERE r.request_no = #{requestNo}
+    </select>
+
+    <!--
       라인.
 
       current_available 은 지금 이 SKU 의 판매가능 수량 합이다. 결재자가

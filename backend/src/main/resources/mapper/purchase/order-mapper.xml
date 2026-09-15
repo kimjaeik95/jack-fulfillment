@@ -1,0 +1,324 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.fulfillment.purchase.order.dao.OrderDao">
+
+    <resultMap id="orderMap" type="com.fulfillment.domain.PurchaseOrder">
+        <id     property="orderSeq"         column="order_seq"/>
+        <result property="orderNo"          column="order_no"/>
+        <result property="supplierSeq"      column="supplier_seq"/>
+        <result property="plantSeq"         column="plant_seq"/>
+        <result property="requestSeq"       column="request_seq"/>
+        <result property="orderStatus"      column="order_status"/>
+        <result property="orderDate"        column="order_date"/>
+        <result property="dueDate"          column="due_date"/>
+        <result property="payTerm"          column="pay_term"/>
+        <result property="remark"           column="remark"/>
+        <result property="issuedBy"         column="issued_by"/>
+        <result property="issuedAt"         column="issued_at"/>
+        <result property="canceledBy"       column="canceled_by"/>
+        <result property="canceledAt"       column="canceled_at"/>
+        <result property="cancelReason"     column="cancel_reason"/>
+        <result property="createdBy"        column="created_by"/>
+        <result property="createdAt"        column="created_at"/>
+        <result property="updatedBy"        column="updated_by"/>
+        <result property="updatedAt"        column="updated_at"/>
+        <result property="supplierId"       column="supplier_id"/>
+        <result property="supplierName"     column="supplier_name"/>
+        <result property="supplierStatus"   column="supplier_status"/>
+        <result property="overReceiptRate"  column="over_receipt_rate"/>
+        <result property="plantId"          column="plant_id"/>
+        <result property="plantName"        column="plant_name"/>
+        <result property="orgSeq"           column="org_seq"/>
+        <result property="requestNo"        column="request_no"/>
+        <result property="issuedByName"     column="issued_by_name"/>
+        <result property="lineCount"        column="line_count"/>
+        <result property="totalOrderQty"    column="total_order_qty"/>
+        <result property="totalReceivedQty" column="total_received_qty"/>
+        <result property="totalAmount"      column="total_amount"/>
+    </resultMap>
+
+    <resultMap id="orderLineMap" type="com.fulfillment.domain.PurchaseOrderLine">
+        <id     property="lineSeq"        column="line_seq"/>
+        <result property="orderSeq"       column="order_seq"/>
+        <result property="lineNo"         column="line_no"/>
+        <result property="skuSeq"         column="sku_seq"/>
+        <result property="requestLineSeq" column="request_line_seq"/>
+        <result property="orderQty"       column="order_qty"/>
+        <result property="receivedQty"    column="received_qty"/>
+        <result property="remainQty"      column="remain_qty"/>
+        <result property="unitPrice"      column="unit_price"/>
+        <result property="lineAmount"     column="line_amount"/>
+        <result property="remark"         column="remark"/>
+        <result property="skuId"          column="sku_id"/>
+        <result property="colorCode"      column="color_code"/>
+        <result property="sizeCode"       column="size_code"/>
+        <result property="productId"      column="product_id"/>
+        <result property="productName"    column="product_name"/>
+        <result property="brandName"      column="brand_name"/>
+        <result property="currentCost"    column="current_cost"/>
+    </resultMap>
+
+    <!--
+      공급처 · 센터를 함께 읽는다. 발주번호만으로는 누구에게 무엇을 시켰는지
+      알 수 없고, 목록에서 건마다 다시 읽으면 발주 수만큼 질의가 늘어난다.
+
+      supplier_status 를 싣는 이유는 발주 확정에서 쓰기 때문이다. 작성해 두는
+      동안 거래가 중지될 수 있어, 낼 때 다시 본다 (MST-010).
+
+      org_seq 는 데이터 범위 판정에 쓴다. 센터 → 운영 조직으로 거슬러
+      판정하므로, 서비스가 플랜트를 한 번 더 읽지 않도록 여기서 싣는다.
+    -->
+    <sql id="orderColumns">
+        o.order_seq, o.order_no, o.supplier_seq, o.plant_seq, o.request_seq,
+        o.order_status, o.order_date, o.due_date, o.pay_term, o.remark,
+        o.issued_by, o.issued_at, o.canceled_by, o.canceled_at, o.cancel_reason,
+        o.created_by, o.created_at, o.updated_by, o.updated_at,
+        s.supplier_id       AS supplier_id,
+        s.supplier_name     AS supplier_name,
+        s.status            AS supplier_status,
+        s.over_receipt_rate AS over_receipt_rate,
+        pl.plant_id         AS plant_id,
+        pl.plant_name       AS plant_name,
+        pl.org_seq          AS org_seq,
+        r.request_no        AS request_no,
+        iu.user_name        AS issued_by_name
+    </sql>
+
+    <sql id="orderFrom">
+        FROM tb_purchase_order o
+        JOIN tb_supplier         s  ON s.supplier_seq = o.supplier_seq
+        JOIN tb_plant            pl ON pl.plant_seq   = o.plant_seq
+        LEFT JOIN tb_purchase_request r  ON r.request_seq = o.request_seq
+        LEFT JOIN tb_user             iu ON iu.user_id    = o.issued_by
+    </sql>
+
+    <!--
+      목록용 집계 — 라인 수 · 발주수량 · 기입고수량 · 금액.
+
+      발주마다 라인을 다시 읽지 않으려고 상관 서브쿼리 하나로 모은다.
+      진행률(기입고/발주)은 여기 두 값으로 화면이 계산한다 — 저장해 두면
+      입고가 들어올 때마다 갱신해야 하고, 한 번 빠뜨리면 영원히 틀린다.
+    -->
+    <sql id="orderCounts">
+        , (SELECT COUNT(*)              FROM tb_purchase_order_line l WHERE l.order_seq = o.order_seq) AS line_count
+        , (SELECT COALESCE(SUM(l.order_qty), 0)    FROM tb_purchase_order_line l WHERE l.order_seq = o.order_seq) AS total_order_qty
+        , (SELECT COALESCE(SUM(l.received_qty), 0) FROM tb_purchase_order_line l WHERE l.order_seq = o.order_seq) AS total_received_qty
+        , (SELECT COALESCE(SUM(l.line_amount), 0)  FROM tb_purchase_order_line l WHERE l.order_seq = o.order_seq) AS total_amount
+    </sql>
+
+    <sql id="searchWhere">
+        <where>
+            <if test="keyword != null">
+                AND (o.order_no      ILIKE '%' || #{keyword} || '%'
+                  OR o.remark        ILIKE '%' || #{keyword} || '%'
+                  OR s.supplier_name ILIKE '%' || #{keyword} || '%')
+            </if>
+            <if test="plantId != null">
+                AND pl.plant_id = #{plantId}
+            </if>
+            <if test="supplierId != null">
+                AND s.supplier_id = #{supplierId}
+            </if>
+            <if test="orderStatus != null">
+                AND o.order_status = #{orderStatus}
+            </if>
+            <if test="requestSeq != null">
+                AND o.request_seq = #{requestSeq}
+            </if>
+            <!--
+              진행현황(PUR-PG-005)이 쓴다. 아직 물건이 덜 들어온 발주만.
+              작성중은 아직 공급처에 나가지 않아 기다릴 물건이 없고,
+              입고완료 · 취소는 끝난 건이다.
+            -->
+            <if test='openOnly == "Y"'>
+                AND o.order_status IN ('ISSUED','PARTIAL')
+            </if>
+            <!-- 납기가 지났는데 아직 안 들어온 것. 독촉할 대상이다. -->
+            <if test='overdueOnly == "Y"'>
+                AND o.order_status IN ('ISSUED','PARTIAL')
+                AND o.due_date &lt; CURRENT_DATE
+            </if>
+            <!-- 발주일 기준. 작성중인 오더는 발주일이 없어 걸리지 않는다. -->
+            <if test="fromDate != null">
+                AND o.order_date &gt;= #{fromDate}
+            </if>
+            <if test="toDate != null">
+                AND o.order_date &lt;= #{toDate}
+            </if>
+            <if test="skuId != null">
+                AND EXISTS (SELECT 1
+                              FROM tb_purchase_order_line l
+                              JOIN tb_sku sk ON sk.sku_seq = l.sku_seq
+                             WHERE l.order_seq = o.order_seq
+                               AND sk.sku_id = #{skuId})
+            </if>
+            <!--
+              데이터 범위. 센터 → 운영 조직으로 거슬러 판정한다.
+
+              범위가 비어 있으면(hasNoOrg) 아무것도 보이지 않아야 한다.
+              조건을 아예 안 붙이면 전건이 보이는 정반대 결과가 된다.
+            -->
+            <if test="!scope.unrestricted">
+                <choose>
+                    <when test="scope.hasNoOrg">
+                        AND o.created_by = #{scope.ownerId}
+                    </when>
+                    <otherwise>
+                        AND ( pl.org_seq IN
+                              <foreach collection="scope.orgSeqs" item="org" open="(" separator="," close=")">
+                                  #{org}
+                              </foreach>
+                              OR o.created_by = #{scope.ownerId} )
+                    </otherwise>
+                </choose>
+            </if>
+        </where>
+    </sql>
+
+    <select id="selectList" resultMap="orderMap">
+        SELECT <include refid="orderColumns"/>
+        <include refid="orderCounts"/>
+        <include refid="orderFrom"/>
+        <include refid="searchWhere"/>
+         ORDER BY ${sortColumn} ${sortDirection}, o.order_seq DESC
+        <if test="size > 0">
+            LIMIT #{size} OFFSET #{offset}
+        </if>
+    </select>
+
+    <select id="countList" resultType="long">
+        SELECT COUNT(*)
+        <include refid="orderFrom"/>
+        <include refid="searchWhere"/>
+    </select>
+
+    <select id="selectBySeq" resultMap="orderMap">
+        SELECT <include refid="orderColumns"/>
+        <include refid="orderCounts"/>
+        <include refid="orderFrom"/>
+         WHERE o.order_seq = #{orderSeq}
+    </select>
+
+    <!--
+      라인.
+
+      current_cost 는 지금 기준정보의 원가다. 발주 단가(unit_price)와 나란히
+      보여 주기 위해서다 — 발주한 뒤 원가가 바뀌었는지 화면에서 바로 보인다.
+      금액 계산에는 쓰지 않는다. 계산은 박아 둔 단가로만 한다 (PUR-004).
+    -->
+    <select id="selectLines" resultMap="orderLineMap">
+        SELECT l.line_seq, l.order_seq, l.line_no, l.sku_seq, l.request_line_seq,
+               l.order_qty, l.received_qty, l.remain_qty,
+               l.unit_price, l.line_amount, l.remark,
+               sk.sku_id       AS sku_id,
+               sk.color_code   AS color_code,
+               sk.size_code    AS size_code,
+               p.product_id    AS product_id,
+               p.product_name  AS product_name,
+               b.brand_name    AS brand_name,
+               p.cost_amount   AS current_cost
+          FROM tb_purchase_order_line l
+          JOIN tb_sku     sk ON sk.sku_seq     = l.sku_seq
+          JOIN tb_product p  ON p.product_seq  = sk.product_seq
+          JOIN tb_brand   b  ON b.brand_seq    = p.brand_seq
+         WHERE l.order_seq = #{orderSeq}
+         ORDER BY l.line_no
+    </select>
+
+    <insert id="insert" parameterType="com.fulfillment.domain.PurchaseOrder"
+            useGeneratedKeys="true" keyProperty="orderSeq" keyColumn="order_seq">
+        INSERT INTO tb_purchase_order (
+            order_no, supplier_seq, plant_seq, request_seq, order_status,
+            due_date, pay_term, remark, created_by
+        ) VALUES (
+            #{orderNo}, #{supplierSeq}, #{plantSeq}, #{requestSeq}, #{orderStatus},
+            #{dueDate}, #{payTerm}, #{remark}, #{createdBy}
+        )
+    </insert>
+
+    <insert id="insertLine" parameterType="com.fulfillment.domain.PurchaseOrderLine"
+            useGeneratedKeys="true" keyProperty="lineSeq" keyColumn="line_seq">
+        INSERT INTO tb_purchase_order_line (
+            order_seq, line_no, sku_seq, request_line_seq,
+            order_qty, received_qty, unit_price, remark
+        ) VALUES (
+            #{orderSeq}, #{lineNo}, #{skuSeq}, #{requestLineSeq},
+            #{orderQty}, #{receivedQty}, #{unitPrice}, #{remark}
+        )
+    </insert>
+
+    <!-- 헤더의 공급처 · 센터 · 납기 · 결제조건 · 비고. 상태는 updateStatus 로만 바뀐다. -->
+    <update id="update" parameterType="com.fulfillment.domain.PurchaseOrder">
+        UPDATE tb_purchase_order
+           SET supplier_seq = #{supplierSeq},
+               plant_seq    = #{plantSeq},
+               request_seq  = #{requestSeq},
+               due_date     = #{dueDate},
+               pay_term     = #{payTerm},
+               remark       = #{remark},
+               updated_by   = #{updatedBy},
+               updated_at   = CURRENT_TIMESTAMP
+         WHERE order_seq = #{orderSeq}
+    </update>
+
+    <delete id="deleteLines">
+        DELETE FROM tb_purchase_order_line WHERE order_seq = #{orderSeq}
+    </delete>
+
+    <!--
+      상태 전이.
+
+      WHERE 에 현재 상태를 넣는다. 두 명이 동시에 같은 오더를 발주하면 한 쪽은
+      0 행이 바뀌고 서비스가 그것을 보고 거부한다 — 안 그러면 같은 발주가 두 번
+      나간 것으로 기록된다.
+
+      확정 · 취소에 필요한 자취를 같은 문장에서 찍는다. 상태만 먼저 바꾸고
+      발주자를 나중에 적으면 그 사이에 실패했을 때 '누가 냈는지 모르는 발주'
+      가 남는다 (V13 의 ck_po_issued 가 그 상태를 거부한다).
+    -->
+    <update id="updateStatus">
+        UPDATE tb_purchase_order
+           SET order_status = #{toStatus},
+        <choose>
+            <when test='toStatus == "ISSUED"'>
+               order_date = CURRENT_DATE,
+               issued_by  = #{actor},
+               issued_at  = CURRENT_TIMESTAMP,
+            </when>
+            <when test='toStatus == "CANCELED"'>
+               canceled_by   = #{actor},
+               canceled_at   = CURRENT_TIMESTAMP,
+               cancel_reason = #{cancelReason},
+            </when>
+        </choose>
+               updated_by   = #{actor},
+               updated_at   = CURRENT_TIMESTAMP
+         WHERE order_seq   = #{orderSeq}
+           AND order_status = #{fromStatus}
+    </update>
+
+    <!-- 작성중인 오더만 지운다. 라인은 FK 가 CASCADE 로 함께 지운다. -->
+    <delete id="delete">
+        DELETE FROM tb_purchase_order WHERE order_seq = #{orderSeq}
+    </delete>
+
+    <!--
+      이 요청 라인에서 이미 발주된 수량.
+
+      취소된 발주는 빼고 센다 — 거둬들인 발주는 약속이 아니므로 그만큼 다시
+      낼 수 있어야 한다. 수정할 때는 자기 자신도 뺀다. 안 그러면 고칠 때마다
+      자기 수량을 두 번 세어 늘 초과로 판정한다.
+    -->
+    <select id="sumOrderedByRequestLine" resultType="int">
+        SELECT COALESCE(SUM(l.order_qty), 0)
+          FROM tb_purchase_order_line l
+          JOIN tb_purchase_order o ON o.order_seq = l.order_seq
+         WHERE l.request_line_seq = #{requestLineSeq}
+           AND o.order_status &lt;&gt; 'CANCELED'
+        <if test="exceptOrderSeq != null">
+           AND o.order_seq &lt;&gt; #{exceptOrderSeq}
+        </if>
+    </select>
+</mapper>
