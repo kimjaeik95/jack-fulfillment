@@ -38,6 +38,14 @@ export const routes = [
     meta: { title: '빈 관리', perm: 'MST_LOCATION' },
   },
   {
+    // 새 권한을 두지 않는다. MST_LOCATION 의 X(출력·다운로드)를 쓴다 —
+    // 라벨은 빈 정보를 종이에 옮기는 일이라 데이터를 바꾸지 않는다.
+    path: '/label-print',
+    name: 'label-print',
+    component: () => import('./views/LabelPrintView.vue'),
+    meta: { title: '빈 바코드 출력', perm: 'MST_LOCATION' },
+  },
+  {
     path: '/categories',
     name: 'categories',
     component: () => import('./views/CategoryView.vue'),
