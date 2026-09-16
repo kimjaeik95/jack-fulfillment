@@ -213,6 +213,56 @@ a {
   font-weight: 600;
 }
 
+/*
+  권한 없는 메뉴는 <b>겉모습을 구분하지 않는다</b>.
+
+  흐리게 칠하면 못 쓰는 항목이 화면의 3분의 2인 역할에서 흐린 글씨가
+  배경처럼 깔린다. 한 톤만 낮춰도 마찬가지다 — 옅게 만드는 순간 그건
+  흐린 것이다.
+
+  구분은 <b>순서</b>가 한다. 쓸 수 있는 것이 위, 못 쓰는 것이 아래이고
+  그 경계에 구분선이 있다. 색으로 또 말하면 같은 말을 두 번 하는 것이다.
+
+  눌리는 것도 그대로 둔다 — 들어가면 화면이 왜 비었는지 말해 준다.
+  '안의 내용만 모를 뿐' 이다.
+*/
+
+/*
+  가리키는 화면이 아예 없는 메뉴.
+
+  '권한이 없다' 와는 다른 상태다. 하나는 당신이 못 쓰는 것이고 하나는
+  아직 안 만든 것이라, 같은 모양으로 그리면 구분할 수 없다. 이쪽은
+  눌러도 갈 곳이 없으므로 커서로 그 사실을 알린다.
+*/
+.nav-item.nav-broken {
+  color: var(--text-3);
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* 여기 아래는 이 역할이 쓸 수 없는 메뉴라는 구분선 */
+.nav-divider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 14px 0 2px;
+  padding: 0 10px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  color: var(--text-3);
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.nav-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
 .nav-icon {
   flex: 0 0 18px;
   text-align: center;

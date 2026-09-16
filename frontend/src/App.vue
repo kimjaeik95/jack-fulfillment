@@ -121,13 +121,64 @@ function menuAllowed(menu) {
 }
 
 function menuTitle(menu) {
+  // 아래쪽 목록에는 그룹 머리글이 없다. 어디 것인지는 여기서 말해 준다.
+  const where = menu.groupName ? `${menu.groupName} › ` : ''
   if (!routeExists(menu.routeName)) {
-    return `${menu.menuName} — 연결된 화면(${menu.routeName})이 없습니다. 메뉴 관리에서 확인하세요.`
+    return `${where}${menu.menuName} — 연결된 화면(${menu.routeName})이 없습니다. 메뉴 관리에서 확인하세요.`
   }
   return menuAllowed(menu)
     ? menu.menuName
-    : `${menu.menuName} — 현재 계정에 조회 권한이 없습니다(${permOf(menu)})`
+    : `${where}${menu.menuName} — 열 수는 있지만 내용은 보이지 않습니다. 필요한 권한: ${permOf(menu)}`
 }
+
+/**
+ * 사이드바 순서 — 쓸 수 있는 그룹을 위로, 전부 잠긴 그룹을 아래로.
+ *
+ * 메뉴는 전부 보여 준다. 감추면 그런 기능이 있다는 것조차 알 수 없어
+ * 권한을 요청할 생각도 못 한다. 흐리게 칠하지도 않는다 — 못 쓰는 항목이
+ * 화면의 3분의 2인 역할이 있어서, 그때는 흐린 글씨가 배경처럼 깔려
+ * 오히려 지저분해진다.
+ *
+ * 대신 순서로 말한다. 센터관리자는 24개 메뉴 중 16개를 못 쓰는데, 정작
+ * 매일 쓰는 재고가 23번째에 있었다. 잠긴 그룹을 내리면 재고가 두 번째로
+ * 올라온다.
+ *
+ * 역할별 정렬 테이블을 따로 두지 않는다. 이미 아는 권한으로 그릴 때
+ * 계산하면 되고, 그러면 역할이 둘인 사람은 어느 순서를 쓸지 같은 문제가
+ * 아예 생기지 않는다.
+ *
+ * 그룹 <b>안</b>의 순서는 건드리지 않는다. 기준정보가 늘 같은 순서여야
+ * 손이 기억한다 — 움직이는 것은 그룹 덩어리뿐이다.
+ */
+const sortedGroups = computed(() => {
+  const usable = (m) => menuAllowed(m) && routeExists(m.routeName)
+
+  /*
+   * 항목 단위로 자른다.
+   *
+   * 그룹 단위로 자르면 경계가 거짓말을 한다. 기준정보 7/14 처럼 섞인
+   * 그룹은 '쓸 수 있는 그룹' 에 남는데, 그 안의 못 쓰는 7개가 '권한 없음'
+   * 구분선 위에 앉는다. 구분선이 아래를 가리키는데 위에도 있는 꼴이다.
+   *
+   * 그래서 위에는 쓸 수 있는 것만 그룹째로 두고, 못 쓰는 것은 그룹을 떠나
+   * 아래로 모은다. 아래쪽은 그룹 머리글을 붙이지 않는다 — 한 그룹에 한두
+   * 개씩 흩어져 머리글이 항목보다 많아지고, 어차피 거기서 찾을 일이 없다.
+   *
+   * 감추지는 않는다. 있는 줄 알아야 권한을 요청할 수 있다.
+   */
+  const open = menuStore.groups
+    .map((g) => ({ ...g, children: (g.children ?? []).filter(usable) }))
+    .filter((g) => g.children.length)
+
+  // 아래쪽은 그룹 순서대로 늘어놓되, 어느 그룹 것인지는 툴팁이 말해 준다
+  const locked = menuStore.groups.flatMap((g) =>
+    (g.children ?? [])
+      .filter((m) => !usable(m))
+      .map((m) => ({ ...m, groupName: g.menuName })),
+  )
+
+  return { open, locked }
+})
 
 async function doLogout() {
   logoutAsk.value = false
@@ -199,24 +250,30 @@ async function doReset() {
 
     <!-- 메뉴 구성은 서버(tb_menu)가 소유한다. 메뉴 관리 화면에서 바꾼다. -->
     <nav class="sidenav">
-      <template v-for="g in menuStore.groups" :key="g.menuId">
+      <!--
+        쓸 수 있는 그룹이 먼저. 그 아래에 전부 잠긴 그룹을 모아 둔다.
+        감추지는 않는다 — 있는 줄 알아야 권한을 요청할 수 있다.
+      -->
+      <template v-for="g in sortedGroups.open" :key="g.menuId">
         <div class="nav-group-label">{{ collapsed ? '·' : g.menuName }}</div>
         <template v-for="m in g.children" :key="m.menuId">
           <!-- 가리키는 화면이 없는 메뉴는 눌러도 이동할 수 없으므로 링크로 만들지 않는다 -->
           <div
             v-if="!routeExists(m.routeName)"
-            class="nav-item"
-            style="opacity: 0.45; cursor: not-allowed"
+            class="nav-item nav-broken"
             :title="menuTitle(m)"
           >
             <span class="nav-icon">⚠</span>
             <template v-if="!collapsed"><span>{{ m.menuName }}</span></template>
           </div>
           <RouterLink v-else v-slot="{ isActive, navigate }" :to="{ name: m.routeName }" custom>
+            <!--
+              권한이 없어도 흐리게 칠하지 않고 눌리게 둔다. 들어가면 화면이
+              왜 비었는지 말해 준다 — '안의 내용만 모를 뿐' 이다.
+            -->
             <div
               class="nav-item"
-              :class="{ active: isActive }"
-              :style="menuAllowed(m) ? null : { opacity: 0.45 }"
+              :class="{ active: isActive, 'nav-locked': !menuAllowed(m) }"
               :title="menuTitle(m)"
               @click="navigate"
             >
@@ -227,6 +284,39 @@ async function doReset() {
                   {{ counts[m.routeName] }}
                 </span>
               </template>
+            </div>
+          </RouterLink>
+        </template>
+      </template>
+
+      <!--
+        여기부터는 이 계정이 지금 쓸 수 없는 메뉴다. 그룹을 떠나 한 줄로
+        모은다 — 한 그룹에 한두 개씩 흩어져 머리글이 항목보다 많아진다.
+        어느 그룹 것인지는 툴팁이 말한다.
+      -->
+      <template v-if="sortedGroups.locked.length">
+        <div class="nav-divider" title="현재 계정으로는 내용을 볼 수 없는 메뉴입니다">
+          <template v-if="!collapsed">권한 없음 {{ sortedGroups.locked.length }}</template>
+          <template v-else>·</template>
+        </div>
+        <template v-for="m in sortedGroups.locked" :key="m.menuId">
+          <div
+            v-if="!routeExists(m.routeName)"
+            class="nav-item nav-broken"
+            :title="menuTitle(m)"
+          >
+            <span class="nav-icon">⚠</span>
+            <template v-if="!collapsed"><span>{{ m.menuName }}</span></template>
+          </div>
+          <RouterLink v-else v-slot="{ isActive, navigate }" :to="{ name: m.routeName }" custom>
+            <div
+              class="nav-item"
+              :class="{ active: isActive, 'nav-locked': !menuAllowed(m) }"
+              :title="menuTitle(m)"
+              @click="navigate"
+            >
+              <span class="nav-icon">{{ m.icon }}</span>
+              <template v-if="!collapsed"><span>{{ m.menuName }}</span></template>
             </div>
           </RouterLink>
         </template>
