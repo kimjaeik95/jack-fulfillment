@@ -41,6 +41,22 @@ export async function detail(locationSeq) {
 }
 
 /**
+ * 이 창고에 쓰이고 있는 구역코드 (실사 계획이 쓴다).
+ *
+ * 구역은 자유 입력이라 창고마다 무엇이 있는지 사람이 외울 수 없다.
+ * 외우게 하면 오타 하나로 실사 대상이 0 건이 되는데, 구역 조건은
+ * 정확일치라 '거의 맞는' 값도 안 걸린다 — 고를 수 있어야 한다.
+ *
+ * 코드표가 아니라 실제 빈에 쓰인 값이라, 목록에 있으면 반드시 쓸 수 있다.
+ *
+ * @returns {Promise<string[]>}
+ */
+export async function zones(plantId, warehouseId) {
+  const { data } = await get('/locations/zones', { plantId, warehouseId })
+  return data
+}
+
+/**
  * 등록.
  * 창고유형과 빈유형이 어긋나면 막지 않고 warning 으로 알린다 —
  * 양품창고에 불량 격리 빈을 두는 정당한 구성이 있다.

@@ -160,10 +160,53 @@ export async function updateTake(takeSeq, payload) {
   return data
 }
 
-/** 대상 생성. 조건에 맞는 재고가 없으면 warning 이 온다. */
+/**
+ * 조건이 몇 건을 잡는지 — 저장 전에 본다.
+ *
+ * 계획 화면이 조건을 바꿀 때마다 부른다. 저장하고 대상까지 만들어 봐야
+ * 0 건인 줄 아는 것은, 쓸 수 없는 계획을 만든 뒤에야 알려 주는 것이다.
+ *
+ * byZone · bySku 는 그 조건 하나만 걸었을 때의 건수다. 둘을 비교하면
+ * 어느 조건이 0 을 만들었는지 화면이 짚어 줄 수 있다.
+ *
+ * @returns {Promise<{matched, warehouseTotal, byZone, bySku}>}
+ */
+export async function previewTargets(params) {
+  const { data } = await get('/stocktakes/target-preview', {
+    plantId: params.plantId,
+    warehouseId: params.warehouseId,
+    targetZone: params.targetZone || undefined,
+    targetSkuKeyword: params.targetSkuKeyword || undefined,
+  })
+  return data
+}
+
+/**
+ * 대상 생성 — 조건으로 훑는다 (전수 · 순환).
+ *
+ * 0 건이면 어느 조건이 범인인지 짚어 주는 warning 이 온다.
+ */
 export async function generateTargets(takeSeq) {
   const { data, warning } = await post(`/stocktakes/${takeSeq}/targets`, {})
   return { take: data, warning }
+}
+
+/**
+ * 고른 재고를 대상으로 담는다 (지정실사).
+ *
+ * 대상 생성과 달리 기존 줄을 지우지 않는다 — 몇 번에 나눠 담는 것이
+ * 지정실사의 실제 작업이다. 이미 담긴 것은 건너뛰고 몇 건을 건너뛰었는지
+ * warning 으로 온다.
+ */
+export async function pickTargets(takeSeq, stockSeqs) {
+  const { data, warning } = await post(`/stocktakes/${takeSeq}/targets/pick`, { stockSeqs })
+  return { take: data, warning }
+}
+
+/** 대상 한 줄 빼기 — 계획 상태에서만 */
+export async function removeTarget(takeSeq, lineSeq) {
+  const { data } = await del(`/stocktakes/${takeSeq}/targets/${lineSeq}`)
+  return data
 }
 
 /** 실사 시작. 대상이 고정된다 — 세는 도중에 목록이 바뀌면 안 된다. */

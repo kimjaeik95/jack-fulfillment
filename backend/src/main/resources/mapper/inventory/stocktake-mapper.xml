@@ -279,6 +279,60 @@
     </insert>
 
     <!--
+      조건에 맞는 재고 건수 — 대상을 만들지 않고 세기만 한다.
+
+      insertTargets 와 같은 WHERE 를 써야 한다. 다르면 "0 건" 이라 해 놓고
+      대상은 생기거나 그 반대가 된다.
+    -->
+    <select id="countTargets" resultType="int">
+        SELECT COUNT(*)
+          FROM tb_stock     s
+          JOIN tb_location  l  ON l.location_seq = s.location_seq
+          JOIN tb_sku       k  ON k.sku_seq      = s.sku_seq
+          JOIN tb_product   pr ON pr.product_seq = k.product_seq
+         WHERE l.warehouse_seq = #{warehouseSeq}
+           AND l.use_yn        = 'Y'
+        <if test="zoneCode != null">
+           AND l.zone_code = #{zoneCode}
+        </if>
+        <if test="skuKeyword != null">
+           AND (k.sku_id        ILIKE '%' || #{skuKeyword} || '%'
+             OR pr.product_name ILIKE '%' || #{skuKeyword} || '%')
+        </if>
+    </select>
+
+    <!--
+      고른 재고를 대상으로 담는다 (지정실사).
+
+      이미 담긴 줄은 건너뛴다. 유니크 인덱스가 vendor 유무로 갈려 있어
+      ON CONFLICT 에 컬럼을 적을 수 없으므로 조건부 인덱스 이름 대신
+      NOT EXISTS 로 거른다.
+    -->
+    <insert id="insertTargetsByStock">
+        INSERT INTO tb_stocktake_line
+            (take_seq, location_seq, sku_seq, vendor_seq, stock_seq, qty_book)
+        SELECT #{takeSeq}, s.location_seq, s.sku_seq, s.vendor_seq, s.stock_seq, s.qty_on_hand
+          FROM tb_stock    s
+          JOIN tb_location l ON l.location_seq = s.location_seq
+         WHERE l.warehouse_seq = #{warehouseSeq}
+           AND s.stock_seq IN
+        <foreach collection="stockSeqs" item="seq" open="(" separator="," close=")">
+            #{seq}
+        </foreach>
+           AND NOT EXISTS (
+               SELECT 1 FROM tb_stocktake_line x
+                WHERE x.take_seq     = #{takeSeq}
+                  AND x.location_seq = s.location_seq
+                  AND x.sku_seq      = s.sku_seq
+                  AND (x.vendor_seq  = s.vendor_seq
+                    OR (x.vendor_seq IS NULL AND s.vendor_seq IS NULL)))
+    </insert>
+
+    <delete id="deleteLine">
+        DELETE FROM tb_stocktake_line WHERE line_seq = #{lineSeq}
+    </delete>
+
+    <!--
       계획에 없던 줄 하나.
 
       장부에 없는 물건이라 stock_seq 가 비어 있고 계획수량은 0 이다.

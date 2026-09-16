@@ -15,10 +15,11 @@
  * 보이면 블라인드가 아니다. 그래서 여기서 할 일은 '가리는' 것이 아니라
  * '없는 값을 없는 대로 그리는' 것이다.
  */
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { codeOptions } from '@/api/codes.js'
 import * as opsApi from '@/api/stockOps.js'
 import * as stockApi from '@/api/stock.js'
+import * as locationApi from '@/api/location.js'
 import { useHierarchyStore } from '@/stores/hierarchy.js'
 import { useSessionStore } from '@/stores/session.js'
 import { useToastStore } from '@/stores/toast.js'
@@ -27,6 +28,7 @@ import ModalDialog from '@/components/ModalDialog.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import FormField from '@/components/FormField.vue'
 import CodeBadge from '@/components/CodeBadge.vue'
+import StockPicker from '../components/StockPicker.vue'
 
 const hierarchy = useHierarchyStore()
 const session = useSessionStore()
@@ -130,6 +132,8 @@ function openCreate() {
     remark: '',
   })
   serverError.value = ''
+  zones.value = []
+  preview.value = null
   editing.value = true
 }
 
@@ -148,11 +152,101 @@ function openEdit(take) {
   })
   serverError.value = ''
   editing.value = true
+  // 고쳐 열 때는 이미 창고가 정해져 있어 watch 가 안 돈다. 직접 부른다.
+  loadZones()
+  loadPreview()
 }
 
 const formValid = computed(
   () => form.takeName.trim() && form.plantId && form.warehouseId && form.plannedDate && !busy.value,
 )
+
+/* ── 구역 목록 ──────────────────────────────────────────────────
+ *
+ * 구역은 창고마다 다르고 사람이 외울 수 없다. 외우게 하면 오타 하나로
+ * 대상이 0 건이 되는데, 구역 조건은 정확일치라 '거의 맞는' 값도 안 걸린다.
+ *
+ * 코드표가 아니라 그 창고의 빈에 실제로 쓰인 값을 받는다 — 목록에 있으면
+ * 반드시 쓸 수 있다.
+ */
+const zones = ref([])
+const zoneOptions = computed(() => zones.value.map((z) => ({ value: z, label: `${z} 구역` })))
+
+async function loadZones() {
+  if (!form.plantId || !form.warehouseId) {
+    zones.value = []
+    return
+  }
+  try {
+    zones.value = await locationApi.zones(form.plantId, form.warehouseId)
+  } catch {
+    // 구역을 못 읽어도 계획은 세울 수 있다 — 창고 전체가 기본이다
+    zones.value = []
+  }
+}
+
+/* ── 대상 미리보기 ───────────────────────────────────────────────
+ *
+ * 조건을 바꿀 때마다 몇 건이 잡히는지 보여 준다. 저장하고 대상까지
+ * 만들어 봐야 0 건인 줄 아는 것은, 쓸 수 없는 계획을 만든 뒤에야
+ * 알려 주는 것이다.
+ */
+const preview = ref(null)
+const previewing = ref(false)
+let previewTimer = null
+
+async function loadPreview() {
+  if (!form.plantId || !form.warehouseId) {
+    preview.value = null
+    return
+  }
+  previewing.value = true
+  try {
+    preview.value = await opsApi.previewTargets({
+      plantId: form.plantId,
+      warehouseId: form.warehouseId,
+      targetZone: form.targetZone,
+      targetSkuKeyword: form.targetSkuKeyword,
+    })
+  } catch {
+    preview.value = null
+  } finally {
+    previewing.value = false
+  }
+}
+
+// 키워드는 글자를 칠 때마다 바뀌므로 잠깐 기다렸다 부른다.
+// 안 그러면 한 단어 치는 동안 질의가 열 번 나간다.
+watch(
+  () => [form.plantId, form.warehouseId, form.targetZone, form.targetSkuKeyword],
+  ([plantId, warehouseId], old) => {
+    if (!editing.value) return
+    if (plantId !== old?.[0] || warehouseId !== old?.[1]) {
+      // 창고가 바뀌면 이전 창고의 구역이 남아 있으면 안 된다
+      form.targetZone = ''
+      loadZones()
+    }
+    clearTimeout(previewTimer)
+    previewTimer = setTimeout(loadPreview, 350)
+  },
+)
+
+/** 0 건일 때 어느 조건이 범인인지 — 서버 진단과 같은 논리를 화면에서도 */
+const previewNote = computed(() => {
+  const p = preview.value
+  if (!p) return ''
+  if (p.warehouseTotal === 0) {
+    return '이 창고에 재고가 없습니다. 입고 후에 실사하세요.'
+  }
+  if (p.matched > 0) return ''
+  if (p.byZone === 0) {
+    return `이 구역에는 재고가 없습니다. 창고 전체에는 ${p.warehouseTotal} 건이 있습니다.`
+  }
+  if (p.bySku === 0) {
+    return `이 SKU 조건에 맞는 재고가 없습니다. 창고 전체에는 ${p.warehouseTotal} 건이 있습니다.`
+  }
+  return `구역에 ${p.byZone} 건, SKU 조건에 ${p.bySku} 건이 있지만 둘 다 만족하는 재고가 없습니다.`
+})
 
 async function submitPlan() {
   busy.value = true
@@ -234,6 +328,35 @@ async function act(fn, okMessage) {
 
 const generateTargets = () =>
   act(() => opsApi.generateTargets(detail.value.takeSeq), '대상을 다시 뽑았습니다.')
+
+/* ── 재고에서 직접 담기 (지정실사) ──────────────────────────────
+ *
+ * 조건으로 훑는 것과 달리 창고의 재고 목록에서 고른다. 지정실사는
+ * "이것만 세라" 라서 조건으로 표현되지 않는 경우가 많고, 무엇보다
+ * 목록에서 고르면 <b>없는 제품을 넣을 방법이 없다</b>.
+ *
+ * 고른 재고를 바로 보낸다. 담을 것이 보통 몇 건이고, 모아 두었다
+ * 한꺼번에 보내면 "담았는데 왜 목록에 없지" 가 된다.
+ */
+const picking = ref(false)
+
+/** 이미 담긴 재고 — 고르기 화면에서 흐리게 표시한다 */
+const pickedStockSeqs = computed(() =>
+  (detail.value?.lines ?? []).map((l) => l.stockSeq).filter(Boolean),
+)
+
+function pickTarget(stock) {
+  picking.value = false
+  act(
+    () => opsApi.pickTargets(detail.value.takeSeq, [stock.stockSeq]),
+    `${stock.skuId} 을(를) 대상에 담았습니다.`,
+  )
+}
+
+const removeTarget = (line) =>
+  act(async () => {
+    await opsApi.removeTarget(detail.value.takeSeq, line.lineSeq)
+  }, `${line.skuId} 을(를) 대상에서 뺐습니다.`)
 
 const start = () =>
   act(async () => {
@@ -489,16 +612,28 @@ const progressPct = (t) =>
           :options="codeOptions('TAKE_TYPE')"
         />
         <FormField v-model="form.plannedDate" label="계획일" type="date" required />
+        <!-- 구역은 창고마다 다르고 외울 수 없다. 그 창고에 실제로 쓰인
+             값만 고르게 한다 — 목록에 있으면 반드시 대상이 잡힌다. -->
         <FormField
           v-model="form.targetZone"
           label="구역"
-          placeholder="순환실사에서 좁힐 구역"
-          help="비우면 창고 전체입니다."
+          type="select"
+          empty-option="창고 전체"
+          :options="zoneOptions"
+          :disabled="!form.warehouseId"
+          :help="
+            !form.warehouseId
+              ? '창고를 먼저 고르세요.'
+              : zoneOptions.length
+                ? '비우면 창고 전체입니다.'
+                : '이 창고는 구역을 나누지 않았습니다. 창고 전체로 돕니다.'
+          "
         />
         <FormField
           v-model="form.targetSkuKeyword"
           label="SKU · 제품명"
-          placeholder="순환실사에서 좁힐 품목"
+          placeholder="예: 티셔츠, 24001"
+          help="일부만 넣어도 됩니다. 특정 품목만 세려면 저장 후 '재고에서 담기' 를 쓰세요."
         />
         <FormField
           v-model="form.blindYn"
@@ -508,6 +643,23 @@ const progressPct = (t) =>
           help="세는 사람에게 장부수량을 숨깁니다. 보여 주면 맞추려는 쪽으로 세게 되어 실사의 목적 자체가 없어집니다."
         />
         <FormField v-model="form.remark" label="비고" class="span-2" />
+      </div>
+
+      <!-- 저장 전에 몇 건이 잡히는지 보여 준다. 저장하고 대상까지 만들어
+           봐야 0 건인 줄 아는 것은 쓸 수 없는 계획을 만든 뒤에야 알려
+           주는 것이다. -->
+      <div v-if="form.warehouseId" class="preview" :class="{ empty: preview && !preview.matched }">
+        <span v-if="previewing" class="spinner"></span>
+        <template v-else-if="preview">
+          <span>
+            이 조건으로 셀 대상은
+            <strong>{{ num(preview.matched) }}</strong> 건입니다
+            <span v-if="preview.matched !== preview.warehouseTotal" class="dim">
+              (창고 전체 {{ num(preview.warehouseTotal) }} 건)
+            </span>
+          </span>
+          <span v-if="previewNote" class="small">{{ previewNote }}</span>
+        </template>
       </div>
 
       <template #footer>
@@ -581,8 +733,23 @@ const progressPct = (t) =>
       <!-- 단계별 행동 -->
       <div class="act-row">
         <template v-if="detail.planned">
-          <button class="btn" :disabled="detailBusy || !canCount" @click="generateTargets()">
+          <button
+            class="btn"
+            :disabled="detailBusy || !canCount"
+            title="계획의 구역 · SKU 조건으로 창고를 훑어 대상을 다시 뽑습니다"
+            @click="generateTargets()"
+          >
             대상 생성
+          </button>
+          <!-- 조건으로 표현되지 않는 '이것만' 을 위해. 목록에서 고르므로
+               없는 제품을 넣을 방법이 없다. -->
+          <button
+            class="btn"
+            :disabled="detailBusy || !canCount"
+            title="창고의 재고 목록에서 골라 담습니다. 이미 담긴 것은 건너뜁니다."
+            @click="picking = true"
+          >
+            재고에서 담기
           </button>
           <button class="btn" :disabled="detailBusy || !canCount" @click="openEdit(detail)">
             계획 수정
@@ -658,6 +825,8 @@ const progressPct = (t) =>
             <th v-if="!detail.blind || detail.closed" style="width: 70px" class="right">차이</th>
             <th v-if="detail.counting" style="width: 96px">입력</th>
             <th style="width: 84px" align="center">상태</th>
+            <!-- 계획 중에만 뺄 수 있다. 시작하면 대상은 고정된다. -->
+            <th v-if="detail.planned" style="width: 40px"></th>
           </tr>
         </thead>
         <tbody>
@@ -700,12 +869,26 @@ const progressPct = (t) =>
             <td align="center">
               <CodeBadge group="TAKE_LINE_STATUS" :code="l.lineStatus" />
             </td>
+            <td v-if="detail.planned">
+              <button
+                class="btn btn-sm btn-danger"
+                :disabled="detailBusy || !canCount"
+                title="이 줄을 대상에서 뺍니다"
+                @click="removeTarget(l)"
+              >
+                ×
+              </button>
+            </td>
           </tr>
           <tr v-if="!detail.lines.length">
-            <td colspan="8">
+            <td colspan="9">
               <div class="table-empty">
                 <span class="table-empty-icon">🗂</span>
-                {{ detail.planned ? "대상이 없습니다. '대상 생성' 을 누르세요." : '조건에 맞는 줄이 없습니다.' }}
+                {{
+                  detail.planned
+                    ? "대상이 없습니다. '대상 생성' 으로 조건에 맞는 재고를 훑거나, '재고에서 담기' 로 직접 고르세요."
+                    : '조건에 맞는 줄이 없습니다.'
+                }}
               </div>
             </td>
           </tr>
@@ -782,10 +965,38 @@ const progressPct = (t) =>
       @cancel="askCancel = null"
       @confirm="doCancel()"
     />
+
+    <!-- 창고의 재고에서 직접 고른다. 목록에서 고르므로 없는 제품을 넣을
+         방법이 없고, 제품명을 외울 필요도 없다. -->
+    <StockPicker
+      v-if="picking && detail"
+      title="실사 대상에 담을 재고"
+      :plant-id="detail.plantId"
+      :warehouse-id="detail.warehouseId"
+      lock-warehouse
+      :picked-seqs="pickedStockSeqs"
+      @pick="pickTarget"
+      @close="picking = false"
+    />
   </div>
 </template>
 
 <style scoped>
+/* 대상 미리보기 — 저장 전에 몇 건이 잡히는지 */
+.preview {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line, #e5e7eb);
+  border-radius: 8px;
+  font-size: 13px;
+}
+.preview.empty {
+  border-color: var(--c-amber, #b45309);
+  color: var(--c-amber, #b45309);
+}
 .quick,
 .line-filter {
   display: flex;

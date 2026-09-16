@@ -50,6 +50,39 @@ public interface StocktakeDao {
 			@Param("skuKeyword") String skuKeyword);
 
 	/**
+	 * 조건에 맞는 재고가 몇 건인지 — 대상을 만들지 않고 세기만 한다.
+	 *
+	 * 계획을 저장할 때 "이 조건으로는 셀 것이 없다" 를 미리 말해 주려고
+	 * 쓴다. 지금은 대상 생성까지 가야 알 수 있는데, 그러면 저장은 됐지만
+	 * 시작할 수 없는 죽은 계획이 남는다.
+	 *
+	 * 조건을 하나씩 빼 가며 세면 <b>어느 조건이 0 을 만들었는지</b> 짚을
+	 * 수 있다. "구역이나 SKU 조건을 넓히세요" 처럼 뭉뚱그리지 않아도 된다.
+	 */
+	int countTargets(@Param("warehouseSeq") Long warehouseSeq,
+			@Param("zoneCode") String zoneCode,
+			@Param("skuKeyword") String skuKeyword);
+
+	/**
+	 * 고른 재고를 대상으로 담는다 (지정실사).
+	 *
+	 * 조건으로 훑는 것과 달리 사람이 목록에서 고른 것을 그대로 넣는다.
+	 * 지정실사는 "이것만 세라" 이므로 조건으로 표현할 수 없는 경우가 많다.
+	 *
+	 * 이미 담긴 줄은 건너뛴다(ON CONFLICT DO NOTHING). 두 번 담으려는 것은
+	 * 실수이지 오류가 아니라, 거부하고 전부 되돌리면 나머지까지 못 담는다.
+	 *
+	 * 창고를 함께 걸어 다른 창고 재고가 섞이는 것을 SQL 에서 막는다.
+	 * 서비스도 확인하지만, 여기서 거르면 그 확인이 뚫려도 안전하다.
+	 */
+	int insertTargetsByStock(@Param("takeSeq") Long takeSeq,
+			@Param("warehouseSeq") Long warehouseSeq,
+			@Param("stockSeqs") List<Long> stockSeqs);
+
+	/** 대상 한 줄 빼기 — 계획 상태에서만 */
+	void deleteLine(@Param("lineSeq") Long lineSeq);
+
+	/**
 	 * 계획에 없던 줄을 하나 추가한다 (INV-PG-009).
 	 *
 	 * 장부에 없는 물건이라 stock_seq 가 비어 있고 계획수량은 0 이다.

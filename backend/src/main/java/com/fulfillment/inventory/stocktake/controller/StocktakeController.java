@@ -6,6 +6,7 @@ import com.fulfillment.common.web.PageResponse;
 import com.fulfillment.common.web.ReasonRequest;
 import com.fulfillment.inventory.stocktake.dto.AddLineRequest;
 import com.fulfillment.inventory.stocktake.dto.CountRequest;
+import com.fulfillment.inventory.stocktake.dto.PickTargetRequest;
 import com.fulfillment.inventory.stocktake.dto.StocktakeResponse;
 import com.fulfillment.inventory.stocktake.dto.StocktakeSaveRequest;
 import com.fulfillment.inventory.stocktake.dto.StocktakeSearch;
@@ -30,7 +31,10 @@ import org.springframework.web.bind.annotation.RestController;
  *   POST   /api/stocktakes                   계획 등록
  *   PUT    /api/stocktakes/{seq}             계획 수정 (시작 전만)
  *   DELETE /api/stocktakes/{seq}             취소 (마감 전만)
- *   POST   /api/stocktakes/{seq}/targets     대상 생성 — 몇 번이고 다시 뽑는다
+ *   GET    /api/stocktakes/target-preview   조건이 몇 건을 잡는지 — 저장 전에 본다
+ *   POST   /api/stocktakes/{seq}/targets     대상 생성 — 조건으로 훑는다 (전수 · 순환)
+ *   POST   /api/stocktakes/{seq}/targets/pick   고른 재고를 담는다 (지정)
+ *   DELETE /api/stocktakes/{seq}/targets/{lineSeq}  대상 한 줄 빼기
  *   POST   /api/stocktakes/{seq}/start       실사 시작 — 대상이 고정된다
  *   POST   /api/stocktakes/{seq}/counts      수량 입력 (1차 · 재계수)
  *   POST   /api/stocktakes/{seq}/close       마감 — 여기서 재고가 바뀐다
@@ -82,12 +86,55 @@ public class StocktakeController {
 		return ApiResponse.ok(stocktakeService.update(CurrentUser.require(), takeSeq, request));
 	}
 
-	/** 대상 생성. 조건에 맞는 재고가 없으면 warning 이 온다. */
+	/**
+	 * 조건이 몇 건을 잡는지 — 저장 전에 본다.
+	 *
+	 * 계획 화면이 조건을 바꿀 때마다 부른다. 저장하고 대상까지 만들어 봐야
+	 * 0 건인 줄 아는 것은, 쓸 수 없는 계획을 만들고 나서야 알려 주는 것이다.
+	 */
+	@GetMapping("/target-preview")
+	public ApiResponse<StocktakeService.TargetPreview> targetPreview(
+			@RequestParam String plantId,
+			@RequestParam String warehouseId,
+			@RequestParam(required = false) String targetZone,
+			@RequestParam(required = false) String targetSkuKeyword) {
+		return ApiResponse.ok(stocktakeService.previewTargets(
+				CurrentUser.require(), plantId, warehouseId, targetZone, targetSkuKeyword));
+	}
+
+	/**
+	 * 대상 생성 — 조건으로 훑는다 (전수 · 순환).
+	 *
+	 * 0 건이면 어느 조건이 범인인지 짚어 주는 warning 이 온다.
+	 */
 	@PostMapping("/{takeSeq}/targets")
 	public ApiResponse<StocktakeResponse> generateTargets(@PathVariable Long takeSeq) {
 		StocktakeService.Result result =
 				stocktakeService.generateTargets(CurrentUser.require(), takeSeq);
 		return ApiResponse.ok(result.stocktake(), result.warning());
+	}
+
+	/**
+	 * 고른 재고를 대상으로 담는다 (지정실사).
+	 *
+	 * 대상 생성과 달리 기존 줄을 지우지 않는다 — 몇 번에 나눠 담는 것이
+	 * 지정실사의 실제 작업이다. 이미 담긴 것은 조용히 건너뛰고 몇 건을
+	 * 건너뛰었는지 warning 으로 알린다.
+	 */
+	@PostMapping("/{takeSeq}/targets/pick")
+	public ApiResponse<StocktakeResponse> pickTargets(@PathVariable Long takeSeq,
+			@Valid @RequestBody PickTargetRequest request) {
+		StocktakeService.Result result =
+				stocktakeService.pickTargets(CurrentUser.require(), takeSeq, request.stockSeqs());
+		return ApiResponse.ok(result.stocktake(), result.warning());
+	}
+
+	/** 대상 한 줄 빼기 — 계획 상태에서만 */
+	@DeleteMapping("/{takeSeq}/targets/{lineSeq}")
+	public ApiResponse<StocktakeResponse> removeTarget(@PathVariable Long takeSeq,
+			@PathVariable Long lineSeq) {
+		return ApiResponse.ok(
+				stocktakeService.removeTarget(CurrentUser.require(), takeSeq, lineSeq));
 	}
 
 	/** 실사 시작. 대상이 고정된다 — 세는 도중에 목록이 바뀌면 안 된다. */

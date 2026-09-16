@@ -112,6 +112,25 @@ public class LocationService {
 		return LocationResponse.of(mustFindInScope(actor, locationSeq, "R"));
 	}
 
+	/**
+	 * 이 창고에 쓰이고 있는 구역코드 (실사 계획이 쓴다).
+	 *
+	 * 구역은 자유 입력이라 창고마다 무엇이 있는지 사람이 외울 수 없다.
+	 * 외우게 하면 오타 하나로 실사 대상이 0 건이 되는데, 구역 조건은
+	 * 정확일치라 '거의 맞는' 값도 안 걸린다 — 고를 수 있게 해야 한다.
+	 */
+	@Transactional(readOnly = true)
+	public List<String> zones(LoginUser actor, String plantId, String warehouseId) {
+		permissionChecker.require(actor, PERM, "R");
+
+		Warehouse warehouse = mustFindWarehouse(plantId, warehouseId);
+		Plant plant = mustFindPlant(plantId);
+		dataScopes.forRead(actor, PERM)
+				.requireOrg(plant.getOrgSeq(), "창고 " + warehouse.getWarehouseName());
+
+		return locationDao.selectZoneCodes(warehouse.getWarehouseSeq());
+	}
+
 	/* ------------------------------------------------------------------ */
 	/* 등록                                                                */
 	/* ------------------------------------------------------------------ */

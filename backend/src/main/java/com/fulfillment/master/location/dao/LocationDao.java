@@ -47,6 +47,18 @@ public interface LocationDao {
 	int countByBarcode(@Param("barcode") String barcode,
 			@Param("exceptLocationSeq") Long exceptLocationSeq);
 
+	/**
+	 * 이 창고에 실제로 쓰이고 있는 구역코드.
+	 *
+	 * 구역은 자유 입력이라 창고마다 무엇이 있는지 사람이 외울 수 없다.
+	 * 외우게 하면 오타 하나로 실사 대상이 0 건이 되는데, 구역 조건은
+	 * 정확일치라 '거의 맞는' 값도 안 걸린다.
+	 *
+	 * 코드 목록이 아니라 <b>실제 빈에 쓰인 값</b>을 돌려준다. 코드표를
+	 * 따로 두면 표에는 있는데 그 구역에 빈이 하나도 없는 값이 섞인다.
+	 */
+	List<String> selectZoneCodes(@Param("warehouseSeq") Long warehouseSeq);
+
 	/** 등록 후 locationSeq 가 채워진다 */
 	void insert(Location location);
 

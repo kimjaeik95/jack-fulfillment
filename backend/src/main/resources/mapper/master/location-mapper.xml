@@ -161,6 +161,26 @@
         </if>
     </select>
 
+    <!--
+      이 창고에 실제로 쓰이고 있는 구역코드.
+
+      사용중인 빈에서 뽑는다. 사용중지된 빈의 구역까지 주면 고를 수는
+      있는데 실사 대상은 0 건이 나온다 — 고를 수 있는 값은 쓸 수 있는
+      값이어야 한다.
+
+      구역이 비어 있는 빈(zone_code IS NULL)은 목록에 넣지 않는다. 그런
+      빈은 구역으로 좁히는 대상이 아니라 '구역 지정 안 함' 으로 전부
+      도는 대상이다.
+    -->
+    <select id="selectZoneCodes" resultType="string">
+        SELECT DISTINCT zone_code
+          FROM tb_location
+         WHERE warehouse_seq = #{warehouseSeq}
+           AND use_yn = 'Y'
+           AND zone_code IS NOT NULL
+         ORDER BY zone_code
+    </select>
+
     <insert id="insert" parameterType="com.fulfillment.domain.Location"
             useGeneratedKeys="true" keyProperty="locationSeq" keyColumn="location_seq">
         INSERT INTO tb_location (

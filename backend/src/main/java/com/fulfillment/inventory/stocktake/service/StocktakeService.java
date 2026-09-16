@@ -9,6 +9,7 @@ import com.fulfillment.common.security.DataScopeResolver;
 import com.fulfillment.common.security.LoginUser;
 import com.fulfillment.common.security.PermissionChecker;
 import com.fulfillment.common.security.ScopeFilter;
+import com.fulfillment.common.util.Texts;
 import com.fulfillment.common.web.PageResponse;
 import com.fulfillment.domain.Location;
 import com.fulfillment.domain.Plant;
@@ -220,11 +221,153 @@ public class StocktakeService {
 		auditRecorder.recordAction(actor, "UPDATE", TABLE, after.getTakeNo(),
 				"실사 대상 %d 줄 생성".formatted(created));
 
-		String warning = created == 0
-				? "조건에 맞는 재고가 없어 대상이 하나도 만들어지지 않았습니다. 구역이나 "
-						+ "SKU 조건을 넓히거나, 이 창고에 재고가 있는지 확인하세요."
-				: null;
+		return new Result(StocktakeResponse.of(after),
+				created == 0 ? diagnoseEmpty(take) : null);
+	}
+
+	/**
+	 * 대상이 0 건일 때 <b>어느 조건이 범인인지</b> 짚는다.
+	 *
+	 * 조건을 하나씩 빼 가며 세면 알 수 있다. "구역이나 SKU 조건을 넓히세요"
+	 * 처럼 뭉뚱그리면 사람이 둘 다 지웠다 넣었다 하며 찾아야 한다 — 서버는
+	 * 이미 답을 알고 있는데 말해 주지 않는 것이다.
+	 */
+	private String diagnoseEmpty(Stocktake take) {
+		/*
+		 * 무슨 일이 일어났는지 먼저 말하고, 왜인지를 붙인다. 진단만 주면
+		 * 읽는 사람이 '그래서 대상이 만들어진 건가' 를 다시 확인해야 한다.
+		 */
+		String head = "조건에 맞는 재고가 없어 대상이 하나도 만들어지지 않았습니다.";
+
+		Long wh = take.getWarehouseSeq();
+		String zone = take.getTargetZone();
+		String keyword = take.getTargetSkuKeyword();
+
+		int all = stocktakeDao.countTargets(wh, null, null);
+		if (all == 0) {
+			return head + " 이 창고에는 재고가 한 건도 없습니다 — 창고를 다시 고르거나 "
+					+ "입고 후에 실사하세요.";
+		}
+		if (zone == null && keyword == null) {
+			return head; // 조건이 없는데 0 이면 위에서 이미 설명됐다
+		}
+
+		int byZone = zone == null ? all : stocktakeDao.countTargets(wh, zone, null);
+		int bySku = keyword == null ? all : stocktakeDao.countTargets(wh, null, keyword);
+
+		if (zone != null && byZone == 0) {
+			return head + (" 구역 '%s' 에 재고가 없습니다. 이 창고 전체에는 %d 건이 있으니 "
+					+ "구역을 다시 고르거나 비워 두세요.").formatted(zone, all);
+		}
+		if (keyword != null && bySku == 0) {
+			return head + (" SKU 조건 '%s' 에 맞는 재고가 이 창고에 없습니다. 창고 전체에는 "
+					+ "%d 건이 있습니다 — 제품명 일부나 SKU 코드 일부로 넣거나, 재고에서 "
+					+ "직접 고르세요.").formatted(keyword, all);
+		}
+		// 각각은 걸리는데 함께 걸면 0 — 겹치는 재고가 없다는 뜻이다
+		return head + (" 구역 '%s' 에는 %d 건, SKU 조건 '%s' 에는 %d 건이 있지만 둘 다 "
+				+ "만족하는 재고가 없습니다. 둘 중 하나를 비우세요.")
+				.formatted(zone, byZone, keyword, bySku);
+	}
+
+	/**
+	 * 조건을 저장하기 전에 몇 건이 잡히는지 미리 센다 (INV-PG-008).
+	 *
+	 * 계획 화면이 조건을 바꿀 때마다 부른다. 저장하고 대상까지 만들어 봐야
+	 * 0 건인 줄 아는 것은, 쓸 수 없는 계획을 만들고 나서야 알려 주는 것이다.
+	 */
+	@Transactional(readOnly = true)
+	public TargetPreview previewTargets(LoginUser actor, String plantId, String warehouseId,
+			String targetZone, String targetSkuKeyword) {
+		permissionChecker.require(actor, PERM, "R");
+
+		Warehouse warehouse = mustFindWarehouse(plantId, warehouseId);
+		requireWriteScope(actor, plantId, "창고 " + warehouse.getWarehouseName());
+
+		Long wh = warehouse.getWarehouseSeq();
+		String zone = Texts.trimToNull(targetZone);
+		String keyword = Texts.trimToNull(targetSkuKeyword);
+
+		return new TargetPreview(
+				stocktakeDao.countTargets(wh, zone, keyword),
+				stocktakeDao.countTargets(wh, null, null),
+				zone == null ? null : stocktakeDao.countTargets(wh, zone, null),
+				keyword == null ? null : stocktakeDao.countTargets(wh, null, keyword));
+	}
+
+	/**
+	 * 고른 재고를 대상으로 담는다 (지정실사).
+	 *
+	 * 조건으로 훑는 것과 달리 사람이 재고 목록에서 고른 것을 넣는다.
+	 * 지정실사는 "이것만 세라" 라서 조건으로 표현되지 않는 경우가 많고,
+	 * 무엇보다 <b>목록에서 고르면 없는 제품을 넣을 방법이 없다</b>.
+	 *
+	 * 대상 생성(조건)과 달리 기존 줄을 지우지 않는다. 몇 번에 나눠 담는
+	 * 것이 지정실사의 실제 작업이기 때문이다.
+	 */
+	@Transactional
+	public Result pickTargets(LoginUser actor, Long takeSeq, List<Long> stockSeqs) {
+		permissionChecker.require(actor, PERM, "U");
+
+		Stocktake take = mustFindInScope(actor, takeSeq, PERM, "U");
+		requirePlanned(take, "대상 담기");
+
+		if (stockSeqs == null || stockSeqs.isEmpty()) {
+			throw new BusinessException(ErrorCode.INVALID_INPUT,
+					"담을 재고를 하나 이상 고르세요.");
+		}
+
+		int added = stocktakeDao.insertTargetsByStock(takeSeq, take.getWarehouseSeq(), stockSeqs);
+
+		Stocktake after = mustFind(takeSeq);
+		auditRecorder.recordAction(actor, "UPDATE", TABLE, after.getTakeNo(),
+				"실사 대상 %d 줄 담기 (지정)".formatted(added));
+
+		// 고른 것과 담긴 것이 다르면 말해 준다. 조용히 덜 담기면 센 뒤에야
+		// "그거 왜 없지" 가 된다.
+		String warning = null;
+		int skipped = stockSeqs.size() - added;
+		if (skipped > 0) {
+			warning = ("%d 건은 담지 않았습니다 — 이미 대상에 있거나 이 창고(%s)의 재고가 "
+					+ "아닙니다.").formatted(skipped, after.getWarehouseName());
+		}
 		return new Result(StocktakeResponse.of(after), warning);
+	}
+
+	/** 대상 한 줄 빼기 — 계획 상태에서만 */
+	@Transactional
+	public StocktakeResponse removeTarget(LoginUser actor, Long takeSeq, Long lineSeq) {
+		permissionChecker.require(actor, PERM, "U");
+
+		Stocktake take = mustFindInScope(actor, takeSeq, PERM, "U");
+		requirePlanned(take, "대상 빼기");
+
+		StocktakeLine line = stocktakeDao.selectLine(lineSeq);
+		if (line == null || !takeSeq.equals(line.getTakeSeq())) {
+			throw new BusinessException(ErrorCode.NOT_FOUND,
+					"이 실사의 대상이 아닙니다. (줄 %s)".formatted(lineSeq));
+		}
+
+		stocktakeDao.deleteLine(lineSeq);
+		auditRecorder.recordAction(actor, "UPDATE", TABLE, take.getTakeNo(),
+				"실사 대상에서 %s 제외".formatted(line.getSkuId()));
+		return StocktakeResponse.of(mustFind(takeSeq));
+	}
+
+	/**
+	 * 조건이 몇 건을 잡는지.
+	 *
+	 * matched 가 0 이어도 막지 않는다 — 조건을 짜는 중일 수 있다. 대신
+	 * 나머지 숫자로 화면이 이유를 말할 수 있게 한다.
+	 */
+	public record TargetPreview(
+			int matched,
+			/** 이 창고 전체 재고 건수 */
+			int warehouseTotal,
+			/** 구역 조건만 걸었을 때. 구역을 안 걸었으면 null */
+			Integer byZone,
+			/** SKU 조건만 걸었을 때. 안 걸었으면 null */
+			Integer bySku) {
 	}
 
 	/**
@@ -415,9 +558,9 @@ public class StocktakeService {
 		requireChanged(changed, take, "마감");
 
 		List<StocktakeLine> lines = stocktakeDao.selectLines(takeSeq, null, null);
-		int applied = 0;
-		int phantoms = 0;
-		int drifted = 0;
+		int applied = 0; // 실제 장부재고의 수량을 변경한 실사 라인 수
+		int phantoms = 0; // 없던 재고 실사 찾았을 때
+		int drifted = 0; // 실사 시작 후 입출고 등으로 장부수량이 달라진 라인 수
 
 		for (StocktakeLine line : lines) {
 			Long stockSeq = line.getStockSeq();
