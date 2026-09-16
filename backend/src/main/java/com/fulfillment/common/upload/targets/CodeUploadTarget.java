@@ -73,9 +73,27 @@ public class CodeUploadTarget implements UploadTarget {
 		return List.of(GROUP_ID, CODE_ID, CODE_NAME);
 	}
 
+	/**
+	 * 템플릿의 예시행.
+	 *
+	 * 예시임이 값 자체로 드러나야 한다. 사람들은 템플릿을 받아 예시행 아래에
+	 * 자기 줄을 적고 그대로 올린다 — 예시가 진짜처럼 생겼으면 그 순간 진짜
+	 * 데이터가 된다.
+	 *
+	 * 예전 예시는 ORG_TYPE / OUTLET / 아울렛 / 상설 할인 매장 이었다. 그대로
+	 * 올라가 실제 조직유형이 됐고, 하필 <b>오프라인 매장</b>이라 온라인 전용인
+	 * 이 시스템의 범위를 넘는 값이 기준정보에 앉았다 (요구사항 1.2 범위 외).
+	 *
+	 * 조직유형을 고른 것도 나빴다. 코드그룹 중에 손대면 가장 위험한 축이라,
+	 * 하필 그것을 예시로 보여 주면 따라 하기 쉽다.
+	 *
+	 * 그래서 없는 코드그룹을 쓴다. 예시를 안 지우고 올리면 그 줄만
+	 * "코드그룹을 먼저 등록하세요" 로 거부된다 — 예시행이 스스로를 막는다.
+	 */
 	@Override
 	public List<String> sampleRow() {
-		return List.of("ORG_TYPE", "OUTLET", "아울렛", "상설 할인 매장", "amber", "50", "Y");
+		return List.of("SAMPLE_GROUP", "SAMPLE01", "예시코드명", "예시 설명 — 이 줄은 지우고 쓰세요",
+				"gray", "10", "Y");
 	}
 
 	@Override
