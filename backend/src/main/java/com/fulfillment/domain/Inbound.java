@@ -58,6 +58,15 @@ public class Inbound {
 	private String driverName;
 	private String arriveRemark;
 
+	/* 초과입고 승인 (INB-005) ---------------------------------------------- */
+	private String overApprovedBy;
+	private LocalDateTime overApprovedAt;
+	private String overApproveRemark;
+
+	/* 입고완료 (INB-008) --------------------------------------------------- */
+	private String closedBy;
+	private LocalDateTime closedAt;
+
 	private String canceledBy;
 	private LocalDateTime canceledAt;
 	private String cancelReason;
@@ -78,18 +87,94 @@ public class Inbound {
 	private String supplierId;
 	private String supplierName;
 	private String arrivedByName;
+	private String closedByName;
+	private String overApprovedByName;
+	/** 공급처의 초과입고 허용 오차율 (%). 초과 판정에 쓴다 (INB-005). */
+	private java.math.BigDecimal overReceiptRate;
 	private Integer lineCount;
 	private Integer totalPlannedQty;
 	private Integer totalArrivedQty;
+	private Integer totalReceivedQty;
+	private Integer totalRejectedQty;
+	private Integer totalPutawayQty;
 
 	@Builder.Default
 	private List<InboundLine> lines = new ArrayList<>();
 
 	public static final String PLANNED = "PLANNED";
 	public static final String ARRIVED = "ARRIVED";
+	public static final String INSPECTING = "INSPECTING";
+	public static final String PUTAWAY = "PUTAWAY";
+	public static final String DONE = "DONE";
 	public static final String CANCELED = "CANCELED";
 
 	public static final String PURCHASE = "PURCHASE";
+
+	/** 세는 중 */
+	public boolean isInspecting() {
+		return INSPECTING.equals(inboundStatus);
+	}
+
+	/** 받기로 했고 자리에 놓는 중 */
+	public boolean isPutaway() {
+		return PUTAWAY.equals(inboundStatus);
+	}
+
+	/** 적치까지 끝나 재고가 되었다 */
+	public boolean isDone() {
+		return DONE.equals(inboundStatus);
+	}
+
+	/** 아직 진행 중인가 — 취소도 완료도 아닌 */
+	public boolean isOpen() {
+		return !isDone() && !isCanceled();
+	}
+
+	/* 초과입고 (INB-005) --------------------------------------------------- */
+
+	/** 예정보다 많이 받은 수량 */
+	public int overQty() {
+		return Math.max(0, nz(totalReceivedQty) - nz(totalPlannedQty));
+	}
+
+	/**
+	 * 허용 오차 안에서 넘긴 것인가.
+	 *
+	 * 오차율은 공급처 기준정보가 갖는다 (tb_supplier.over_receipt_rate).
+	 * 박스 단위로 오는 물건은 낱개로 딱 맞출 수 없어서, 공급처마다 몇 %
+	 * 까지는 그냥 받기로 미리 정해 둔다.
+	 */
+	public int allowedOverQty() {
+		if (overReceiptRate == null) {
+			return 0;
+		}
+		return overReceiptRate
+				.multiply(java.math.BigDecimal.valueOf(nz(totalPlannedQty)))
+				.divide(java.math.BigDecimal.valueOf(100), java.math.RoundingMode.FLOOR)
+				.intValue();
+	}
+
+	/**
+	 * 승인이 필요한가.
+	 *
+	 * 허용 오차 안이면 승인 없이 넘어간다. 넘으면 승인 없이는 입고를
+	 * 완료할 수 없다 — 시키지도 않은 물건을 말없이 받으면 재고와 대금이
+	 * 함께 틀어진다.
+	 */
+	public boolean needsOverApproval() {
+		return overQty() > allowedOverQty();
+	}
+
+	public boolean overApproved() {
+		return overApprovedBy != null;
+	}
+
+	/** 지금 입고를 완료할 수 있나 */
+	public boolean closable() {
+		return isPutaway()
+				&& nz(totalPutawayQty) > 0
+				&& (!needsOverApproval() || overApproved());
+	}
 
 	/** 아직 도착하지 않았다. 이때만 고칠 수 있다. */
 	public boolean isPlanned() {

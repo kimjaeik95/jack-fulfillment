@@ -116,3 +116,70 @@ export async function arrive(inboundSeq, { vehicleNo, driverName, remark, lines 
   })
   return { inbound: data, warning }
 }
+
+/**
+ * 검수 (INB-PG-003).
+ *
+ * 세어 보고 <b>받아들일 것과 못 받을 것</b>을 가른다. 합격은 기입고로
+ * 누적되고 발주 잔량까지 줄인다. 거부는 재고에 반영하지 않으며 사유가
+ * 필수다.
+ *
+ * 한 번에 다 세지 않아도 된다 — 회차로 쌓이므로 오후에 나머지를 세면
+ * 그것이 2 회차다. 앞 회차를 덮지 않는다.
+ *
+ * 예정수량은 이 결과로 바뀌지 않는다. 예정과 실제의 차이가 곧 찾아야 할
+ * 것인데, 덮으면 차이가 사라진다.
+ *
+ * @param {{lineSeq, passedQty, rejectedQty?, reasonCode?, remark?}[]} lines
+ */
+export async function inspect(inboundSeq, lines, remark) {
+  const { data, warning } = await post(`/inbounds/${inboundSeq}/inspect`, { lines, remark })
+  return { inbound: data, warning }
+}
+
+/**
+ * 초과입고 승인 (INB-PG-004).
+ *
+ * 검수하는 사람과 승인하는 사람이 다르다 (INB_INSPECT vs INB_APPROVE).
+ * 많이 받아 놓고 자기가 승인하면 통제가 아니라 절차다.
+ */
+export async function approveOver(inboundSeq, reason) {
+  const { data } = await post(`/inbounds/${inboundSeq}/approve-over`, { reason })
+  return data
+}
+
+/**
+ * 적치 (INB-PG-005, INB-PG-006).
+ *
+ * SKU 바코드와 로케이션 바코드를 둘 다 보낸다. 지시와 다르면 서버가
+ * 막는다 — 다른 물건을 그 자리에 놓으면 나중에 없는 물건을 찾게 된다.
+ *
+ * 스캔이 안 되는 상황(라벨 훼손 · 미발급)에서는 코드를 직접 넣어도 된다.
+ * 서버가 바코드로 먼저 찾고 없으면 코드로 본다.
+ *
+ * 한 줄을 여러 로케이션에 나눠 놓을 수 있어 여러 번 부른다.
+ */
+export async function putaway(inboundSeq, { lineSeq, skuScan, locationScan, qty }) {
+  const { data, warning } = await post(`/inbounds/${inboundSeq}/putaway`, {
+    lineSeq,
+    skuScan,
+    locationScan,
+    qty,
+  })
+  return { inbound: data, warning }
+}
+
+/**
+ * 입고완료 (INB-PG-007) — 여기서 재고가 늘어난다.
+ *
+ * 이 시스템에서 없던 재고가 생기는 유일한 경로다. 조정도 실사도 이미
+ * 있는 재고를 고치는 것이지 만들어 내는 것이 아니다.
+ *
+ * 적치된 수량만 반영한다 — 마당에 있는 물건을 팔 수는 없다.
+ * 이 경로로는 되돌릴 수 없다. 수량이 틀렸으면 입고정정을 올린다
+ * (INB-PG-008, api/inboundCorrect.js).
+ */
+export async function close(inboundSeq) {
+  const { data, warning } = await post(`/inbounds/${inboundSeq}/close`)
+  return { inbound: data, warning }
+}

@@ -31,6 +31,16 @@ public interface LocationDao {
 	 * 실사가 계획에 없던 물건을 추가할 때 쓴다. 현장은 순번이 아니라
 	 * 빈코드를 읽고 스캔한다.
 	 */
+	/**
+	 * 바코드로 단건 — 현장에서 스캔한 값을 자리로 바꾼다.
+	 *
+	 * 적치가 이 경로를 쓴다. 빈 코드를 눈으로 맞추는 것보다 스캔 한 번이
+	 * 빠르고, 무엇보다 틀리지 않는다.
+	 *
+	 * 바코드는 전역 유일하다(ux_location_barcode).
+	 */
+	Location selectByBarcode(@Param("barcode") String barcode);
+
 	Location selectByCode(@Param("warehouseSeq") Long warehouseSeq,
 			@Param("locationId") String locationId);
 

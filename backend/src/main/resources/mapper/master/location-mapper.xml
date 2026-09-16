@@ -139,6 +139,19 @@
            AND l.location_id   = #{locationId}
     </select>
 
+    <!--
+      바코드로 단건 — 현장에서 스캔한 값을 자리로 바꾼다.
+
+      여기는 창고를 걸지 않는다. 바코드가 전역 유일하고(ux_location_barcode),
+      '다른 창고 빈을 스캔했다' 는 것 자체가 부르는 쪽이 알아야 할 오류라
+      찾아 준 뒤에 서비스가 판정한다.
+    -->
+    <select id="selectByBarcode" resultMap="locationMap">
+        SELECT <include refid="locationColumns"/>
+        <include refid="locationFrom"/>
+         WHERE l.barcode = #{barcode}
+    </select>
+
     <!-- 같은 창고 안의 빈코드 중복 (uk_location_wh_id 와 같은 규칙) -->
     <select id="countByCode" resultType="int">
         SELECT COUNT(*) FROM tb_location

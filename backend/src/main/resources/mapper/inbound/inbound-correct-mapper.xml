@@ -1,0 +1,401 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<!--
+  입고정정 (INB-PG-008).
+
+  재고조정 매퍼(adjust-mapper.xml)와 같은 모양으로 맞췄다. 요청 → 승인 흐름이
+  같고, 같은 모양이면 읽는 법이 하나다.
+
+  다른 점은 전표가 창고가 아니라 <b>입고</b>를 물고 있다는 것이다. 데이터
+  범위는 입고 → 창고 → 플랜트 → 조직으로 거슬러 판정한다.
+-->
+<mapper namespace="com.fulfillment.inbound.correct.dao.CorrectDao">
+
+    <resultMap id="correctMap" type="com.fulfillment.domain.InboundCorrect">
+        <id     property="correctSeq"     column="correct_seq"/>
+        <result property="correctNo"      column="correct_no"/>
+        <result property="inboundSeq"     column="inbound_seq"/>
+        <result property="correctStatus"  column="correct_status"/>
+        <result property="reasonCode"     column="reason_code"/>
+        <result property="remark"         column="remark"/>
+        <result property="requestedBy"    column="requested_by"/>
+        <result property="requestedAt"    column="requested_at"/>
+        <result property="decidedBy"      column="decided_by"/>
+        <result property="decidedAt"      column="decided_at"/>
+        <result property="decideRemark"   column="decide_remark"/>
+        <result property="createdBy"      column="created_by"/>
+        <result property="createdAt"      column="created_at"/>
+        <result property="updatedBy"      column="updated_by"/>
+        <result property="updatedAt"      column="updated_at"/>
+        <result property="inboundNo"      column="inbound_no"/>
+        <result property="inboundStatus"  column="inbound_status"/>
+        <result property="warehouseId"    column="warehouse_id"/>
+        <result property="warehouseName"  column="warehouse_name"/>
+        <result property="plantId"        column="plant_id"/>
+        <result property="plantName"      column="plant_name"/>
+        <result property="orgSeq"         column="org_seq"/>
+        <result property="reasonName"     column="reason_name"/>
+        <result property="requestedByName" column="requested_by_name"/>
+        <result property="decidedByName"   column="decided_by_name"/>
+        <result property="lineCount"      column="line_count"/>
+        <result property="totalDelta"     column="total_delta"/>
+    </resultMap>
+
+    <resultMap id="correctLineMap" type="com.fulfillment.domain.InboundCorrectLine">
+        <id     property="lineSeq"        column="line_seq"/>
+        <result property="correctSeq"     column="correct_seq"/>
+        <result property="lineNo"         column="line_no"/>
+        <result property="putawaySeq"     column="putaway_seq"/>
+        <result property="qtyDelta"       column="qty_delta"/>
+        <result property="reasonCode"     column="reason_code"/>
+        <result property="remark"         column="remark"/>
+        <result property="appliedHistorySeq" column="applied_history_seq"/>
+        <result property="inboundLineSeq" column="inbound_line_seq"/>
+        <result property="locationSeq"    column="location_seq"/>
+        <result property="locationId"     column="location_id"/>
+        <result property="warehouseId"    column="warehouse_id"/>
+        <result property="plantId"        column="plant_id"/>
+        <result property="skuSeq"         column="sku_seq"/>
+        <result property="skuId"          column="sku_id"/>
+        <result property="productName"    column="product_name"/>
+        <result property="colorCode"      column="color_code"/>
+        <result property="sizeCode"       column="size_code"/>
+        <result property="putawayQty"     column="putaway_qty"/>
+        <result property="correctedQty"   column="corrected_qty"/>
+        <result property="qtyOnHand"      column="qty_on_hand"/>
+        <result property="reasonName"     column="reason_name"/>
+    </resultMap>
+
+
+    <!--
+      사유코드의 이름을 함께 읽는다.
+
+      정정 사유는 코드그룹이 REASON_CORRECT 하나로 고정이라 그룹까지 조건에
+      넣는다. 그룹 없이 코드만으로 조인하면 다른 그룹의 같은 코드가 붙는다.
+
+      요청자 · 승인자의 이름도 읽는다. 결재함에서 'dc1.in01' 만 보이면
+      누구인지 알 수 없다.
+    -->
+    <sql id="correctFrom">
+        FROM tb_inbound_correct c
+        JOIN tb_inbound   i ON i.inbound_seq   = c.inbound_seq
+        JOIN tb_warehouse w ON w.warehouse_seq = i.warehouse_seq
+        JOIN tb_plant     p ON p.plant_seq     = w.plant_seq
+        LEFT JOIN tb_code_group rg ON rg.code_group_id = 'REASON_CORRECT'
+        LEFT JOIN tb_code       rc ON rc.code_group_seq = rg.code_group_seq
+                                  AND rc.code_id        = c.reason_code
+        LEFT JOIN tb_user ru ON ru.user_id = c.requested_by
+        LEFT JOIN tb_user du ON du.user_id = c.decided_by
+    </sql>
+
+    <sql id="correctColumns">
+        c.correct_seq, c.correct_no, c.inbound_seq, c.correct_status,
+        c.reason_code, c.remark,
+        c.requested_by, c.requested_at, c.decided_by, c.decided_at, c.decide_remark,
+        c.created_by, c.created_at, c.updated_by, c.updated_at,
+        i.inbound_no     AS inbound_no,
+        i.inbound_status AS inbound_status,
+        w.warehouse_id   AS warehouse_id,
+        w.warehouse_name AS warehouse_name,
+        p.plant_id       AS plant_id,
+        p.plant_name     AS plant_name,
+        p.org_seq        AS org_seq,
+        rc.code_name     AS reason_name,
+        ru.user_name     AS requested_by_name,
+        du.user_name     AS decided_by_name,
+        <!--
+          라인 수와 변동 합계. 목록에서 전표마다 라인을 읽으면 전표 수만큼
+          질의가 늘어나 스칼라 서브쿼리로 한 번에 가져온다.
+
+          합계는 상쇄된다. 줄이는 줄과 늘리는 줄이 섞이면 0 이 될 수 있어
+          '규모' 가 아니라 '순변동' 이다.
+        -->
+        (SELECT COUNT(*) FROM tb_inbound_correct_line l WHERE l.correct_seq = c.correct_seq) AS line_count,
+        (SELECT COALESCE(SUM(l.qty_delta), 0) FROM tb_inbound_correct_line l
+          WHERE l.correct_seq = c.correct_seq) AS total_delta
+    </sql>
+
+    <!--
+      데이터 범위 (COM-PG-004).
+
+      정정 전표는 조직을 직접 갖지 않는다. 입고 → 창고 → 플랜트 → 운영
+      조직으로 거슬러 판정한다. scope 를 넣지 않고 조회하면
+      ScopedSearch.getScope() 가 예외를 던진다.
+    -->
+    <sql id="scopeFilter">
+        <if test="scope != null and !scope.unrestricted">
+            <choose>
+                <when test="scope.hasNoOrg">
+            AND c.requested_by = #{scope.ownerId}
+                </when>
+                <otherwise>
+            AND (p.org_seq IN
+                    <foreach collection="scope.orgSeqs" item="orgSeq" open="(" close=")" separator=",">
+                        #{orgSeq}
+                    </foreach>
+                 <if test="scope.ownerId != null">
+                 OR c.requested_by = #{scope.ownerId}
+                 </if>
+                )
+                </otherwise>
+            </choose>
+        </if>
+    </sql>
+
+    <sql id="correctWhere">
+        <where>
+            <if test="keyword != null">
+                AND (c.correct_no ILIKE '%' || #{keyword} || '%'
+                  OR i.inbound_no ILIKE '%' || #{keyword} || '%'
+                  OR c.remark     ILIKE '%' || #{keyword} || '%'
+                  OR rc.code_name ILIKE '%' || #{keyword} || '%')
+            </if>
+            <if test="plantId != null">
+                AND p.plant_id = #{plantId}
+            </if>
+            <if test="warehouseId != null">
+                AND w.warehouse_id = #{warehouseId}
+            </if>
+            <if test="correctStatus != null">
+                AND c.correct_status = #{correctStatus}
+            </if>
+            <if test='pendingOnly == "Y"'>
+                AND c.correct_status = 'REQUESTED'
+            </if>
+            <if test="reasonCode != null">
+                AND c.reason_code = #{reasonCode}
+            </if>
+            <if test="requestedBy != null">
+                AND c.requested_by = #{requestedBy}
+            </if>
+            <if test="inboundSeq != null">
+                AND c.inbound_seq = #{inboundSeq}
+            </if>
+            <if test="fromDate != null">
+                AND c.requested_at &gt;= #{fromDate}
+            </if>
+            <!-- 종료일은 그날 하루를 포함한다. 자정 이후 요청이 빠지면
+                 "오늘 올린 게 안 보인다" 가 된다. -->
+            <if test="toDate != null">
+                AND c.requested_at &lt; (#{toDate}::date + 1)
+            </if>
+            <include refid="scopeFilter"/>
+        </where>
+    </sql>
+
+    <select id="selectList" resultMap="correctMap">
+        SELECT <include refid="correctColumns"/>
+        <include refid="correctFrom"/>
+        <include refid="correctWhere"/>
+        ORDER BY ${sortColumn} ${sortDirection}, c.correct_seq DESC
+        <if test="size > 0">
+            LIMIT #{size} OFFSET #{offset}
+        </if>
+    </select>
+
+    <select id="countList" resultType="long">
+        SELECT COUNT(*)
+        <include refid="correctFrom"/>
+        <include refid="correctWhere"/>
+    </select>
+
+    <select id="selectBySeq" resultMap="correctMap">
+        SELECT <include refid="correctColumns"/>
+        <include refid="correctFrom"/>
+         WHERE c.correct_seq = #{correctSeq}
+    </select>
+
+
+    <!--
+      적치 한 행이 들고 있는 정보.
+
+      정정은 적치에 걸리므로, 라인 조회도 정정 대상 조회도 여기서 시작한다.
+      자리 · SKU · 원래 놓은 수량이 모두 적치 행에서 나온다.
+
+      qty_on_hand 는 그 자리 · 그 SKU 의 지금 보유수량이다. 놓은 수량과 다를
+      수 있다 — 같은 자리의 같은 SKU 는 다른 입고로도 들어오고 조정 · 이동으로
+      움직이기 때문이다. 화주(vendor)가 없는 행만 본다. 입고완료가 만드는
+      재고가 그쪽이다.
+    -->
+    <sql id="putawayJoin">
+          JOIN tb_inbound_putaway pw  ON pw.putaway_seq  = cl.putaway_seq
+          JOIN tb_inbound_line    il  ON il.line_seq     = pw.line_seq
+          JOIN tb_location        loc ON loc.location_seq = pw.location_seq
+          JOIN tb_warehouse       w   ON w.warehouse_seq  = loc.warehouse_seq
+          JOIN tb_plant           p   ON p.plant_seq      = w.plant_seq
+          JOIN tb_sku             k   ON k.sku_seq        = il.sku_seq
+          JOIN tb_product         pr  ON pr.product_seq   = k.product_seq
+          LEFT JOIN tb_stock      s   ON s.location_seq = pw.location_seq
+                                     AND s.sku_seq      = il.sku_seq
+                                     AND s.vendor_seq IS NULL
+    </sql>
+
+    <sql id="putawayColumns">
+               pw.putaway_seq   AS putaway_seq,
+               il.line_seq      AS inbound_line_seq,
+               pw.location_seq  AS location_seq,
+               loc.location_id  AS location_id,
+               w.warehouse_id   AS warehouse_id,
+               p.plant_id       AS plant_id,
+               k.sku_seq        AS sku_seq,
+               k.sku_id         AS sku_id,
+               pr.product_name  AS product_name,
+               k.color_code     AS color_code,
+               k.size_code      AS size_code,
+               pw.qty           AS putaway_qty,
+               s.qty_on_hand    AS qty_on_hand
+    </sql>
+
+    <!--
+      이 적치에 이미 승인된 정정의 합 (음수로 쌓인다).
+
+      <b>지금 보고 있는 전표는 뺀다.</b> 안 빼면 승인된 전표를 다시 열었을 때
+      자기 자신이 이미 반영된 것으로 잡혀 "남은 수량" 이 두 번 줄어 보인다.
+      이 값이 답하는 질문은 "이 전표 말고, 다른 정정이 얼마나 가져갔나" 다.
+    -->
+    <sql id="correctedQtySub">
+               (SELECT COALESCE(SUM(x.qty_delta), 0)
+                  FROM tb_inbound_correct_line x
+                  JOIN tb_inbound_correct      xc ON xc.correct_seq = x.correct_seq
+                 WHERE x.putaway_seq    = pw.putaway_seq
+                   AND xc.correct_status = 'APPROVED'
+    </sql>
+
+    <select id="selectLines" resultMap="correctLineMap">
+        SELECT cl.line_seq, cl.correct_seq, cl.line_no, cl.qty_delta,
+               cl.reason_code, cl.remark, cl.applied_history_seq,
+               rc.code_name AS reason_name,
+        <include refid="putawayColumns"/>,
+        <include refid="correctedQtySub"/>
+                   AND x.correct_seq  &lt;&gt; cl.correct_seq) AS corrected_qty
+          FROM tb_inbound_correct_line cl
+        <include refid="putawayJoin"/>
+          LEFT JOIN tb_code_group rg ON rg.code_group_id = 'REASON_CORRECT'
+          LEFT JOIN tb_code       rc ON rc.code_group_seq = rg.code_group_seq
+                                    AND rc.code_id        = cl.reason_code
+         WHERE cl.correct_seq = #{correctSeq}
+         ORDER BY cl.line_no
+    </select>
+
+    <!--
+      이 입고에서 정정할 수 있는 적치 목록 (요청 화면).
+
+      전표에 아직 안 담긴 것을 고르는 자리라 cl 이 없다. 같은 결과맵을 쓰려고
+      정정 전용 컬럼은 NULL 로 채운다 — 화면이 보는 것은 자리 · SKU · 놓은
+      수량 · 이미 정정된 양이다.
+    -->
+    <select id="selectTargets" resultMap="correctLineMap">
+        SELECT NULL::bigint  AS line_seq,
+               NULL::bigint  AS correct_seq,
+               NULL::integer AS line_no,
+               NULL::integer AS qty_delta,
+               NULL::varchar AS reason_code,
+               NULL::varchar AS remark,
+               NULL::bigint  AS applied_history_seq,
+               NULL::varchar AS reason_name,
+        <include refid="putawayColumns"/>,
+        <include refid="correctedQtySub"/>
+                   ) AS corrected_qty
+          FROM tb_inbound_putaway pw
+          JOIN tb_inbound_line    il  ON il.line_seq      = pw.line_seq
+          JOIN tb_location        loc ON loc.location_seq = pw.location_seq
+          JOIN tb_warehouse       w   ON w.warehouse_seq  = loc.warehouse_seq
+          JOIN tb_plant           p   ON p.plant_seq      = w.plant_seq
+          JOIN tb_sku             k   ON k.sku_seq        = il.sku_seq
+          JOIN tb_product         pr  ON pr.product_seq   = k.product_seq
+          LEFT JOIN tb_stock      s   ON s.location_seq = pw.location_seq
+                                     AND s.sku_seq      = il.sku_seq
+                                     AND s.vendor_seq IS NULL
+         WHERE il.inbound_seq = #{inboundSeq}
+         ORDER BY il.line_no, pw.putaway_seq
+    </select>
+
+
+    <insert id="insert" parameterType="com.fulfillment.domain.InboundCorrect"
+            useGeneratedKeys="true" keyProperty="correctSeq" keyColumn="correct_seq">
+        INSERT INTO tb_inbound_correct
+            (correct_no, inbound_seq, correct_status, reason_code, remark,
+             requested_by, created_by)
+        VALUES
+            (#{correctNo}, #{inboundSeq}, #{correctStatus}, #{reasonCode}, #{remark},
+             #{requestedBy}, #{createdBy})
+    </insert>
+
+    <insert id="insertLine" parameterType="com.fulfillment.domain.InboundCorrectLine"
+            useGeneratedKeys="true" keyProperty="lineSeq" keyColumn="line_seq">
+        INSERT INTO tb_inbound_correct_line
+            (correct_seq, line_no, putaway_seq, qty_delta, reason_code, remark)
+        VALUES
+            (#{correctSeq}, #{lineNo}, #{putawaySeq}, #{qtyDelta}, #{reasonCode}, #{remark})
+    </insert>
+
+    <update id="update" parameterType="com.fulfillment.domain.InboundCorrect">
+        UPDATE tb_inbound_correct
+           SET reason_code = #{reasonCode},
+               remark      = #{remark},
+               updated_by  = #{updatedBy},
+               updated_at  = CURRENT_TIMESTAMP
+         WHERE correct_seq = #{correctSeq}
+    </update>
+
+    <delete id="deleteLines">
+        DELETE FROM tb_inbound_correct_line WHERE correct_seq = #{correctSeq}
+    </delete>
+
+    <!--
+      상태 전이.
+
+      조건에 현재 상태를 넣는다. 두 명이 동시에 같은 전표를 승인하면 한 쪽은
+      0 행이 바뀌고, 서비스가 그것을 보고 거부한다 — 확인하지 않으면 재고에
+      두 번 반영된다.
+
+      취소는 요청자가 스스로 거두는 것이라 처리자를 남기지 않는다
+      (ck_inbc_decided 가 REQUESTED 와 CANCELED 를 예외로 둔 이유다).
+    -->
+    <update id="updateStatus">
+        UPDATE tb_inbound_correct
+           SET correct_status = #{toStatus},
+        <if test="decidedBy != null">
+               decided_by     = #{decidedBy},
+               decided_at     = CURRENT_TIMESTAMP,
+               decide_remark  = #{decideRemark},
+        </if>
+               updated_by     = COALESCE(#{decidedBy}, updated_by),
+               updated_at     = CURRENT_TIMESTAMP
+         WHERE correct_seq    = #{correctSeq}
+           AND correct_status = #{fromStatus}
+    </update>
+
+    <update id="updateLineApplied">
+        UPDATE tb_inbound_correct_line
+           SET applied_history_seq = #{historySeq}
+         WHERE line_seq = #{lineSeq}
+    </update>
+
+    <select id="countPendingByPutaway" resultType="int">
+        SELECT COUNT(*)
+          FROM tb_inbound_correct_line cl
+          JOIN tb_inbound_correct      c ON c.correct_seq = cl.correct_seq
+         WHERE cl.putaway_seq   = #{putawaySeq}
+           AND c.correct_status = 'REQUESTED'
+    </select>
+
+    <!--
+      입고 라인의 누적 수량을 되감는다 (INB-008).
+
+      기입고와 적치를 같은 값으로 움직인다. 정정은 '놓은 것을 도로 가져오는'
+      일이라 둘이 함께 줄어야 한다. 한쪽만 고치면 ck_inbl_putaway_le 가
+      막거나 — 더 나쁘게는 — 통과해서 두 숫자가 서로 다른 이야기를 한다.
+    -->
+    <update id="addLineCorrected">
+        UPDATE tb_inbound_line
+           SET received_qty = received_qty + #{qtyDelta},
+               putaway_qty  = putaway_qty  + #{qtyDelta},
+               updated_by   = #{actor},
+               updated_at   = CURRENT_TIMESTAMP
+         WHERE line_seq = #{lineSeq}
+    </update>
+
+</mapper>

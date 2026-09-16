@@ -20,6 +20,17 @@ public interface SkuDao {
 
 	Sku selectBySkuId(@Param("skuId") String skuId);
 
+	/**
+	 * 바코드로 단건 — 현장에서 스캔한 값을 물건으로 바꾼다.
+	 *
+	 * 적치 · 검수 · 출고 피킹이 모두 이 경로를 쓴다. 창고에서 SKU 코드
+	 * 17 자를 손으로 치게 할 수는 없고, 치면 틀린다.
+	 *
+	 * 바코드는 전역 유일하다(ux_sku_barcode). 스캔 한 번으로 물건 하나가
+	 * 지목되지 않으면 스캔의 의미가 없다.
+	 */
+	Sku selectByBarcode(@Param("barcode") String barcode);
+
 	int countBySkuId(@Param("skuId") String skuId);
 
 	/**

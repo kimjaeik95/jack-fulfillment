@@ -120,6 +120,18 @@
          WHERE s.sku_id = #{skuId}
     </select>
 
+    <!--
+      바코드로 단건 — 현장에서 스캔한 값을 물건으로 바꾼다.
+
+      적치 · 검수 · 출고 피킹이 모두 쓴다. 바코드는 전역 유일하므로
+      (ux_sku_barcode) 스캔 한 번에 물건 하나가 지목된다.
+    -->
+    <select id="selectByBarcode" resultMap="skuMap">
+        SELECT <include refid="skuColumns"/>
+        <include refid="skuFrom"/>
+         WHERE s.barcode = #{barcode}
+    </select>
+
     <select id="countBySkuId" resultType="int">
         SELECT COUNT(*) FROM tb_sku WHERE sku_id = #{skuId}
     </select>

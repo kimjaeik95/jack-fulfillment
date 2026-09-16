@@ -23,6 +23,8 @@ import com.fulfillment.inbound.plan.dto.InboundLineResponse;
 import com.fulfillment.inbound.plan.dto.InboundResponse;
 import com.fulfillment.inbound.plan.dto.InboundSaveRequest;
 import com.fulfillment.inbound.plan.dto.InboundSearch;
+import com.fulfillment.inbound.plan.dto.InspectResponse;
+import com.fulfillment.inbound.plan.dto.PutawayResponse;
 import com.fulfillment.master.plant.dao.PlantDao;
 import com.fulfillment.master.sku.dao.SkuDao;
 import com.fulfillment.master.supplier.dao.SupplierDao;
@@ -121,7 +123,11 @@ public class InboundService {
 	public InboundResponse get(LoginUser actor, Long inboundSeq) {
 		requireEitherRead(actor);
 		Inbound inbound = mustFindInScope(actor, inboundSeq, PERM, "R");
-		return InboundResponse.of(inbound, linesOf(inboundSeq));
+		// 상세는 검수 회차와 적치 기록까지 싣는다. 한 건을 보려고 화면이
+		// 세 번 부르게 할 이유가 없다.
+		return InboundResponse.of(inbound, linesOf(inboundSeq),
+				inboundDao.selectInspects(inboundSeq).stream().map(InspectResponse::of).toList(),
+				inboundDao.selectPutaways(inboundSeq).stream().map(PutawayResponse::of).toList());
 	}
 
 	/**

@@ -37,6 +37,8 @@ public class DocNumbers {
 	public static final String PURCHASE_ORDER = "PO";
 	/** 입고예정 */
 	public static final String INBOUND = "INB";
+	/** 입고정정 */
+	public static final String INBOUND_CORRECT = "INBC";
 
 	private static final DateTimeFormatter DATE_PART = DateTimeFormatter.ofPattern("yyyyMMdd");
 

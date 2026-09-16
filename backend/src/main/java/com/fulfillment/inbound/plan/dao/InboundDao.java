@@ -1,7 +1,9 @@
 package com.fulfillment.inbound.plan.dao;
 
 import com.fulfillment.domain.Inbound;
+import com.fulfillment.domain.InboundInspect;
 import com.fulfillment.domain.InboundLine;
+import com.fulfillment.domain.InboundPutaway;
 import com.fulfillment.inbound.plan.dto.InboundSearch;
 import org.apache.ibatis.annotations.Param;
 
@@ -87,6 +89,82 @@ public interface InboundDao {
 	 * 이유는 여기서 필요한 것이 숫자 하나뿐이고, 줄마다 부르기 때문이다.
 	 */
 	Integer selectOrderLineRemain(@Param("orderLineSeq") Long orderLineSeq);
+
+	/* ── 검수 (INB-PG-003) ─────────────────────────────────────────── */
+
+	/**
+	 * 검수 회차를 남긴다. 덮어쓰지 않고 쌓는다 (INB-003).
+	 *
+	 * 한 번에 다 못 세는 일이 흔한데, 덮으면 "처음엔 몇 개라 했었지" 를
+	 * 아무도 답할 수 없다.
+	 */
+	void insertInspect(InboundInspect inspect);
+
+	/** 이 라인의 다음 검수 회차 번호 */
+	int nextInspectRound(@Param("lineSeq") Long lineSeq);
+
+	/** 이 입고의 검수 이력 — 회차 순 */
+	List<InboundInspect> selectInspects(@Param("inboundSeq") Long inboundSeq);
+
+	/**
+	 * 검수 결과를 라인에 누적한다 (INB-004).
+	 *
+	 * 회차 행을 남기는 것과 같은 트랜잭션에서만 부른다. 이 둘이 갈라지면
+	 * '기입고 = 회차별 합' 등식이 깨져 무엇이 맞는지 알 수 없게 된다.
+	 */
+	void addInspected(@Param("lineSeq") Long lineSeq,
+			@Param("passedQty") Integer passedQty,
+			@Param("rejectedQty") Integer rejectedQty,
+			@Param("actor") String actor);
+
+	/* ── 적치 (INB-PG-005, INB-PG-006) ─────────────────────────────── */
+
+	void insertPutaway(InboundPutaway putaway);
+
+	/** 이 입고의 적치 기록 */
+	List<InboundPutaway> selectPutaways(@Param("inboundSeq") Long inboundSeq);
+
+	/** 적치수량을 라인에 누적한다 */
+	void addPutaway(@Param("lineSeq") Long lineSeq,
+			@Param("qty") Integer qty,
+			@Param("actor") String actor);
+
+	/**
+	 * 아직 재고로 안 올라간 적치 기록 — 입고완료가 읽는다.
+	 *
+	 * history_seq 가 비어 있는 것만. 두 번 완료해도 같은 수량이 두 번
+	 * 올라가지 않는다.
+	 */
+	List<InboundPutaway> selectUnappliedPutaways(@Param("inboundSeq") Long inboundSeq);
+
+	/** 재고에 반영했다는 표시 — 그 이력으로 건너갈 수 있게 */
+	void updatePutawayApplied(@Param("putawaySeq") Long putawaySeq,
+			@Param("historySeq") Long historySeq);
+
+	/* ── 초과승인 · 완료 ───────────────────────────────────────────── */
+
+	/** 초과입고 승인 (INB-005) */
+	int updateOverApproval(@Param("inboundSeq") Long inboundSeq,
+			@Param("actor") String actor,
+			@Param("remark") String remark);
+
+	/** 입고완료 자취 */
+	int updateClosed(@Param("inboundSeq") Long inboundSeq,
+			@Param("fromStatus") String fromStatus,
+			@Param("actor") String actor);
+
+	/**
+	 * 발주 라인의 기입고수량을 올린다 (INB-004).
+	 *
+	 * 검수 통과분이 곧 '발주 관점에서 받은 것' 이다. 적치는 창고 내부
+	 * 작업이라 발주 잔량과는 무관하다.
+	 */
+	void addOrderLineReceived(@Param("orderLineSeq") Long orderLineSeq,
+			@Param("qty") Integer qty,
+			@Param("actor") String actor);
+
+	/** 발주 상태를 잔량에 맞춰 다시 판정한다 (부분입고 · 입고완료) */
+	void refreshOrderStatus(@Param("orderSeq") Long orderSeq, @Param("actor") String actor);
 
 	/**
 	 * 발주에서 예정을 만들 때 쓸 잔량 있는 줄 (PUR-PG-006).

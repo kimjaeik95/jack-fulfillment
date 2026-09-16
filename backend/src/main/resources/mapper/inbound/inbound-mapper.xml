@@ -36,9 +36,20 @@
         <result property="supplierId"      column="supplier_id"/>
         <result property="supplierName"    column="supplier_name"/>
         <result property="arrivedByName"   column="arrived_by_name"/>
+        <result property="closedByName"    column="closed_by_name"/>
+        <result property="overApprovedByName" column="over_approved_by_name"/>
+        <result property="overReceiptRate" column="over_receipt_rate"/>
+        <result property="overApprovedBy"  column="over_approved_by"/>
+        <result property="overApprovedAt"  column="over_approved_at"/>
+        <result property="overApproveRemark" column="over_approve_remark"/>
+        <result property="closedBy"        column="closed_by"/>
+        <result property="closedAt"        column="closed_at"/>
         <result property="lineCount"       column="line_count"/>
         <result property="totalPlannedQty" column="total_planned_qty"/>
         <result property="totalArrivedQty" column="total_arrived_qty"/>
+        <result property="totalReceivedQty" column="total_received_qty"/>
+        <result property="totalRejectedQty" column="total_rejected_qty"/>
+        <result property="totalPutawayQty"  column="total_putaway_qty"/>
     </resultMap>
 
     <resultMap id="inboundLineMap" type="com.fulfillment.domain.InboundLine">
@@ -49,6 +60,9 @@
         <result property="orderLineSeq"   column="order_line_seq"/>
         <result property="plannedQty"     column="planned_qty"/>
         <result property="arrivedQty"     column="arrived_qty"/>
+        <result property="receivedQty"    column="received_qty"/>
+        <result property="rejectedQty"    column="rejected_qty"/>
+        <result property="putawayQty"     column="putaway_qty"/>
         <result property="remark"         column="remark"/>
         <result property="skuId"          column="sku_id"/>
         <result property="colorCode"      column="color_code"/>
@@ -74,6 +88,8 @@
         i.planned_date, i.inbound_status,
         i.arrived_at, i.arrived_by, i.vehicle_no, i.driver_name, i.arrive_remark,
         i.canceled_by, i.canceled_at, i.cancel_reason, i.remark,
+        i.over_approved_by, i.over_approved_at, i.over_approve_remark,
+        i.closed_by, i.closed_at,
         i.created_by, i.created_at, i.updated_by, i.updated_at,
         o.order_no      AS order_no,
         pl.plant_id     AS plant_id,
@@ -83,7 +99,11 @@
         w.warehouse_name AS warehouse_name,
         s.supplier_id   AS supplier_id,
         s.supplier_name AS supplier_name,
-        au.user_name    AS arrived_by_name
+        /* 초과입고 허용 오차율. 공급처가 없으면(이동입고) 0 — 봐줄 근거가 없다. */
+        COALESCE(s.over_receipt_rate, 0) AS over_receipt_rate,
+        au.user_name    AS arrived_by_name,
+        cu.user_name    AS closed_by_name,
+        ou.user_name    AS over_approved_by_name
     </sql>
 
     <sql id="inboundFrom">
@@ -93,6 +113,8 @@
         LEFT JOIN tb_purchase_order o ON o.order_seq    = i.order_seq
         LEFT JOIN tb_supplier       s ON s.supplier_seq = i.supplier_seq
         LEFT JOIN tb_user          au ON au.user_id     = i.arrived_by
+        LEFT JOIN tb_user          cu ON cu.user_id     = i.closed_by
+        LEFT JOIN tb_user          ou ON ou.user_id     = i.over_approved_by
     </sql>
 
     <!--
@@ -106,6 +128,9 @@
         , (SELECT COUNT(*)                          FROM tb_inbound_line l WHERE l.inbound_seq = i.inbound_seq) AS line_count
         , (SELECT COALESCE(SUM(l.planned_qty), 0)   FROM tb_inbound_line l WHERE l.inbound_seq = i.inbound_seq) AS total_planned_qty
         , (SELECT COALESCE(SUM(l.arrived_qty), 0)   FROM tb_inbound_line l WHERE l.inbound_seq = i.inbound_seq) AS total_arrived_qty
+        , (SELECT COALESCE(SUM(l.received_qty), 0)  FROM tb_inbound_line l WHERE l.inbound_seq = i.inbound_seq) AS total_received_qty
+        , (SELECT COALESCE(SUM(l.rejected_qty), 0)  FROM tb_inbound_line l WHERE l.inbound_seq = i.inbound_seq) AS total_rejected_qty
+        , (SELECT COALESCE(SUM(l.putaway_qty), 0)   FROM tb_inbound_line l WHERE l.inbound_seq = i.inbound_seq) AS total_putaway_qty
     </sql>
 
     <sql id="searchWhere">
@@ -212,7 +237,7 @@
     -->
     <select id="selectLines" resultMap="inboundLineMap">
         SELECT l.line_seq, l.inbound_seq, l.line_no, l.sku_seq, l.order_line_seq,
-               l.planned_qty, l.arrived_qty, l.remark,
+               l.planned_qty, l.arrived_qty, l.received_qty, l.rejected_qty, l.putaway_qty, l.remark,
                sk.sku_id      AS sku_id,
                sk.color_code  AS color_code,
                sk.size_code   AS size_code,
@@ -232,7 +257,7 @@
 
     <select id="selectLine" resultMap="inboundLineMap">
         SELECT l.line_seq, l.inbound_seq, l.line_no, l.sku_seq, l.order_line_seq,
-               l.planned_qty, l.arrived_qty, l.remark,
+               l.planned_qty, l.arrived_qty, l.received_qty, l.rejected_qty, l.putaway_qty, l.remark,
                sk.sku_id AS sku_id
           FROM tb_inbound_line l
           JOIN tb_sku sk ON sk.sku_seq = l.sku_seq
@@ -346,6 +371,228 @@
     <select id="selectOrderLineRemain" resultType="java.lang.Integer">
         SELECT remain_qty FROM tb_purchase_order_line WHERE line_seq = #{orderLineSeq}
     </select>
+
+    <!-- ══════════ 검수 (INB-PG-003) ══════════ -->
+
+    <resultMap id="inspectMap" type="com.fulfillment.domain.InboundInspect">
+        <id     property="inspectSeq"      column="inspect_seq"/>
+        <result property="lineSeq"         column="line_seq"/>
+        <result property="roundNo"         column="round_no"/>
+        <result property="passedQty"       column="passed_qty"/>
+        <result property="rejectedQty"     column="rejected_qty"/>
+        <result property="reasonCode"      column="reason_code"/>
+        <result property="remark"          column="remark"/>
+        <result property="inspectedBy"     column="inspected_by"/>
+        <result property="inspectedAt"     column="inspected_at"/>
+        <result property="skuId"           column="sku_id"/>
+        <result property="productName"     column="product_name"/>
+        <result property="reasonName"      column="reason_name"/>
+        <result property="inspectedByName" column="inspected_by_name"/>
+    </resultMap>
+
+    <insert id="insertInspect" parameterType="com.fulfillment.domain.InboundInspect"
+            useGeneratedKeys="true" keyProperty="inspectSeq" keyColumn="inspect_seq">
+        INSERT INTO tb_inbound_inspect (
+            line_seq, round_no, passed_qty, rejected_qty, reason_code, remark, inspected_by
+        ) VALUES (
+            #{lineSeq}, #{roundNo}, #{passedQty}, #{rejectedQty}, #{reasonCode},
+            #{remark}, #{inspectedBy}
+        )
+    </insert>
+
+    <select id="nextInspectRound" resultType="int">
+        SELECT COALESCE(MAX(round_no), 0) + 1 FROM tb_inbound_inspect WHERE line_seq = #{lineSeq}
+    </select>
+
+    <!--
+      검수 이력. 사유코드는 이름까지 찾아 준다 — 화면이 코드표를 다시
+      받아 맞추게 하면 그 사이에 코드가 바뀌면 어긋난다.
+    -->
+    <select id="selectInspects" resultMap="inspectMap">
+        SELECT i.inspect_seq, i.line_seq, i.round_no, i.passed_qty, i.rejected_qty,
+               i.reason_code, i.remark, i.inspected_by, i.inspected_at,
+               sk.sku_id      AS sku_id,
+               p.product_name AS product_name,
+               c.code_name    AS reason_name,
+               u.user_name    AS inspected_by_name
+          FROM tb_inbound_inspect i
+          JOIN tb_inbound_line l ON l.line_seq    = i.line_seq
+          JOIN tb_sku         sk ON sk.sku_seq    = l.sku_seq
+          JOIN tb_product      p ON p.product_seq = sk.product_seq
+          LEFT JOIN tb_user    u ON u.user_id     = i.inspected_by
+          LEFT JOIN tb_code    c ON c.code_id     = i.reason_code
+                                AND c.code_group_seq = (SELECT code_group_seq FROM tb_code_group
+                                                         WHERE code_group_id = 'REASON_INSPECT')
+         WHERE l.inbound_seq = #{inboundSeq}
+         ORDER BY l.line_no, i.round_no
+    </select>
+
+    <!--
+      검수 결과 누적 (INB-004).
+
+      회차 행을 넣는 것과 같은 트랜잭션에서만 부른다. 둘이 갈라지면
+      '기입고 = 회차별 합' 등식이 깨진다.
+    -->
+    <update id="addInspected">
+        UPDATE tb_inbound_line
+           SET received_qty = received_qty + #{passedQty},
+               rejected_qty = rejected_qty + #{rejectedQty},
+               updated_by   = #{actor},
+               updated_at   = CURRENT_TIMESTAMP
+         WHERE line_seq = #{lineSeq}
+    </update>
+
+    <!-- ══════════ 적치 (INB-PG-005, INB-PG-006) ══════════ -->
+
+    <resultMap id="putawayMap" type="com.fulfillment.domain.InboundPutaway">
+        <id     property="putawaySeq"      column="putaway_seq"/>
+        <result property="lineSeq"         column="line_seq"/>
+        <result property="locationSeq"     column="location_seq"/>
+        <result property="qty"             column="qty"/>
+        <result property="historySeq"      column="history_seq"/>
+        <result property="putawayBy"       column="putaway_by"/>
+        <result property="putawayAt"       column="putaway_at"/>
+        <result property="locationId"      column="location_id"/>
+        <result property="locationFullCode" column="location_full_code"/>
+        <result property="zoneCode"        column="zone_code"/>
+        <result property="skuId"           column="sku_id"/>
+        <result property="productName"     column="product_name"/>
+        <result property="putawayByName"   column="putaway_by_name"/>
+    </resultMap>
+
+    <insert id="insertPutaway" parameterType="com.fulfillment.domain.InboundPutaway"
+            useGeneratedKeys="true" keyProperty="putawaySeq" keyColumn="putaway_seq">
+        INSERT INTO tb_inbound_putaway (line_seq, location_seq, qty, putaway_by)
+        VALUES (#{lineSeq}, #{locationSeq}, #{qty}, #{putawayBy})
+    </insert>
+
+    <!--
+      적치 기록. 로케이션 전체 코드를 만들어 준다 — 빈 코드만으로는 어느
+      창고의 어디인지 알 수 없고, 현장에서 찾아가려면 주소가 다 보여야 한다.
+    -->
+    <sql id="putawaySelect">
+        SELECT pw.putaway_seq, pw.line_seq, pw.location_seq, pw.qty, pw.history_seq,
+               pw.putaway_by, pw.putaway_at,
+               lo.location_id AS location_id,
+               lo.zone_code   AS zone_code,
+               pl.plant_id || '-' || w.warehouse_id || '-' || lo.location_id AS location_full_code,
+               sk.sku_id      AS sku_id,
+               p.product_name AS product_name,
+               u.user_name    AS putaway_by_name
+          FROM tb_inbound_putaway pw
+          JOIN tb_inbound_line l  ON l.line_seq      = pw.line_seq
+          JOIN tb_location    lo  ON lo.location_seq = pw.location_seq
+          JOIN tb_warehouse    w  ON w.warehouse_seq = lo.warehouse_seq
+          JOIN tb_plant       pl  ON pl.plant_seq    = w.plant_seq
+          JOIN tb_sku         sk  ON sk.sku_seq      = l.sku_seq
+          JOIN tb_product      p  ON p.product_seq   = sk.product_seq
+          LEFT JOIN tb_user    u  ON u.user_id       = pw.putaway_by
+    </sql>
+
+    <select id="selectPutaways" resultMap="putawayMap">
+        <include refid="putawaySelect"/>
+         WHERE l.inbound_seq = #{inboundSeq}
+         ORDER BY l.line_no, pw.putaway_seq
+    </select>
+
+    <!--
+      아직 재고로 안 올라간 적치 — 입고완료가 읽는다.
+
+      history_seq 가 비어 있는 것만. 두 번 완료해도 같은 수량이 두 번
+      올라가지 않는다.
+    -->
+    <select id="selectUnappliedPutaways" resultMap="putawayMap">
+        <include refid="putawaySelect"/>
+         WHERE l.inbound_seq = #{inboundSeq}
+           AND pw.history_seq IS NULL
+         ORDER BY pw.putaway_seq
+    </select>
+
+    <update id="addPutaway">
+        UPDATE tb_inbound_line
+           SET putaway_qty = putaway_qty + #{qty},
+               updated_by  = #{actor},
+               updated_at  = CURRENT_TIMESTAMP
+         WHERE line_seq = #{lineSeq}
+    </update>
+
+    <update id="updatePutawayApplied">
+        UPDATE tb_inbound_putaway SET history_seq = #{historySeq} WHERE putaway_seq = #{putawaySeq}
+    </update>
+
+    <!-- ══════════ 초과승인 · 완료 ══════════ -->
+
+    <!--
+      초과입고 승인 (INB-005).
+
+      WHERE 에 '아직 승인 안 됨' 을 넣는다. 두 명이 동시에 누르면 한 쪽은
+      0 행이 바뀌고 서비스가 거부한다 — 승인자가 나중 사람으로 덮이면
+      누가 책임졌는지가 사라진다.
+    -->
+    <update id="updateOverApproval">
+        UPDATE tb_inbound
+           SET over_approved_by    = #{actor},
+               over_approved_at    = CURRENT_TIMESTAMP,
+               over_approve_remark = #{remark},
+               updated_by          = #{actor},
+               updated_at          = CURRENT_TIMESTAMP
+         WHERE inbound_seq      = #{inboundSeq}
+           AND over_approved_by IS NULL
+    </update>
+
+    <update id="updateClosed">
+        UPDATE tb_inbound
+           SET inbound_status = 'DONE',
+               closed_by      = #{actor},
+               closed_at      = CURRENT_TIMESTAMP,
+               updated_by     = #{actor},
+               updated_at     = CURRENT_TIMESTAMP
+         WHERE inbound_seq    = #{inboundSeq}
+           AND inbound_status = #{fromStatus}
+    </update>
+
+    <!--
+      발주 라인의 기입고수량 (INB-004).
+
+      remain_qty 는 GENERATED 라 여기서 손대지 않는다 — 발주수량 − 기입고로
+      DB 가 다시 계산한다.
+    -->
+    <update id="addOrderLineReceived">
+        UPDATE tb_purchase_order_line
+           SET received_qty = received_qty + #{qty}
+         WHERE line_seq = #{orderLineSeq}
+    </update>
+
+    <!--
+      발주 상태를 잔량에 맞춰 다시 판정한다.
+
+      한 줄이라도 들어왔으면 부분입고, 모든 줄의 잔량이 0 이하면 입고완료.
+      0 '이하' 인 이유는 초과입고가 있으면 잔량이 음수가 되기 때문이다 —
+      더 받았는데 아직 기다리는 중으로 두면 영영 안 닫힌다.
+
+      닫힌 발주도 다시 본다 (INB-PG-008). 입고정정으로 기입고가 줄면 잔량이
+      되살아나는데, CLOSED 를 제외하면 "덜 받은 것으로 고쳤는데 발주는 다
+      받은 것으로 닫혀 있다" 가 된다 — 공급처에 다시 보내 달라고 할 근거가
+      사라진다. 다 받은 상태 그대로면 CASE 가 다시 CLOSED 를 주므로 정상
+      검수 경로에서는 달라지는 것이 없다.
+
+      작성중 · 취소된 발주는 건드리지 않는다.
+    -->
+    <update id="refreshOrderStatus">
+        UPDATE tb_purchase_order o
+           SET order_status = CASE
+                   WHEN NOT EXISTS (SELECT 1 FROM tb_purchase_order_line l
+                                     WHERE l.order_seq = o.order_seq AND l.remain_qty > 0)
+                        THEN 'CLOSED'
+                   ELSE 'PARTIAL'
+               END,
+               updated_by = #{actor},
+               updated_at = CURRENT_TIMESTAMP
+         WHERE o.order_seq = #{orderSeq}
+           AND o.order_status IN ('ISSUED','PARTIAL','CLOSED')
+           AND EXISTS (SELECT 1 FROM tb_purchase_order_line l
+                        WHERE l.order_seq = o.order_seq AND l.received_qty > 0)
+    </update>
 
     <!--
       발주에서 예정으로 담을 줄 (PUR-PG-006).

@@ -43,6 +43,12 @@ public class InboundLine {
 	 * 있고, 그 차이를 찾는 것이 검수다.
 	 */
 	private Integer arrivedQty;
+	/** 검수 통과 누계 (INB-004). 회차별 합격의 합과 항상 같다. */
+	private Integer receivedQty;
+	/** 거부 누계 (INB-006). 재고에 반영하지 않는다. */
+	private Integer rejectedQty;
+	/** 로케이션에 놓은 수량. 입고완료가 이만큼만 재고로 만든다. */
+	private Integer putawayQty;
 	private String remark;
 
 	private String createdBy;
@@ -73,6 +79,46 @@ public class InboundLine {
 
 	public int diffQty() {
 		return arrivedQty == null ? 0 : arrivedQty - nz(plannedQty);
+	}
+
+	/* 검수 · 적치 ---------------------------------------------------------- */
+
+	/**
+	 * 아직 검수하지 않은 수량.
+	 *
+	 * 기준은 <b>내린 개수</b>다. 예정이 아니라. 세는 것은 눈앞에 있는
+	 * 물건이지 서류상의 숫자가 아니다.
+	 */
+	public int pendingInspectQty() {
+		return Math.max(0, nz(arrivedQty) - nz(receivedQty) - nz(rejectedQty));
+	}
+
+	public boolean inspectDone() {
+		return arrivedQty != null && pendingInspectQty() == 0;
+	}
+
+	/** 받기로 했는데 아직 자리에 안 놓은 수량 */
+	public int pendingPutawayQty() {
+		return Math.max(0, nz(receivedQty) - nz(putawayQty));
+	}
+
+	public boolean putawayDone() {
+		return pendingPutawayQty() == 0;
+	}
+
+	/**
+	 * 예정보다 많이 받았나 (INB-005).
+	 *
+	 * 기준이 예정수량인 것에 주의한다. 내린 개수가 아니다 — 많이 내려놓고
+	 * 적게 받아들이면 초과가 아니다. 초과는 <b>우리가 받아들인 양</b>이
+	 * 시킨 양을 넘을 때다.
+	 */
+	public int overQty() {
+		return Math.max(0, nz(receivedQty) - nz(plannedQty));
+	}
+
+	public boolean isOver() {
+		return overQty() > 0;
 	}
 
 	private static int nz(Integer v) {

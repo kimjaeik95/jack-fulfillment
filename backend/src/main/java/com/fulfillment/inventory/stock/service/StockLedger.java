@@ -112,8 +112,9 @@ public class StockLedger {
 					"재고를 찾을 수 없습니다. (순번 %s)".formatted(stockSeq));
 		}
 
+		// 변경할 필드를 결정 ( 보유수량 or 할당수량 or 판매불가수량
 		int before = currentOf(locked, movement.qtyField());
-		int after = before + movement.delta();
+		int after = before + movement.delta(); // 변경 후 예상 수량
 		if (after < 0) {
 			throw new BusinessException(ErrorCode.INVALID_INPUT,
 					("%s 수량이 부족합니다. 현재 %d 개에서 %d 개를 뺄 수 없습니다. (%s / %s)")
@@ -214,6 +215,7 @@ public class StockLedger {
 	 * 보유를 줄이거나 할당 · 판매불가를 늘리면 넘어설 수 있다. 실제로 가장
 	 * 흔한 경우가 '판매불가로 돌리려는데 그만큼이 이미 주문에 잡혀 있는'
 	 * 것이라, 메시지에 세 수량을 다 적어 무엇이 막았는지 보이게 한다.
+	 * after 변경 예상값 ,  stock.getQtyOnHand  기존재고
 	 */
 	private static void requireAvailableNonNegative(Stock stock, String qtyField, int after) {
 		int onHand = ON_HAND.equals(qtyField) ? after : nz(stock.getQtyOnHand());
