@@ -201,6 +201,14 @@
          WHERE o.order_seq = #{orderSeq}
     </select>
 
+    <!-- 발주번호로 단건 (입고예정이 근거 발주를 달 때). order_no 는 유니크다. -->
+    <select id="selectByOrderNo" resultMap="orderMap">
+        SELECT <include refid="orderColumns"/>
+        <include refid="orderCounts"/>
+        <include refid="orderFrom"/>
+         WHERE o.order_no = #{orderNo}
+    </select>
+
     <!--
       라인.
 

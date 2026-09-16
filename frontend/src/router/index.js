@@ -6,6 +6,7 @@ import * as system from '@/modules/system/routes.js'
 import * as master from '@/modules/master/routes.js'
 import * as inventory from '@/modules/inventory/routes.js'
 import * as purchase from '@/modules/purchase/routes.js'
+import * as inbound from '@/modules/inbound/routes.js'
 
 /**
  * 업무 모듈 등록.
@@ -17,7 +18,7 @@ import * as purchase from '@/modules/purchase/routes.js'
  * 각 모듈은 자기 라우트(routes)와 사이드바 메뉴(menuGroups)를 소유한다.
  * 등록 순서가 메뉴 표시 순서가 된다.
  */
-const modules = [auth, system, master, inventory, purchase]
+const modules = [auth, system, master, inventory, purchase, inbound]
 
 /** 사이드바가 사용하는 메뉴 정의 (모듈별 그룹을 순서대로 이어붙인다) */
 export const menuGroups = modules.flatMap((m) => m.menuGroups ?? [])

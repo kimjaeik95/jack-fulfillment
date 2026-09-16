@@ -23,6 +23,15 @@ public interface OrderDao {
 	/** 단건. 데이터 범위 확인은 서비스가 한다. */
 	PurchaseOrder selectBySeq(@Param("orderSeq") Long orderSeq);
 
+	/**
+	 * 발주번호로 단건.
+	 *
+	 * 입고예정이 근거 발주를 달 때 쓴다. 화면에서 고르는 값이 사람이 읽고
+	 * 전화로 부르는 번호(PO-20260916-0001)라서, 순번으로 한 번 더 바꿔
+	 * 넘기게 하지 않는다.
+	 */
+	PurchaseOrder selectByOrderNo(@Param("orderNo") String orderNo);
+
 	/** 오더의 라인. 기준정보의 현재 원가를 함께 읽어 단가가 벌어졌는지 보여 준다. */
 	List<PurchaseOrderLine> selectLines(@Param("orderSeq") Long orderSeq);
 
