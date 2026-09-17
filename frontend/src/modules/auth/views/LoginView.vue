@@ -33,26 +33,21 @@ onMounted(() => {
   session.ensureReady()
 })
 
-const roleNameOf = (roleId) => session.demoRoles.find((r) => r.roleId === roleId)?.roleName ?? roleId
-
 /**
  * 데모 계정 목록 — 역할별 대표 1건 (상태 이상 계정도 확인할 수 있게 포함).
- * 아직 Mock 데이터를 쓴다. 사용자 조회 API 가 만들어지면 서버 데이터로 교체한다.
- * 계정 목록은 프론트·백엔드 시드가 같은 원본이라 실제 로그인과 일치한다.
+ *
+ * 서버에서 온다 (GET /auth/demo-accounts, local 프로파일 전용). 전에는 프런트에
+ * 박힌 목데이터를 읽어서, 사용자 관리로 계정을 새로 만들어도 여기에는 영영
+ * 안 올라왔다.
+ *
+ * 역할별로 한 건만 남긴다. 역할이 무엇을 볼 수 있는지 확인하라고 있는 목록이라
+ * 같은 역할이 열 개 있어 봐야 고르는 일만 늘어난다. 서버가 역할 정렬 순으로
+ * 내려주므로 <b>먼저 오는 계정이 대표</b>가 된다.
  */
 const demoAccounts = computed(() =>
-  [...session.demoUsers]
+  session.demoAccounts
     .filter((u) => (u.roleIds ?? []).length > 0)
-    // 첫 배정 역할이 같은 계정은 하나만 남긴다.
-    .filter((u, i, arr) => arr.findIndex((x) => x.roleIds[0] === u.roleIds[0]) === i)
-    .map((u) => ({
-      userId: u.userId,
-      userName: u.userName,
-      status: u.status,
-      useYn: u.useYn,
-      roleNames: (u.roleIds ?? []).map(roleNameOf),
-      deptName: u.deptName,
-    })),
+    .filter((u, i, arr) => arr.findIndex((x) => x.roleIds[0] === u.roleIds[0]) === i),
 )
 
 function fill(account) {

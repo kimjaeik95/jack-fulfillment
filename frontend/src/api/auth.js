@@ -55,3 +55,18 @@ export async function refresh() {
   const { data } = await post('/auth/refresh')
   return data
 }
+
+/**
+ * 로그인 화면의 데모 계정 목록.
+ *
+ * 전에는 프런트에 박힌 목데이터를 읽었다. 그래서 사용자 관리에서 계정을 새로
+ * 만들어도 이 목록에는 영영 안 올라왔다 — 목록의 원본이 DB 가 아니었다.
+ *
+ * <b>local 프로파일에서만 응답한다.</b> 로그인하지 않은 사람에게 계정 아이디를
+ * 알려 주는 경로라, 그 편의가 필요한 곳에만 둔다. dev · prod 에서는 404 가
+ * 오고 목록이 비는데, 그게 맞는 동작이다.
+ */
+export async function demoAccounts() {
+  const { data } = await get('/auth/demo-accounts')
+  return data ?? []
+}

@@ -19,7 +19,6 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import * as authApi from '@/api/auth.js'
-import * as mockApi from '@/api/client.js'
 
 const LAST_ID_KEY = 'wms-admin-last-id'
 
@@ -30,12 +29,12 @@ export const useSessionStore = defineStore('session', () => {
   const ready = ref(false)
 
   /**
-   * 로그인 화면의 데모 계정 목록 — 아직 Mock 데이터를 쓴다.
-   * 사용자 조회 API 가 만들어지면 그때 서버 데이터로 교체한다.
-   * (백엔드 시드와 프론트 시드가 같은 원본이라 계정 목록이 일치한다)
+   * 로그인 화면의 데모 계정 목록.
+   *
+   * 서버가 내려준 그대로다. 역할명까지 실려 오므로 화면이 역할코드를 이름으로
+   * 옮기는 일을 하지 않는다.
    */
-  const demoUsers = ref([])
-  const demoRoles = ref([])
+  const demoAccounts = ref([])
 
   /* ---------------------------------------------------------------- */
   /* 세션 준비                                                         */
@@ -65,18 +64,21 @@ export const useSessionStore = defineStore('session', () => {
     }
   }
 
-  /** 로그인 화면의 데모 계정 목록 (Mock) */
+  /**
+   * 로그인 화면의 데모 계정 목록.
+   *
+   * 서버에서 읽는다. 전에는 프런트 목데이터를 읽어서, 사용자 관리로 계정을
+   * 새로 만들어도 이 목록에는 영영 안 올라왔다 — 목록의 원본이 DB 가 아니라
+   * 화면 안에 박힌 배열이었기 때문이다.
+   *
+   * 실패하면 비운다. 이 경로는 local 에서만 응답하므로 dev · prod 에서는
+   * 404 가 오고, 그때 목록이 없는 것이 맞는 동작이다.
+   */
   async function loadDemoAccounts() {
     try {
-      const [users, roles] = await Promise.all([
-        mockApi.list('users', { size: 0 }),
-        mockApi.list('roles', { size: 0 }),
-      ])
-      demoUsers.value = users.rows
-      demoRoles.value = roles.rows
+      demoAccounts.value = await authApi.demoAccounts()
     } catch {
-      demoUsers.value = []
-      demoRoles.value = []
+      demoAccounts.value = []
     }
   }
 
@@ -258,7 +260,7 @@ export const useSessionStore = defineStore('session', () => {
 
   return {
     // 상태
-    me, ready, loginWarning, demoUsers, demoRoles,
+    me, ready, loginWarning, demoAccounts,
     // 파생
     isAuthenticated, currentUserId, currentUser,
     myRoleIds, myRoleNames, myGrants, myPolicies,

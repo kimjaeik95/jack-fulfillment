@@ -76,6 +76,10 @@ public class SecurityConfig {
 				.requestMatchers(
 					"/auth/login",
 					"/auth/csrf",
+					// 로그인 화면의 데모 계정 목록. 경로만 열어 두고, 그 경로를
+					// 실제로 받는 컨트롤러는 local 프로파일에서만 등록된다
+					// (DemoAccountController). dev · prod 에서는 404 다.
+					"/auth/demo-accounts",
 					"/actuator/health",
 					"/actuator/info",
 					"/h2-console/**").permitAll()
