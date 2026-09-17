@@ -104,22 +104,39 @@ public class MenuService {
 		return toTree(menuDao.selectVisible(actor.getUserSeq()));
 	}
 
-	/** 평면 목록을 그룹 → 항목 2단 트리로 묶는다 */
+	/**
+	 * 평면 목록을 트리로 묶는다.
+	 *
+	 * 깊이를 고정하지 않는다. 처음에는 그룹 → 항목 2단이었는데, 기준정보
+	 * 한 그룹에 14개가 매달리면서 그 아래를 플랜트 · 제품 · 채널 · 거래처로
+	 * 한 번 더 나눴다(V19). 2단을 가정한 코드는 중간 그룹을 잎으로 보고 그
+	 * 아래를 통째로 떨어뜨린다 — 메뉴가 화면에서 사라지는데 오류는 안 난다.
+	 *
+	 * 부모를 못 찾는 줄(부모가 use_yn='N' 이라 조회에서 빠진 경우)은 버린다.
+	 * 갈 수 없는 자리에 매달아 두면 사이드바에 뿌리 없는 항목이 뜬다.
+	 */
 	private List<MenuResponse> toTree(List<Menu> flat) {
-		Map<Long, List<MenuResponse>> childrenOf = new LinkedHashMap<>();
+		Map<Long, List<Menu>> childrenOf = new LinkedHashMap<>();
 		for (Menu m : flat) {
-			if (!m.isGroup()) {
-				childrenOf.computeIfAbsent(m.getParentSeq(), k -> new ArrayList<>())
-						.add(MenuResponse.of(m));
+			if (!m.isRoot()) {
+				childrenOf.computeIfAbsent(m.getParentSeq(), k -> new ArrayList<>()).add(m);
 			}
 		}
 		List<MenuResponse> tree = new ArrayList<>();
 		for (Menu m : flat) {
-			if (m.isGroup()) {
-				tree.add(MenuResponse.of(m, childrenOf.getOrDefault(m.getMenuSeq(), List.of())));
+			if (m.isRoot()) {
+				tree.add(build(m, childrenOf));
 			}
 		}
 		return tree;
+	}
+
+	/** 한 줄과 그 아래를 재귀로 세운다. flat 이 유한하고 parent_seq 가 위를 가리키므로 끝난다. */
+	private MenuResponse build(Menu node, Map<Long, List<Menu>> childrenOf) {
+		List<MenuResponse> kids = childrenOf.getOrDefault(node.getMenuSeq(), List.of()).stream()
+				.map(child -> build(child, childrenOf))
+				.toList();
+		return MenuResponse.of(node, kids);
 	}
 
 	/* ------------------------------------------------------------------ */
@@ -205,13 +222,23 @@ public class MenuService {
 	/* ------------------------------------------------------------------ */
 
 	/**
-	 * 상위 메뉴 확인. 메뉴는 2단까지만 둔다.
+	 * 상위 메뉴 확인. 메뉴는 3단까지 둔다.
 	 *
-	 * 3단 이상을 허용하면 사이드바가 접혔을 때 표현할 방법이 없고, 화면마다
-	 * 펼침 상태를 따로 기억해야 한다. 얻는 것에 비해 비용이 크다.
+	 * 전에는 2단이었다. 그런데 기준정보 한 그룹에 14개가 매달려 사이드바
+	 * 45개 중 3분의 1을 차지했고, 찾으려던 것을 눈으로 훑어야 했다. 그래서
+	 * 그 아래를 플랜트 · 제품 · 채널 · 거래처로 한 번 더 나눴다(V19).
+	 *
+	 * 거기서 멈춘다. 4단이 되면 화면 하나를 찾는 데 세 번을 펴야 하고,
+	 * 그쯤이면 접기가 덜어 주는 것보다 뒤지는 품이 커진다.
 	 */
+	private static final int MAX_DEPTH = 3;
+
 	private Menu resolveParent(MenuSaveRequest request, Menu self) {
-		if (request.isGroup()) {
+		if (request.parentId() == null) {
+			if (!request.isGroup()) {
+				throw new BusinessException(ErrorCode.INVALID_INPUT,
+						"최상위 메뉴는 그룹 머리글이어야 합니다. 상위 메뉴를 지정하세요.");
+			}
 			if (request.routeName() != null) {
 				throw new BusinessException(ErrorCode.INVALID_INPUT,
 						"그룹 머리글은 이동할 화면을 가질 수 없습니다. 상위 메뉴를 지정하거나 라우트를 비우세요.");
@@ -224,36 +251,81 @@ public class MenuService {
 			throw new BusinessException(ErrorCode.NOT_FOUND,
 					"상위 메뉴를 찾을 수 없습니다. (%s)".formatted(request.parentId()));
 		}
+		// 화면을 가진 메뉴 아래에는 아무것도 달 수 없다 — 눌러서 가는 곳이지 묶음이 아니다
 		if (!parent.isGroup()) {
 			throw new BusinessException(ErrorCode.INVALID_INPUT,
-					("'%s'은(는) 이미 하위 메뉴라 상위로 지정할 수 없습니다. 메뉴는 2단까지만 둡니다.")
-							.formatted(parent.getMenuName()));
+					("'%s'은(는) 화면을 가진 메뉴라 상위로 지정할 수 없습니다. 머리글(라우트가 없는 메뉴)만 "
+							+ "상위가 될 수 있습니다.").formatted(parent.getMenuName()));
 		}
+
+		int parentDepth = depthOf(parent);
+		if (parentDepth + 1 >= MAX_DEPTH && request.isGroup()) {
+			throw new BusinessException(ErrorCode.INVALID_INPUT,
+					("'%s' 아래에는 머리글을 더 둘 수 없습니다. 메뉴는 %d단까지입니다.")
+							.formatted(parent.getMenuName(), MAX_DEPTH));
+		}
+		if (parentDepth + 1 > MAX_DEPTH) {
+			throw new BusinessException(ErrorCode.INVALID_INPUT,
+					"메뉴는 %d단까지입니다. 상위를 한 단 위로 지정하세요.".formatted(MAX_DEPTH));
+		}
+
 		if (self != null) {
-			if (parent.getMenuSeq().equals(self.getMenuSeq())) {
+			// 자기 자신이나 자기 후손을 상위로 잡으면 트리가 고리가 되어 화면이 멈춘다
+			if (isSelfOrDescendant(parent, self.getMenuSeq())) {
 				throw new BusinessException(ErrorCode.INVALID_INPUT,
-						"자기 자신을 상위 메뉴로 지정할 수 없습니다.");
+						("'%s'은(는) '%s'의 하위라 상위로 지정할 수 없습니다.")
+								.formatted(parent.getMenuName(), self.getMenuName()));
 			}
-			// 하위를 거느린 그룹을 다른 그룹 밑으로 넣으면 3단이 된다
 			int children = menuDao.countChildren(self.getMenuSeq());
-			if (children > 0) {
+			if (children > 0 && parentDepth + 2 > MAX_DEPTH) {
 				throw new BusinessException(ErrorCode.INVALID_INPUT,
-						("'%s'에는 하위 메뉴 %d개가 있어 다른 그룹의 하위로 옮길 수 없습니다. "
+						("'%s'에는 하위 메뉴 %d개가 있어 '%s' 밑으로 옮기면 %d단을 넘습니다. "
 								+ "하위 메뉴를 먼저 옮기세요.")
-								.formatted(self.getMenuName(), children));
+								.formatted(self.getMenuName(), children, parent.getMenuName(), MAX_DEPTH));
 			}
 		}
 		return parent;
 	}
 
+	/** 뿌리를 1단으로 센다 */
+	private int depthOf(Menu menu) {
+		int depth = 1;
+		Menu cursor = menu;
+		while (cursor != null && cursor.getParentSeq() != null && depth <= MAX_DEPTH + 1) {
+			cursor = menuDao.selectBySeq(cursor.getParentSeq());
+			depth++;
+		}
+		return depth;
+	}
+
+	private boolean isSelfOrDescendant(Menu candidate, Long selfSeq) {
+		Menu cursor = candidate;
+		int guard = 0;
+		while (cursor != null && guard++ <= MAX_DEPTH + 1) {
+			if (selfSeq.equals(cursor.getMenuSeq())) {
+				return true;
+			}
+			cursor = cursor.getParentSeq() == null ? null : menuDao.selectBySeq(cursor.getParentSeq());
+		}
+		return false;
+	}
+
 	/**
 	 * 라우트 확인.
 	 *
-	 * 하위 메뉴는 갈 곳이 있어야 하고, 두 메뉴가 같은 라우트를 가리키면
+	 * 머리글이 아니면 갈 곳이 있어야 하고, 두 메뉴가 같은 라우트를 가리키면
 	 * 사이드바에서 어느 쪽이 활성인지 알 수 없다.
+	 *
+	 * 머리글 여부는 만든 사람이 말한다(groupYn). '라우트가 비었으니 머리글'
+	 * 로 읽으면, 화면 고르는 것을 깜빡한 메뉴가 조용히 머리글이 되어 저장되고
+	 * 하위가 없으니 사이드바에 나오지도 않는다.
 	 */
 	private void validateRoute(MenuSaveRequest request, String exceptMenuId) {
 		if (request.isGroup()) {
+			if (request.routeName() != null) {
+				throw new BusinessException(ErrorCode.INVALID_INPUT,
+						"그룹 머리글은 이동할 화면을 가질 수 없습니다. 라우트를 비우세요.");
+			}
 			return;
 		}
 		if (request.routeName() == null) {

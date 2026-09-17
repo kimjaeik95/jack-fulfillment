@@ -146,6 +146,7 @@ const {
   blank: () => ({
     menuId: '',
     menuName: '',
+    groupYn: 'N',
     parentId: '',
     routeName: '',
     icon: '',
@@ -155,6 +156,7 @@ const {
   }),
   toForm: (row) => ({
     ...row,
+    groupYn: row.group ? 'Y' : 'N',
     parentId: row.parentId ?? '',
     routeName: row.routeName ?? '',
     icon: row.icon ?? '',
@@ -163,9 +165,10 @@ const {
   toPayload: (f) => ({
     menuId: f.menuId,
     menuName: f.menuName,
-    // 비우면 그룹 머리글이 된다
+    // 무엇을 만드는지는 만드는 사람이 고른다 — 라우트가 비었는지로 넘겨짚지 않는다
+    groupYn: f.groupYn,
     parentId: f.parentId || null,
-    routeName: f.parentId ? f.routeName || null : null,
+    routeName: f.groupYn === 'Y' ? null : f.routeName || null,
     icon: f.icon || null,
     permId: f.permId || null,
     sortOrder: Number(f.sortOrder) || 0,
@@ -177,17 +180,16 @@ const {
     else if (!/^[A-Z][A-Z0-9_]{1,29}$/.test(f.menuId))
       e.menuId = '영문 대문자로 시작하는 2~30자여야 합니다. (숫자 _ 허용)'
     if (!f.menuName?.trim()) e.menuName = '메뉴명은 필수입니다.'
-    // 그룹은 갈 곳이 없고, 항목은 반드시 있어야 한다
-    if (f.parentId && !f.routeName) e.routeName = '하위 메뉴는 이동할 화면이 필요합니다.'
-    if (!f.parentId && f.routeName)
-      e.routeName = '그룹 머리글은 화면을 가질 수 없습니다. 상위 메뉴를 지정하세요.'
+    // 머리글은 갈 곳이 없고, 화면 메뉴는 반드시 있어야 한다
+    if (f.groupYn !== 'Y' && !f.routeName) e.routeName = '화면 메뉴는 이동할 화면이 필요합니다.'
+    if (f.groupYn !== 'Y' && !f.parentId) e.parentId = '화면 메뉴는 상위 머리글이 필요합니다.'
     if (f.routeName && !routeNames.value.has(f.routeName))
       e.routeName = `'${f.routeName}' 화면이 없습니다. 목록에서 고르세요.`
     return e
   },
 })
 
-const isGroup = computed(() => !form.value.parentId)
+const isGroup = computed(() => form.value.groupYn === 'Y')
 
 /** 화면을 고르면 그 화면이 요구하는 권한을 기본값으로 채운다 */
 function onRouteChange(name) {
@@ -391,13 +393,33 @@ const readDenyReason = computed(() => session.denyReason('SYS_MENU', 'R'))
         />
         <FormField v-model="form.menuName" label="메뉴명" required placeholder="사용자 관리" :error="errors.menuName" />
 
+        <!--
+          무엇을 만드는지 먼저 고르게 한다.
+
+          전에는 '상위 메뉴를 비우면 머리글' 이었다. 머리글이 최상위에만
+          있을 때는 통했는데, 기준정보 아래를 한 번 더 나누면서 부모가 있는
+          머리글이 생겼다. 그리고 그 방식에서는 화면 고르는 것을 깜빡한 것과
+          머리글을 만들려던 것이 구별되지 않는다.
+        -->
+        <FormField
+          v-model="form.groupYn"
+          label="메뉴 유형"
+          type="switch"
+          on-label="머리글"
+          off-label="화면"
+          :help="isGroup
+            ? '아래 메뉴를 묶기만 합니다. 누를 화면이 없습니다.'
+            : '눌러서 화면으로 갑니다. 상위 머리글과 연결 화면이 필요합니다.'"
+        />
         <FormField
           v-model="form.parentId"
           label="상위 메뉴"
           type="select"
-          empty-option="(없음 — 그룹 머리글로)"
+          :required="!isGroup"
+          :empty-option="isGroup ? '(없음 — 맨 위 머리글)' : '선택하세요'"
           :options="parentOptions"
-          help="비우면 그룹 머리글이 됩니다. 메뉴는 2단까지만 둡니다."
+          :error="errors.parentId"
+          help="메뉴는 3단까지 둘 수 있습니다. (예: 기준정보 › 플랜트 › 창고 관리)"
         />
         <FormField
           v-if="!isGroup"

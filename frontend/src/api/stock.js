@@ -27,6 +27,7 @@ export async function list(params = {}) {
     keyword: params.keyword,
     plantId: params.plantId,
     warehouseId: params.warehouseId,
+    warehouseType: params.warehouseType,
     locationId: params.locationId,
     skuId: params.skuId,
     productId: params.productId,

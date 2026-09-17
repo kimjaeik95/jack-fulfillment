@@ -23,6 +23,7 @@ import ModalDialog from '@/components/ModalDialog.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import FormField from '@/components/FormField.vue'
 import CodeBadge from '@/components/CodeBadge.vue'
+import DetailDialog from '@/components/DetailDialog.vue'
 
 const hierarchy = useHierarchyStore()
 /** 조직 목록이 회사명을 함께 보여준다 — 회사를 고치면 그쪽이 낡는다 */
@@ -62,6 +63,25 @@ const rows = computed(() => {
           String(v ?? '').toLowerCase().includes(kw),
         ),
     )
+})
+
+/* 상세 보기 — 목록에 없는 칸(주소 · 이메일 · 우편번호)이 여기 있다 */
+const detail = ref(null)
+const detailFields = computed(() => {
+  const d = detail.value
+  if (!d) return []
+  return [
+    { label: '회사코드', value: d.companyId, mono: true },
+    { label: '회사명', value: d.companyName },
+    { label: '사업자등록번호', value: d.bizRegNo, mono: true },
+    { label: '대표자', value: d.ceoName },
+    { label: '연락처', value: d.phone, mono: true },
+    { label: '이메일', value: d.email },
+    { label: '우편번호', value: d.zipCode, mono: true },
+    { label: '소속 조직', value: d.orgCount != null ? d.orgCount + '개' : null },
+    { label: '주소', value: d.address, span: true },
+    { label: '사용', slot: 'useYn' },
+  ]
 })
 
 const columns = [
@@ -263,6 +283,15 @@ const readDenyReason = computed(() => session.denyReason('SYS_COMPANY', 'R'))
         :muted-when="(c) => c.useYn !== 'Y'"
         empty-text="조건에 맞는 회사가 없습니다."
       >
+        <!--
+          회사명을 누르면 상세가 열린다. 주소 · 이메일처럼 목록에 없는 칸은
+          전에는 '수정' 을 눌러야 볼 수 있었다 — 고칠 생각이 없는 사람에게
+          수정 화면을 열게 하는 셈이고, 수정 권한이 없으면 아예 못 봤다.
+        -->
+        <template #cell-companyName="{ row, value }">
+          <button class="link-cell" @click="detail = row">{{ value }}</button>
+        </template>
+
         <template #cell-bizRegNo="{ value }">
           <span :class="{ dim: !value }">{{ value || '미입력' }}</span>
         </template>
@@ -301,6 +330,21 @@ const readDenyReason = computed(() => session.denyReason('SYS_COMPANY', 'R'))
         </template>
       </DataTable>
     </div>
+
+    <DetailDialog
+      v-if="detail"
+      title="회사 상세"
+      :subtitle="`${detail.companyName} · ${detail.companyId}`"
+      :fields="detailFields"
+      :can-edit="canUpdate"
+      :edit-deny-reason="updateDenyReason"
+      @edit="openEdit(detail); detail = null"
+      @close="detail = null"
+    >
+      <template #useYn>
+        <CodeBadge group="USE_YN" :code="detail.useYn" />
+      </template>
+    </DetailDialog>
 
     <ModalDialog
       v-if="dlgOpen"
@@ -359,7 +403,16 @@ const readDenyReason = computed(() => session.denyReason('SYS_COMPANY', 'R'))
         />
         <FormField v-model="form.zipCode" label="우편번호" placeholder="07326" :error="errors.zipCode" />
         <FormField v-model="form.sortOrder" label="정렬순서" type="number" help="작을수록 위에 표시됩니다." />
-        <FormField v-model="form.useYn" label="사용여부" type="switch" />
+        <!--
+          미사용이 무슨 일을 하는지 저장 전에 적어 둔다. 서버는 저장한 뒤에야
+          경고로 알려주는데, 그때는 이미 바뀐 뒤다.
+        -->
+        <FormField
+          v-model="form.useYn"
+          label="사용여부"
+          type="switch"
+          help="미사용으로 두면 새 조직을 이 회사로 만들 수 없습니다. 이미 있는 조직과 사용자는 그대로 동작합니다."
+        />
       </div>
 
       <template #footer>

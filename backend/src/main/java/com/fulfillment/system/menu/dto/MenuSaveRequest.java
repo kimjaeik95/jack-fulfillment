@@ -10,9 +10,17 @@ import jakarta.validation.constraints.Size;
 /**
  * 메뉴 등록 · 수정 요청.
  *
- * 그룹 머리글인지 실제 화면인지는 parentId 로 갈린다. 비우면 그룹,
- * 채우면 그 그룹에 속한 항목이다. 두 경우에 필수값이 달라지므로
- * 그 검증은 서비스가 한다.
+ * 머리글인지 실제 화면인지는 groupYn 이 말한다.
+ *
+ * 전에는 parentId 로 갈랐다 — 비우면 머리글. 머리글이 최상위에만 있을 때는
+ * 맞았는데, 기준정보 아래를 플랜트 · 제품 · 채널 · 거래처로 한 번 더 나누면서
+ * (V19) 부모가 있는 머리글이 생겼다.
+ *
+ * 그래서 '라우트가 없으면 머리글' 로 갈음해 봤더니 더 나빴다 — 화면을 고르는
+ * 것을 깜빡한 메뉴가 조용히 머리글이 되어 저장되고, 하위가 없으니 사이드바에
+ * 나오지도 않는다. 만든 사람은 어디로 갔는지 모른다.
+ *
+ * 무엇을 만들려는지는 만드는 사람이 말해야 한다.
  */
 public record MenuSaveRequest(
 
@@ -25,10 +33,18 @@ public record MenuSaveRequest(
 		@Size(max = 100, message = "메뉴명은 100자 이하여야 합니다.")
 		String menuName,
 
-		/** 상위 메뉴코드. 비우면 그룹 머리글이 된다. */
+		/** 상위 메뉴코드. 비우면 최상위다. 최상위는 늘 머리글이다. */
 		String parentId,
 
-		/** 프론트 라우트 이름. 그룹이면 비운다. */
+		/**
+		 * 머리글인가 — 'Y' 면 누를 화면 없이 아래를 묶기만 한다.
+		 *
+		 * 안 보내면 예전처럼 parentId 로 판단한다. 업로드 양식처럼 이 칸이
+		 * 없는 입력이 아직 있어서, 없다고 거절하지 않는다.
+		 */
+		String groupYn,
+
+		/** 프론트 라우트 이름. 머리글이면 비운다. */
 		@Size(max = 50) String routeName,
 
 		@Size(max = 10, message = "아이콘은 10자 이하여야 합니다.")
@@ -51,6 +67,7 @@ public record MenuSaveRequest(
 		menuId = Texts.trimToNull(menuId);
 		menuName = Texts.trimToNull(menuName);
 		parentId = Texts.trimToNull(parentId);
+		groupYn = Texts.trimToNull(groupYn);
 		routeName = Texts.trimToNull(routeName);
 		icon = Texts.trimToNull(icon);
 		permId = Texts.trimToNull(permId);
@@ -58,8 +75,15 @@ public record MenuSaveRequest(
 		reason = Texts.trimToNull(reason);
 	}
 
+	/**
+	 * 머리글로 만들려는 것인가.
+	 *
+	 * groupYn 을 보내면 그 말을 따른다. 안 보내면 예전 방식(최상위면 머리글)으로
+	 * 읽는다 — 업로드 양식에 아직 이 칸이 없다. '라우트가 비었으니 머리글'
+	 * 로는 읽지 않는다. 그렇게 하면 화면 고르는 것을 깜빡한 것과 구별이 안 된다.
+	 */
 	public boolean isGroup() {
-		return parentId == null;
+		return groupYn == null ? parentId == null : "Y".equalsIgnoreCase(groupYn);
 	}
 
 	/**

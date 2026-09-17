@@ -8,7 +8,8 @@ import java.util.List;
 /**
  * 메뉴 조회 · 등록 · 수정 · 삭제.
  *
- * 2단 구조라 재귀 조회가 필요 없다. 전체를 한 번에 읽어 서비스가 트리로 묶는다.
+ * 단이 얕고(3단) 건수가 수십이라 재귀 조회를 쓰지 않는다. 전체를 한 번에 읽어
+ * 서비스가 트리로 묶는다.
  */
 public interface MenuDao {
 
@@ -16,6 +17,9 @@ public interface MenuDao {
 	List<Menu> selectAll(@Param("keyword") String keyword, @Param("useYn") String useYn);
 
 	Menu selectByMenuId(@Param("menuId") String menuId);
+
+	/** 부모를 거슬러 올라가며 단을 셀 때 쓴다 */
+	Menu selectBySeq(@Param("menuSeq") Long menuSeq);
 
 	int countByMenuId(@Param("menuId") String menuId);
 

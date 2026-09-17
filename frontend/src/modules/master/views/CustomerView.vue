@@ -24,6 +24,7 @@ import ModalDialog from '@/components/ModalDialog.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import FormField from '@/components/FormField.vue'
 import CodeBadge from '@/components/CodeBadge.vue'
+import DetailDialog from '@/components/DetailDialog.vue'
 
 const session = useSessionStore()
 const toast = useToastStore()
@@ -58,6 +59,30 @@ async function fetchList() {
 }
 
 onMounted(fetchList)
+
+/*
+ * 상세 보기 — 목록에 없는 칸(이메일 · 담당자 · 비고)이 여기 있다.
+ * 배송지는 아래 패널이 따로 맡는다. 여러 건이고 등록 · 수정이 붙어 있어,
+ * 읽기 전용 창에 끼워 넣으면 "여기선 왜 못 고치지" 가 된다.
+ */
+const detail = ref(null)
+const detailFields = computed(() => {
+  const d = detail.value
+  if (!d) return []
+  return [
+    { label: '고객코드', value: d.customerId, mono: true },
+    { label: '고객명', value: d.customerName },
+    { label: '유형', slot: 'customerType' },
+    { label: '사업자등록번호', value: d.bizRegNo, mono: true },
+    { label: '담당자', value: d.managerName },
+    { label: '연락처', value: d.phone, mono: true },
+    { label: '이메일', value: d.email },
+    { label: '배송지', value: d.addressCount ? `${d.addressCount}건` : '없음' },
+    { label: '거래상태', slot: 'status' },
+    { label: '사용', slot: 'useYn' },
+    { label: '비고', value: d.remark, span: true },
+  ]
+})
 
 const columns = [
   { key: 'customerId', label: '고객코드', width: '100px', sortable: true, cls: 'code' },
@@ -389,6 +414,11 @@ const noAddress = computed(() => rows.value.filter((c) => c.tradable && !c.addre
         :muted-when="(c) => !c.tradable"
         empty-text="조건에 맞는 고객이 없습니다."
       >
+        <!-- 고객명을 누르면 상세가 열린다 (이메일 · 담당자 · 비고) -->
+        <template #cell-customerName="{ row, value }">
+          <button class="link-cell" @click="detail = row">{{ value }}</button>
+        </template>
+
         <template #cell-customerType="{ value }">
           <CodeBadge group="CUSTOMER_TYPE" :code="value" />
         </template>
@@ -437,6 +467,30 @@ const noAddress = computed(() => rows.value.filter((c) => c.tradable && !c.addre
         </template>
       </DataTable>
     </div>
+
+    <DetailDialog
+      v-if="detail"
+      title="고객 상세"
+      :subtitle="detail.customerName + ' · ' + detail.customerId"
+      :fields="detailFields"
+      :can-edit="canUpdate"
+      :edit-deny-reason="updateDenyReason"
+      @edit="openEdit(detail); detail = null"
+      @close="detail = null"
+    >
+      <template #customerType>
+        <CodeBadge group="CUSTOMER_TYPE" :code="detail.customerType" />
+      </template>
+      <template #status>
+        <CodeBadge group="PARTNER_STATUS" :code="detail.status" />
+      </template>
+      <template #useYn>
+        <CodeBadge group="USE_YN" :code="detail.useYn" />
+      </template>
+      <template #footer-note>
+        배송지는 목록에서 '배송지' 를 눌러 따로 관리합니다.
+      </template>
+    </DetailDialog>
 
     <!-- ── 배송지 ─────────────────────────────────────────────── -->
     <div v-if="selected" class="card mt-2">
@@ -658,7 +712,9 @@ const noAddress = computed(() => rows.value.filter((c) => c.tradable && !c.addre
           v-model="addrForm.defaultYn"
           label="기본배송지"
           type="switch"
-          help="켜면 기존 기본배송지는 자동으로 내려갑니다."
+          on-label="기본"
+          off-label="아님"
+          help="기본으로 두면 기존 기본배송지는 자동으로 내려갑니다."
         />
         <FormField v-model="addrForm.sortOrder" label="정렬순서" type="number" />
         <FormField v-model="addrForm.useYn" label="사용여부" type="switch" />

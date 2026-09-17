@@ -23,6 +23,7 @@ import ModalDialog from '@/components/ModalDialog.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import FormField from '@/components/FormField.vue'
 import CodeBadge from '@/components/CodeBadge.vue'
+import DetailDialog from '@/components/DetailDialog.vue'
 
 const hierarchy = useHierarchyStore()
 const orgStore = useOrgStore()
@@ -65,6 +66,26 @@ const rows = computed(() => {
           String(v ?? '').toLowerCase().includes(kw),
         ),
     )
+})
+
+/* 상세 보기 — 목록에 없는 칸(주소 · 담당자 연락처)이 여기 있다 */
+const detail = ref(null)
+const detailFields = computed(() => {
+  const d = detail.value
+  if (!d) return []
+  return [
+    { label: '플랜트코드', value: d.plantId, mono: true },
+    { label: '플랜트명', value: d.plantName },
+    { label: '유형', slot: 'plantType' },
+    { label: '운영 조직', value: d.orgName },
+    { label: '담당자', value: d.managerName },
+    { label: '연락처', value: d.phone, mono: true },
+    { label: '우편번호', value: d.zipCode, mono: true },
+    { label: '사용', slot: 'useYn' },
+    { label: '창고', value: d.warehouseCount != null ? d.warehouseCount + '개' : null },
+    { label: '빈', value: d.locationCount != null ? d.locationCount + '개' : null },
+    { label: '주소', value: d.address, span: true },
+  ]
 })
 
 const columns = [
@@ -284,6 +305,11 @@ const scopeNotice = computed(() => session.scopeNotice('MST_PLANT'))
         :muted-when="(p) => p.useYn !== 'Y'"
         empty-text="조건에 맞는 플랜트가 없습니다."
       >
+        <!-- 플랜트명을 누르면 상세가 열린다 (주소 · 담당자 연락처) -->
+        <template #cell-plantName="{ row, value }">
+          <button class="link-cell" @click="detail = row">{{ value }}</button>
+        </template>
+
         <template #cell-plantType="{ value }">
           <CodeBadge group="PLANT_TYPE" :code="value" />
         </template>
@@ -318,6 +344,24 @@ const scopeNotice = computed(() => session.scopeNotice('MST_PLANT'))
         </template>
       </DataTable>
     </div>
+
+    <DetailDialog
+      v-if="detail"
+      title="플랜트 상세"
+      :subtitle="detail.plantName + ' · ' + detail.plantId"
+      :fields="detailFields"
+      :can-edit="canUpdate"
+      :edit-deny-reason="updateDenyReason"
+      @edit="openEdit(detail); detail = null"
+      @close="detail = null"
+    >
+      <template #plantType>
+        <CodeBadge group="PLANT_TYPE" :code="detail.plantType" />
+      </template>
+      <template #useYn>
+        <CodeBadge group="USE_YN" :code="detail.useYn" />
+      </template>
+    </DetailDialog>
 
     <ModalDialog
       v-if="dlgOpen"

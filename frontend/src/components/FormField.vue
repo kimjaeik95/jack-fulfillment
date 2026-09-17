@@ -20,7 +20,21 @@ const props = defineProps({
   rows: { type: Number, default: 3 },
   span: { type: Boolean, default: false },
   emptyOption: { type: String, default: '' }, // select 의 '전체'/'선택' 옵션 라벨
+
+  /*
+   * switch 의 양쪽 이름.
+   *
+   * 대부분은 사용/미사용이지만 전부는 아니다 — '블라인드 카운트' 는 숨김/보임이고
+   * '기본 배송지' 는 예/아니오다. 기본값을 두되 화면이 바꿀 수 있게 한다.
+   */
+  onLabel: { type: String, default: '사용' },
+  offLabel: { type: String, default: '미사용' },
 })
+
+/** switch 는 Y/N 문자열과 boolean 을 둘 다 받는다 (화면마다 다르게 쓰고 있다) */
+const switchOn = computed(() => props.modelValue === 'Y' || props.modelValue === true)
+/** 들어온 모양대로 돌려준다 — boolean 을 넣었는데 'Y' 가 나가면 저장할 때 어긋난다 */
+const switchOut = (on) => (typeof props.modelValue === 'boolean' ? on : on ? 'Y' : 'N')
 
 // enter — 서버 조회 화면에서 검색을 실행하는 데 쓴다.
 // 검색어를 치고 Enter 를 누르는 것은 당연한 기대이고, 버튼만 두면 매번 마우스를 잡아야 한다.
@@ -84,15 +98,37 @@ const checked = (v) => Array.isArray(props.modelValue) && props.modelValue.inclu
       <span v-if="!options.length" class="dim small" style="padding: 3px 6px">선택 가능한 항목이 없습니다.</span>
     </div>
 
-    <label v-else-if="type === 'switch'" class="check-line" style="padding-left: 0">
-      <input
-        type="checkbox"
-        :checked="modelValue === 'Y' || modelValue === true"
-        :disabled="disabled"
-        @change="emit('update:modelValue', $event.target.checked ? 'Y' : 'N')"
-      />
-      <span>{{ modelValue === 'Y' || modelValue === true ? '사용' : '미사용' }}</span>
-    </label>
+    <!--
+      켜고 끄는 값은 두 쪽을 다 보여 준다.
+
+      전에는 체크박스 하나에 글자가 붙어 있었고, 그 글자가 상태에 따라
+      '사용' ↔ '미사용' 으로 바뀌었다. 체크박스 옆 글자는 보통 '체크하면
+      이렇게 된다' 를 뜻하는데 여기서는 '지금 이렇다' 를 뜻해서, 미사용이라고
+      쓰여 있을 때 그것이 현재 상태인지 누르면 될 일인지 알 수 없었다.
+
+      둘을 나란히 놓고 하나를 켜면 그 물음이 생기지 않는다 — 고를 것이
+      무엇이고 지금 무엇인지가 한눈에 같이 보인다.
+    -->
+    <div v-else-if="type === 'switch'" class="segmented" role="radiogroup" :aria-label="label">
+      <label class="seg" :class="{ on: switchOn }">
+        <input
+          type="radio"
+          :checked="switchOn"
+          :disabled="disabled"
+          @change="emit('update:modelValue', switchOut(true))"
+        />
+        <span>{{ onLabel }}</span>
+      </label>
+      <label class="seg" :class="{ on: !switchOn, off: !switchOn }">
+        <input
+          type="radio"
+          :checked="!switchOn"
+          :disabled="disabled"
+          @change="emit('update:modelValue', switchOut(false))"
+        />
+        <span>{{ offLabel }}</span>
+      </label>
+    </div>
 
     <input
       v-else

@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, provide, ref, watch } from 'vue'
 import { RouterView, useRoute, useRouter } from 'vue-router'
 import { loadCodes } from '@/api/codes.js'
 import { useMenuStore } from '@/stores/menu.js'
@@ -12,6 +12,7 @@ import { useSessionStore } from '@/stores/session.js'
 import { useToastStore } from '@/stores/toast.js'
 import ToastHost from '@/components/ToastHost.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
+import NavNode from '@/components/NavNode.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -150,34 +151,175 @@ function menuTitle(menu) {
  * 그룹 <b>안</b>의 순서는 건드리지 않는다. 기준정보가 늘 같은 순서여야
  * 손이 기억한다 — 움직이는 것은 그룹 덩어리뿐이다.
  */
-const sortedGroups = computed(() => {
-  const usable = (m) => menuAllowed(m) && routeExists(m.routeName)
+/**
+ * 권한이 없는 메뉴는 아예 내보내지 않는다.
+ *
+ * 전에는 아래쪽 '권한 없음' 묶음에 모아 두었다 — 있는 줄은 알아야 권한을
+ * 요청할 수 있다는 이유였다. 그런데 그 묶음이 사이드바의 대부분을 차지했다.
+ * 피킹 담당은 자기가 쓸 6개 아래에 못 쓰는 38줄을 달고 다녔고, 감사 담당은
+ * 1개를 쓰려고 43줄을 지나가야 했다. 못 쓰는 것을 알리는 값보다 쓸 것을 못
+ * 찾게 만드는 값이 컸다. 무엇이 더 필요한지는 관리자가 안다.
+ *
+ * 아래에서 위로 걸러야 한다. 머리글에는 권한이 안 달려 있어서(그 자체로는
+ * 갈 곳이 아니므로) 한 단만 보면 늘 통과한다. 속이 빈 '거래처' 머리글이
+ * 남아, 눌러 펴면 아무것도 없는 일이 생긴다.
+ *
+ * 가리키는 화면이 없는 메뉴(routeExists=false)는 감추지 않는다. 그건 권한
+ * 문제가 아니라 메뉴와 라우트가 어긋났다는 뜻이라, 보여야 고친다.
+ */
+function pruneMenus(nodes) {
+  return nodes.flatMap((n) => {
+    if (n.children?.length) {
+      const kids = pruneMenus(n.children)
+      // 다 걸러진 머리글은 머리글째 사라진다
+      return kids.length ? [{ ...n, children: kids }] : []
+    }
+    return menuAllowed(n) ? [n] : []
+  })
+}
 
-  /*
-   * 항목 단위로 자른다.
-   *
-   * 그룹 단위로 자르면 경계가 거짓말을 한다. 기준정보 7/14 처럼 섞인
-   * 그룹은 '쓸 수 있는 그룹' 에 남는데, 그 안의 못 쓰는 7개가 '권한 없음'
-   * 구분선 위에 앉는다. 구분선이 아래를 가리키는데 위에도 있는 꼴이다.
-   *
-   * 그래서 위에는 쓸 수 있는 것만 그룹째로 두고, 못 쓰는 것은 그룹을 떠나
-   * 아래로 모은다. 아래쪽은 그룹 머리글을 붙이지 않는다 — 한 그룹에 한두
-   * 개씩 흩어져 머리글이 항목보다 많아지고, 어차피 거기서 찾을 일이 없다.
-   *
-   * 감추지는 않는다. 있는 줄 알아야 권한을 요청할 수 있다.
-   */
-  const open = menuStore.groups
-    .map((g) => ({ ...g, children: (g.children ?? []).filter(usable) }))
-    .filter((g) => g.children.length)
+const sortedGroups = computed(() => pruneMenus(menuStore.groups))
 
-  // 아래쪽은 그룹 순서대로 늘어놓되, 어느 그룹 것인지는 툴팁이 말해 준다
-  const locked = menuStore.groups.flatMap((g) =>
-    (g.children ?? [])
-      .filter((m) => !usable(m))
-      .map((m) => ({ ...m, groupName: g.menuName })),
+/* ------------------------------------------------------------------ */
+/* 그룹 접기                                                           */
+/* ------------------------------------------------------------------ */
+
+/*
+ * 그룹을 접는다.
+ *
+ * 시스템 관리자는 마스터라 45개를 전부 본다. 그룹 머리글까지 54줄이 한 번에
+ * 깔려서, 찾으려던 것이 어디 있는지 눈으로 훑어야 했다.
+ *
+ * 접는 기준은 '지금 보고 있는 화면이 속한 그룹만 편다' 다. 사람이 다음에
+ * 누를 것은 대개 방금 누른 것 옆에 있다.
+ */
+const NAV_OPEN_KEY = 'wms-nav-open'
+
+const openGroups = ref(new Set())
+
+/** 트리를 훑어 잎(실제로 갈 수 있는 화면)만 모은다 */
+function leavesOf(nodes) {
+  return nodes.flatMap((n) =>
+    n.children?.length ? leavesOf(n.children) : (routeExists(n.routeName) ? [n] : []),
   )
+}
 
-  return { open, locked }
+/** 사이드바를 접었을 때 쓰는 평면 목록 */
+const flatMenus = computed(() => leavesOf(sortedGroups.value))
+
+/** 지금 화면에 이르는 길 위의 그룹들 — 그 화면이 보이려면 전부 펴져 있어야 한다 */
+function pathTo(nodes, routeName, trail = []) {
+  for (const n of nodes) {
+    if (n.routeName === routeName) return trail
+    if (n.children?.length) {
+      const found = pathTo(n.children, routeName, [...trail, n.menuId])
+      if (found) return found
+    }
+  }
+  return null
+}
+
+/** 저장된 것이 있으면 그걸로, 없으면 지금 화면의 그룹만 */
+function loadOpenGroups() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(NAV_OPEN_KEY) ?? 'null')
+    if (Array.isArray(saved)) return new Set(saved)
+  } catch {
+    /* 저장된 값이 깨졌으면 없는 셈 친다 */
+  }
+  return null
+}
+
+function toggleGroup(menuId) {
+  navTouched.value = true
+  const next = new Set(openGroups.value)
+  next.has(menuId) ? next.delete(menuId) : next.add(menuId)
+  openGroups.value = next
+  try {
+    localStorage.setItem(NAV_OPEN_KEY, JSON.stringify([...next]))
+  } catch {
+    /* 저장이 막혀 있어도 이번 화면에서는 접고 펴진다 */
+  }
+}
+
+const isGroupOpen = (g) => isFlat(g) || openGroups.value.has(g.menuId)
+
+/**
+ * 지금 화면에 이르는 길 위의 그룹 전부.
+ *
+ * 한 단만 펴서는 안 된다. '제품 관리' 는 기준정보 › 제품 아래에 있어서, 둘 다
+ * 펴야 보인다. 하나만 펴면 활성 표시가 접힌 그룹 안에 숨어 어디에 있는지
+ * 알 수 없다.
+ */
+const currentTrail = computed(() => pathTo(sortedGroups.value, route.name) ?? [])
+
+/*
+ * 화면을 옮기면 그리로 가는 길을 편다. 다른 곳을 접지는 않는다 — 열어 둔 것을
+ * 닫아 버리면 방금 훑던 목록이 사라져 어디에서 왔는지 놓친다.
+ */
+watch(currentTrail, (trail) => {
+  if (!trail.length) return
+  if (trail.every((id) => openGroups.value.has(id))) return
+  openGroups.value = new Set([...openGroups.value, ...trail])
+})
+
+/**
+ * 접기가 도움이 되는 크기를 넘었는가.
+ *
+ * 시스템 관리자는 45개를 보지만 피킹 담당은 6개다. 6개를 접어 두면 사이드바가
+ * 머리글 두 줄로 남아, 접기가 덜어 주는 것 없이 펴는 품만 늘린다. 적으면
+ * 그냥 다 펴 둔다.
+ */
+const NAV_FOLD_THRESHOLD = 12
+
+/** 머리글을 전부 모은다 — 처음부터 다 펴 둘 때 쓴다 */
+function allGroupIds(nodes) {
+  return nodes.flatMap((n) => (n.children?.length ? [n.menuId, ...allGroupIds(n.children)] : []))
+}
+
+/*
+ * 사람이 직접 접거나 편 적이 있는가.
+ *
+ * 기본값을 한 번만 정하면 안 된다. 메뉴는 로그인 직후 한 번, 권한이 들어온 뒤
+ * 한 번 더 바뀌는데, 첫 번째 것으로 정하면 아직 걸러지지 않은 45개를 보고
+ * '접어야겠다' 고 판단한다. 정작 그 사람이 쓸 수 있는 것은 6개인데 접힌 채로
+ * 남는다 — 실제로 그렇게 나왔다.
+ *
+ * 그래서 사람이 손대기 전까지는 트리가 바뀔 때마다 다시 정한다.
+ */
+const navTouched = ref(false)
+
+watch(
+  sortedGroups,
+  (groups) => {
+    if (!groups.length || navTouched.value) return
+
+    const saved = loadOpenGroups()
+    if (saved) {
+      openGroups.value = saved
+      navTouched.value = true
+      return
+    }
+
+    // 적으면 다 펴고, 많으면 지금 화면까지 가는 길만 편다
+    openGroups.value =
+      flatMenus.value.length <= NAV_FOLD_THRESHOLD
+        ? new Set(allGroupIds(groups))
+        : new Set(currentTrail.value)
+  },
+  { immediate: true },
+)
+
+/*
+ * 한 줄을 그리는 데 필요한 것을 NavNode 에게 넘긴다. 단이 깊어질수록 props 로
+ * 지나가기만 하는 인자가 늘어나 provide 로 둔다.
+ */
+provide('nav', {
+  isOpen: (id) => openGroups.value.has(id),
+  toggle: toggleGroup,
+  routeExists,
+  titleOf: menuTitle,
+  countOf: (routeName) => counts.value?.[routeName],
 })
 
 async function doLogout() {
@@ -254,73 +396,34 @@ async function doReset() {
         쓸 수 있는 그룹이 먼저. 그 아래에 전부 잠긴 그룹을 모아 둔다.
         감추지는 않는다 — 있는 줄 알아야 권한을 요청할 수 있다.
       -->
-      <template v-for="g in sortedGroups.open" :key="g.menuId">
-        <div class="nav-group-label">{{ collapsed ? '·' : g.menuName }}</div>
-        <template v-for="m in g.children" :key="m.menuId">
-          <!-- 가리키는 화면이 없는 메뉴는 눌러도 이동할 수 없으므로 링크로 만들지 않는다 -->
+      <!--
+        사이드바를 접으면(아이콘만) 머리글을 그릴 자리가 없다. 그럴 때는
+        묶음을 버리고 잎만 한 줄로 늘어놓는다 — 접힌 그룹 아이콘은 눌러도
+        갈 곳이 없어서, 좁은 폭에서는 방해만 된다.
+      -->
+      <template v-if="collapsed">
+        <RouterLink
+          v-for="m in flatMenus"
+          :key="m.menuId"
+          v-slot="{ isActive, navigate }"
+          :to="{ name: m.routeName }"
+          custom
+        >
           <div
-            v-if="!routeExists(m.routeName)"
-            class="nav-item nav-broken"
+            class="nav-item"
+            :class="{ active: isActive }"
             :title="menuTitle(m)"
+            @click="navigate"
           >
-            <span class="nav-icon">⚠</span>
-            <template v-if="!collapsed"><span>{{ m.menuName }}</span></template>
+            <span class="nav-icon">{{ m.icon }}</span>
           </div>
-          <RouterLink v-else v-slot="{ isActive, navigate }" :to="{ name: m.routeName }" custom>
-            <!--
-              권한이 없어도 흐리게 칠하지 않고 눌리게 둔다. 들어가면 화면이
-              왜 비었는지 말해 준다 — '안의 내용만 모를 뿐' 이다.
-            -->
-            <div
-              class="nav-item"
-              :class="{ active: isActive, 'nav-locked': !menuAllowed(m) }"
-              :title="menuTitle(m)"
-              @click="navigate"
-            >
-              <span class="nav-icon">{{ m.icon }}</span>
-              <template v-if="!collapsed">
-                <span>{{ m.menuName }}</span>
-                <span v-if="counts[m.routeName] !== undefined" class="nav-count">
-                  {{ counts[m.routeName] }}
-                </span>
-              </template>
-            </div>
-          </RouterLink>
-        </template>
+        </RouterLink>
       </template>
 
-      <!--
-        여기부터는 이 계정이 지금 쓸 수 없는 메뉴다. 그룹을 떠나 한 줄로
-        모은다 — 한 그룹에 한두 개씩 흩어져 머리글이 항목보다 많아진다.
-        어느 그룹 것인지는 툴팁이 말한다.
-      -->
-      <template v-if="sortedGroups.locked.length">
-        <div class="nav-divider" title="현재 계정으로는 내용을 볼 수 없는 메뉴입니다">
-          <template v-if="!collapsed">권한 없음 {{ sortedGroups.locked.length }}</template>
-          <template v-else>·</template>
-        </div>
-        <template v-for="m in sortedGroups.locked" :key="m.menuId">
-          <div
-            v-if="!routeExists(m.routeName)"
-            class="nav-item nav-broken"
-            :title="menuTitle(m)"
-          >
-            <span class="nav-icon">⚠</span>
-            <template v-if="!collapsed"><span>{{ m.menuName }}</span></template>
-          </div>
-          <RouterLink v-else v-slot="{ isActive, navigate }" :to="{ name: m.routeName }" custom>
-            <div
-              class="nav-item"
-              :class="{ active: isActive, 'nav-locked': !menuAllowed(m) }"
-              :title="menuTitle(m)"
-              @click="navigate"
-            >
-              <span class="nav-icon">{{ m.icon }}</span>
-              <template v-if="!collapsed"><span>{{ m.menuName }}</span></template>
-            </div>
-          </RouterLink>
-        </template>
-      </template>
+      <!-- 펼친 상태 — 깊이가 고정이 아니라 재귀로 그린다 -->
+      <NavNode v-else v-for="g in sortedGroups" :key="g.menuId" :node="g" :depth="0" />
+
+      <!-- 권한 없는 메뉴는 아예 내보내지 않는다 (sortedGroups 주석 참고) -->
 
       <div v-if="menuStore.loadError && !collapsed" class="nav-note" :title="menuStore.loadError">
         ⚠ {{ menuStore.fallback ? '기본 메뉴로 표시 중' : menuStore.loadError }}

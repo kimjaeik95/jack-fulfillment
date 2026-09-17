@@ -23,6 +23,7 @@ import ModalDialog from '@/components/ModalDialog.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import FormField from '@/components/FormField.vue'
 import CodeBadge from '@/components/CodeBadge.vue'
+import DetailDialog from '@/components/DetailDialog.vue'
 
 const hierarchy = useHierarchyStore()
 const session = useSessionStore()
@@ -67,6 +68,23 @@ const rows = computed(() => {
         ),
     )
     .map((w) => ({ ...w, _key: keyOf(w) }))
+})
+
+/* 상세 보기 — 목록에 없는 칸(위치 설명 · 비고)이 여기 있다 */
+const detail = ref(null)
+const detailFields = computed(() => {
+  const d = detail.value
+  if (!d) return []
+  return [
+    { label: '플랜트', value: d.plantName },
+    { label: '창고코드', value: d.warehouseId, mono: true },
+    { label: '창고명', value: d.warehouseName },
+    { label: '유형', slot: 'warehouseType' },
+    { label: '빈', value: d.locationCount != null ? d.locationCount + '개' : null },
+    { label: '사용', slot: 'useYn' },
+    { label: '위치', value: d.positionDesc, span: true },
+    { label: '비고', value: d.remark, span: true },
+  ]
 })
 
 const columns = [
@@ -299,6 +317,11 @@ watch(
         :muted-when="(w) => w.useYn !== 'Y'"
         empty-text="조건에 맞는 창고가 없습니다."
       >
+        <!-- 창고명을 누르면 상세가 열린다 (위치 설명 · 비고) -->
+        <template #cell-warehouseName="{ row, value }">
+          <button class="link-cell" @click="detail = row">{{ value }}</button>
+        </template>
+
         <template #cell-warehouseType="{ value }">
           <CodeBadge group="WH_TYPE" :code="value" />
         </template>
@@ -333,6 +356,24 @@ watch(
         </template>
       </DataTable>
     </div>
+
+    <DetailDialog
+      v-if="detail"
+      title="창고 상세"
+      :subtitle="detail.warehouseName + ' · ' + detail.plantId + '-' + detail.warehouseId"
+      :fields="detailFields"
+      :can-edit="canUpdate"
+      :edit-deny-reason="updateDenyReason"
+      @edit="openEdit(detail); detail = null"
+      @close="detail = null"
+    >
+      <template #warehouseType>
+        <CodeBadge group="WAREHOUSE_TYPE" :code="detail.warehouseType" />
+      </template>
+      <template #useYn>
+        <CodeBadge group="USE_YN" :code="detail.useYn" />
+      </template>
+    </DetailDialog>
 
     <ModalDialog
       v-if="dlgOpen"

@@ -21,6 +21,7 @@ import { useToastStore } from '@/stores/toast.js'
 import ModalDialog from '@/components/ModalDialog.vue'
 import FormField from '@/components/FormField.vue'
 import CodeBadge from '@/components/CodeBadge.vue'
+import DetailDialog from '@/components/DetailDialog.vue'
 
 // 조직·역할은 실서버 목록을 쓴다 — 사용자 저장 시 서버가 같은 데이터로 검증한다
 const orgStore = useOrgStore()
@@ -138,6 +139,48 @@ const deleteDenyReason = computed(() => session.denyReason('SYS_USER', 'D'))
 const scopeNotice = computed(() => session.scopeNotice('SYS_USER'))
 
 const isSelf = (row) => row.userId === session.currentUserId
+
+/* ------------------------------------------------------------------ */
+/* 상세 보기 (읽기 전용)                                                */
+/* ------------------------------------------------------------------ */
+
+const detail = ref(null)
+
+function openDetail(row) {
+  detail.value = row
+}
+
+/**
+ * 목록에 없는 것을 위주로 담는다.
+ *
+ * 목록에는 자주 보는 칸만 뒀다. 이메일 · 연락처 · 최근접속까지 다 넣으면
+ * 표가 옆으로 흘러 정작 찾으려던 것이 안 보인다.
+ */
+const detailFields = computed(() => {
+  const d = detail.value
+  if (!d) return []
+  return [
+    { label: '사용자ID', value: d.userId, mono: true },
+    { label: '이름', value: d.userName },
+    { label: '소속 조직', value: d.orgName },
+    { label: '부서 / 직위', value: [d.deptName, d.positionName].filter(Boolean).join(' / ') },
+    { label: '이메일', value: d.email },
+    { label: '연락처', value: d.phone, mono: true },
+    { label: '상태', slot: 'status' },
+    { label: '사용', slot: 'useYn' },
+    {
+      label: '승인한도',
+      value: d.approvalLimit > 0 ? `${d.approvalLimit.toLocaleString()}원` : null,
+    },
+    { label: '로그인 실패', value: d.loginFailCount > 0 ? `${d.loginFailCount}회` : '없음' },
+    { label: '최근 접속', value: (d.lastLoginAt ?? '').replace('T', ' ').slice(0, 16) },
+    {
+      label: '비밀번호',
+      value: d.mustChangePassword ? '최초 변경 필요' : '변경 완료',
+    },
+    { label: '배정 역할', slot: 'roles', span: true },
+  ]
+})
 
 /* ------------------------------------------------------------------ */
 /* 등록 · 수정                                                          */
@@ -407,8 +450,8 @@ async function downloadAs(format) {
       <div>
         <h1 class="page-title">사용자 관리</h1>
         <p class="page-desc">
-          사내 시스템이므로 자가 가입은 없습니다. 계정은 관리자가 만들고 초기 비밀번호를 정하며,
-          담당자는 최초 로그인 시 반드시 변경해야 합니다.
+          사내 시스템이므로 자가 가입은 없습니다. 계정은 관리자가 만들고, 초기 비밀번호는
+          전 계정이 같은 값으로 시작하며 담당자가 최초 로그인 시 반드시 변경해야 합니다.
           역할은 소속 조직유형과 일치해야 하고, 직무분리 위반은 저장 시 서버가 차단합니다.
         </p>
       </div>
@@ -500,9 +543,22 @@ async function downloadAs(format) {
           </thead>
           <tbody>
             <tr v-for="row in rows" :key="row.userId" :class="{ muted: row.status === 'RETIRED' || row.useYn === 'N' }">
-              <td class="code">{{ row.userId }}</td>
+              <!--
+                아이디 · 이름을 누르면 상세가 열린다.
+
+                전에는 '수정' 을 눌러야 이메일 · 연락처 · 부서를 볼 수 있었다.
+                고칠 생각이 없는 사람에게 수정 화면을 열게 하는 셈이고, 수정
+                권한이 없으면 아예 못 봤다. 보는 것과 고치는 것은 권한부터 다르다.
+
+                행 전체가 아니라 이름 칸만 누르게 한다 — 행에 수정 · 삭제
+                버튼이 있어서, 행을 누르게 하면 버튼을 노리다 빗맞은 클릭이
+                전부 상세를 연다.
+              -->
+              <td class="code">
+                <button class="link-cell" @click="openDetail(row)">{{ row.userId }}</button>
+              </td>
               <td>
-                {{ row.userName }}
+                <button class="link-cell" @click="openDetail(row)">{{ row.userName }}</button>
                 <span v-if="isSelf(row)" class="badge badge-blue plain" title="현재 접속 계정">본인</span>
               </td>
               <td>
@@ -608,6 +664,31 @@ async function downloadAs(format) {
         </div>
       </div>
     </div>
+
+    <!-- 상세 (읽기 전용) -->
+    <DetailDialog
+      v-if="detail"
+      title="사용자 상세"
+      :subtitle="`${detail.userName} · ${detail.userId}`"
+      :fields="detailFields"
+      :can-edit="canUpdate"
+      :edit-deny-reason="updateDenyReason"
+      @edit="openEdit(detail); detail = null"
+      @close="detail = null"
+    >
+      <template #status>
+        <CodeBadge group="USER_STATUS" :code="detail.status" />
+      </template>
+      <template #useYn>
+        <CodeBadge group="USE_YN" :code="detail.useYn" />
+      </template>
+      <template #roles>
+        <div class="chip-list">
+          <span v-for="name in detail.roleNames" :key="name" class="chip">{{ name }}</span>
+          <span v-if="!detail.roleNames?.length" class="badge badge-red plain">역할 없음</span>
+        </div>
+      </template>
+    </DetailDialog>
 
     <!-- 등록 / 수정 -->
     <ModalDialog

@@ -21,6 +21,7 @@ import ModalDialog from '@/components/ModalDialog.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import FormField from '@/components/FormField.vue'
 import CodeBadge from '@/components/CodeBadge.vue'
+import DetailDialog from '@/components/DetailDialog.vue'
 
 const session = useSessionStore()
 
@@ -49,6 +50,34 @@ async function fetchList() {
 }
 
 onMounted(fetchList)
+
+/*
+ * 상세 보기 — 목록에 없는 칸(주소 · 이메일 · 대표자 · 비고)이 여기 있다.
+ * 초과입고 허용률은 목록에도 있지만 숫자만 보인다. 여기서는 0 이 무슨 뜻인지
+ * (예정수량을 1개라도 넘으면 전부 승인 대상) 까지 적어 준다.
+ */
+const detail = ref(null)
+const detailFields = computed(() => {
+  const d = detail.value
+  if (!d) return []
+  const rate = Number(d.overReceiptRate) || 0
+  return [
+    { label: '공급처코드', value: d.supplierId, mono: true },
+    { label: '공급처명', value: d.supplierName },
+    { label: '사업자등록번호', value: d.bizRegNo, mono: true },
+    { label: '대표자', value: d.ceoName },
+    { label: '담당자', value: d.managerName },
+    { label: '연락처', value: d.phone, mono: true },
+    { label: '이메일', value: d.email },
+    { label: '우편번호', value: d.zipCode, mono: true },
+    { label: '주소', value: d.address, span: true },
+    { label: '결제조건', slot: 'payTerm' },
+    { label: '초과입고 허용', value: rate ? `${rate}%` : '0% (예정수량 초과 시 전부 승인)' },
+    { label: '거래상태', slot: 'status' },
+    { label: '사용', slot: 'useYn' },
+    { label: '비고', value: d.remark, span: true },
+  ]
+})
 
 const columns = [
   { key: 'supplierId', label: '공급처코드', width: '110px', sortable: true, cls: 'code' },
@@ -249,6 +278,11 @@ const missingBizNo = computed(() =>
         :muted-when="(s) => !s.tradable"
         empty-text="조건에 맞는 공급처가 없습니다."
       >
+        <!-- 공급처명을 누르면 상세가 열린다 (주소 · 이메일 · 비고) -->
+        <template #cell-supplierName="{ row, value }">
+          <button class="link-cell" @click="detail = row">{{ value }}</button>
+        </template>
+
         <template #cell-bizRegNo="{ value }">
           <span :class="{ dim: !value }">{{ value || '미등록' }}</span>
         </template>
@@ -290,6 +324,27 @@ const missingBizNo = computed(() =>
         </template>
       </DataTable>
     </div>
+
+    <DetailDialog
+      v-if="detail"
+      title="공급처 상세"
+      :subtitle="detail.supplierName + ' · ' + detail.supplierId"
+      :fields="detailFields"
+      :can-edit="canUpdate"
+      :edit-deny-reason="updateDenyReason"
+      @edit="openEdit(detail); detail = null"
+      @close="detail = null"
+    >
+      <template #payTerm>
+        <CodeBadge group="PAY_TERM" :code="detail.payTerm" />
+      </template>
+      <template #status>
+        <CodeBadge group="PARTNER_STATUS" :code="detail.status" />
+      </template>
+      <template #useYn>
+        <CodeBadge group="USE_YN" :code="detail.useYn" />
+      </template>
+    </DetailDialog>
 
     <ModalDialog
       v-if="dlgOpen"

@@ -160,6 +160,16 @@
             <if test="warehouseId != null and warehouseId != ''">
                 AND w.warehouse_id = #{warehouseId}
             </if>
+            <!--
+              창고 하나가 아니라 유형 전체로 거른다.
+
+              반품창고는 센터마다 따로 있고 한 센터에 플랜트가 둘 달리기도 한다.
+              유형으로 못 묶으면 '반품 재고가 얼마나 쌓였나' 를 보려고 창고를
+              하나씩 골라 더해야 한다 — 하나 빠뜨려도 티가 안 난다.
+            -->
+            <if test="warehouseType != null and warehouseType != ''">
+                AND w.warehouse_type = #{warehouseType}
+            </if>
             <if test="locationId != null and locationId != ''">
                 AND l.location_id = #{locationId}
             </if>

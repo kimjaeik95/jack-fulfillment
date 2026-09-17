@@ -72,6 +72,12 @@
          WHERE m.menu_id = #{menuId}
     </select>
 
+    <select id="selectBySeq" resultMap="menuMap">
+        SELECT <include refid="menuColumns"/>
+        <include refid="fromMenu"/>
+         WHERE m.menu_seq = #{menuSeq}
+    </select>
+
     <select id="countByMenuId" resultType="int">
         SELECT COUNT(*) FROM tb_menu WHERE menu_id = #{menuId}
     </select>

@@ -189,6 +189,72 @@ a {
   overflow: hidden;
 }
 
+/*
+  접히는 그룹 머리글.
+
+  머리글이 버튼이 됐다. 눌러서 접는다는 것이 보여야 하므로 화살표를 달고
+  hover 를 준다 — 라벨처럼 보이면 아무도 누르지 않는다.
+
+  들여쓰기는 인라인 style 이 준다. 단이 몇이 될지 데이터가 정하는 것이라
+  CSS 에 depth 별 규칙을 미리 박아 둘 수 없다.
+*/
+.nav-group-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  margin: 0;
+  padding: 9px 10px 4px;
+  background: none;
+  border: 0;
+  border-radius: var(--radius);
+  font: inherit;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  color: var(--text-3);
+  text-transform: uppercase;
+  text-align: left;
+  cursor: pointer;
+}
+
+.nav-group-toggle:hover {
+  background: var(--surface-3);
+  color: var(--text-2);
+}
+
+/* 펼친 그룹은 머리글을 조금 진하게 — 지금 어디를 보고 있는지가 드러난다 */
+.nav-group-toggle.on {
+  color: var(--text-2);
+}
+
+.nav-caret {
+  flex: 0 0 10px;
+  font-size: 9px;
+  line-height: 1;
+}
+
+.nav-group-name {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/*
+  그룹에 몇 개가 들었는지.
+
+  접힌 그룹은 안이 안 보인다. 숫자가 없으면 펴 봐야 비어 있는지 열두 개인지
+  알 수 있어, 찾는 동안 그룹을 하나씩 열어 보게 된다.
+*/
+.nav-group-count {
+  flex: 0 0 auto;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0;
+  color: var(--text-3);
+  opacity: 0.75;
+}
+
 .nav-item {
   display: flex;
   align-items: center;
@@ -570,6 +636,77 @@ a {
 
 .form-grid .span-2 {
   grid-column: 1 / -1;
+}
+
+/*
+  두 쪽 중 하나 — 사용/미사용 같은 값.
+
+  전에는 체크박스 하나에 글자가 붙어 있었고 그 글자가 상태에 따라 뒤집혔다.
+  '미사용' 이라고 쓰여 있을 때 그것이 지금 상태인지, 누르면 그렇게 된다는
+  뜻인지 알 수 없었다. 눌러 보면 반대쪽으로 바뀌어 있으니 무엇이 저장될지도
+  누르기 전에는 알 수 없다.
+
+  둘을 나란히 놓고 켜진 쪽을 칠한다. 고를 것과 지금 상태가 같이 보여서
+  그 물음이 아예 생기지 않는다.
+*/
+.segmented {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--surface-2);
+}
+
+.segmented .seg {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 64px;
+  padding: 6px 14px;
+  font-size: 12.5px;
+  color: var(--text-3);
+  cursor: pointer;
+  user-select: none;
+}
+
+/* 라디오는 접근성·키보드 때문에 두고 눈에서만 치운다 */
+.segmented .seg input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.segmented .seg + .seg {
+  border-left: 1px solid var(--border);
+}
+
+.segmented .seg:hover {
+  background: var(--surface-3);
+  color: var(--text-2);
+}
+
+.segmented .seg.on {
+  background: var(--primary-soft);
+  color: var(--primary);
+  font-weight: 600;
+}
+
+/*
+  꺼진 쪽이 켜졌을 때는 회색으로 칠한다.
+
+  미사용을 파랗게 칠하면 '좋은 상태' 로 읽힌다. 미사용은 고른 값이지
+  권장하는 값이 아니다 — 켜져 있다는 것만 보이면 된다.
+*/
+.segmented .seg.on.off {
+  background: var(--surface-3);
+  color: var(--text-2);
+}
+
+.segmented .seg input:focus-visible + span {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+  border-radius: 2px;
 }
 
 .check-line {
@@ -1248,4 +1385,30 @@ input[type='radio'] {
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }
+}
+
+/* ------------------------------------------------------------------ */
+/* 표 안에서 상세로 들어가는 자리                                        */
+/*                                                                     */
+/* 이름을 누르면 상세가 열린다. 전에는 '수정' 을 눌러야 이메일 · 주소를  */
+/* 볼 수 있었는데, 고칠 생각이 없는 사람에게 수정 화면을 열게 하는       */
+/* 셈이었고 수정 권한이 없으면 아예 못 봤다.                            */
+/*                                                                     */
+/* button 으로 둔다. span 에 클릭을 걸면 키보드로 닿지 않는다.          */
+/* ------------------------------------------------------------------ */
+.link-cell {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  /* 밑줄은 올렸을 때만. 늘 그으면 표가 줄무늬처럼 보인다. */
+  text-decoration: none;
+}
+.link-cell:hover,
+.link-cell:focus-visible {
+  text-decoration: underline;
+  color: var(--c-blue, #2563eb);
 }

@@ -27,6 +27,16 @@ public class StockSearch extends ScopedSearch {
 	private String vendorId;
 
 	/**
+	 * 창고유형 (코드그룹 WH_TYPE — GOOD/RETURN/DEFECT).
+	 *
+	 * 개별 창고(warehouseId)로만 거를 수 있으면 '반품 재고가 얼마나 쌓였나' 를
+	 * 한 번에 못 본다. 센터마다 반품창고가 따로 있고 한 센터에 플랜트가 둘
+	 * 달리기도 해서, 유형으로 묶어 보려면 창고를 하나씩 골라 더해야 했다.
+	 * 재고 주소를 이루는 다섯 축 중 하나이므로 조회 조건으로도 둔다.
+	 */
+	private String warehouseType;
+
+	/**
 	 * 재고가 있는 행만.
 	 *
 	 * 재고 0 인 행은 지우지 않고 남기므로(왜 0 인지를 설명해야 한다) 시간이

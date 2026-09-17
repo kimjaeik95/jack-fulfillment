@@ -26,6 +26,7 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import * as stockApi from '@/api/stock.js'
+import { codeOptions } from '@/api/codes.js'
 import { useHierarchyStore } from '@/stores/hierarchy.js'
 import { useSessionStore } from '@/stores/session.js'
 import DataTable from '@/components/DataTable.vue'
@@ -51,6 +52,7 @@ const filters = reactive({
   keyword: '',
   plantId: route.query.plantId ?? '',
   warehouseId: '',
+  warehouseType: '',
   locationId: '',
   skuId: route.query.skuId ?? '',
   productId: '',
@@ -86,7 +88,7 @@ watch(quick, (key) => {
 
 function resetFilters() {
   Object.assign(filters, {
-    keyword: '', plantId: '', warehouseId: '', locationId: '',
+    keyword: '', plantId: '', warehouseId: '', warehouseType: '', locationId: '',
     skuId: '', productId: '', vendorId: '',
     onHandOnly: '', lockedOnly: '', unsellableOnly: '', neverCountedOnly: '',
   })
@@ -266,11 +268,31 @@ const lockedCount = computed(() => rows.value.filter((r) => r.locked).length)
           :disabled="!filters.plantId"
           @change="search()"
         />
+        <!--
+          창고를 하나 고르는 것과 유형으로 묶는 것은 다른 질문이다.
+          '반품 재고가 얼마나 쌓였나' 는 센터·플랜트에 흩어진 반품창고를
+          전부 더해야 답이 나온다.
+        -->
+        <FormField
+          v-model="filters.warehouseType"
+          label="창고유형"
+          type="select"
+          empty-option="전체"
+          :options="codeOptions('WH_TYPE')"
+          @change="search()"
+        />
         <FormField
           v-model="filters.locationId"
           label="빈코드"
           mono
           placeholder="1A-01-01"
+          @enter="search()"
+        />
+        <FormField
+          v-model="filters.productId"
+          label="제품코드"
+          mono
+          placeholder="PRD-24001"
           @enter="search()"
         />
         <FormField

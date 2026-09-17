@@ -23,6 +23,7 @@ import ModalDialog from '@/components/ModalDialog.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import FormField from '@/components/FormField.vue'
 import CodeBadge from '@/components/CodeBadge.vue'
+import DetailDialog from '@/components/DetailDialog.vue'
 
 const orgStore = useOrgStore()
 const hierarchy = useHierarchyStore()
@@ -63,7 +64,7 @@ function defaultCompanyId() {
   return hierarchy.companies.length === 1 ? hierarchy.companies[0].companyId : ''
 }
 
-const rows = computed(() => {
+const matched = computed(() => {
   const kw = filters.keyword.trim().toLowerCase()
   return orgStore.orgs
     .filter((o) => !filters.orgType || o.orgType === filters.orgType)
@@ -76,7 +77,121 @@ const rows = computed(() => {
           String(v ?? '').toLowerCase().includes(kw),
         ),
     )
-    .map((o) => ({ ...o, parentLabel: o.parentName ?? '-' }))
+})
+
+/* ------------------------------------------------------------------ */
+/* 계층 (COM-PG-004)                                                   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 접어 둔 가지.
+ *
+ * '펼친 것' 이 아니라 '접은 것' 을 담는다. 조직이 늘어날 때마다 기본이
+ * 접힘이면 새로 만든 조직이 화면에서 사라지는데, 만든 사람은 저장이 안 된
+ * 줄 안다.
+ */
+const collapsed = ref(new Set())
+
+function toggle(key) {
+  const next = new Set(collapsed.value)
+  next.has(key) ? next.delete(key) : next.add(key)
+  collapsed.value = next
+}
+
+/**
+ * 회사 → 조직 → 하위 조직 순서로 평평하게 편다.
+ *
+ * <b>회사를 뿌리로 세운다.</b> 회사와 본사를 같은 것으로 헷갈리기 쉬운데,
+ * 회사(법인)가 맨 위고 본사는 그 아래 조직 하나다. 목록으로 늘어놓으면
+ * 그 차이가 안 보이고, 트리로 세우면 설명하지 않아도 보인다.
+ *
+ * 검색 중에는 트리를 세우지 않고 걸린 것만 늘어놓는다. 찾으려고 검색했는데
+ * 부모가 안 걸려서 결과가 숨으면 찾는 일을 못 한다.
+ */
+const searching = computed(
+  () => !!filters.keyword.trim() || !!filters.orgType || !!filters.useYn,
+)
+
+const rows = computed(() => {
+  const list = matched.value.map((o) => ({ ...o, parentLabel: o.parentName ?? '-' }))
+  if (searching.value) {
+    // 검색 결과는 평평하게. 깊이를 0 으로 둬야 들여쓰기가 남지 않는다.
+    return list.map((o) => ({ ...o, _depth: 0, _kind: 'org', _key: o.orgId }))
+  }
+
+  const byParent = new Map()
+  for (const o of list) {
+    const key = o.parentId ?? null
+    if (!byParent.has(key)) byParent.set(key, [])
+    byParent.get(key).push(o)
+  }
+
+  const out = []
+  const walk = (parentId, depth) => {
+    for (const o of byParent.get(parentId) ?? []) {
+      const kids = byParent.get(o.orgId) ?? []
+      out.push({
+        ...o,
+        _depth: depth,
+        _kind: 'org',
+        _key: o.orgId,
+        _hasKids: kids.length > 0,
+      })
+      if (kids.length && !collapsed.value.has(o.orgId)) walk(o.orgId, depth + 1)
+    }
+  }
+
+  for (const c of hierarchy.companies) {
+    if (filters.companyId && c.companyId !== filters.companyId) continue
+    const mine = list.filter((o) => o.companyId === c.companyId)
+    if (!mine.length) continue
+    const key = `co:${c.companyId}`
+    out.push({
+      orgId: c.companyId,
+      orgName: c.companyName,
+      companyName: c.companyName,
+      _depth: 0,
+      _kind: 'company',
+      _key: key,
+      _hasKids: true,
+      // 회사 행에는 조직 통계가 없다. 대신 몇 개 조직을 품는지 보여 준다.
+      childCount: mine.length,
+    })
+    if (!collapsed.value.has(key)) {
+      // 뿌리 조직 = 상위가 없거나, 상위가 이 목록에 없는 것.
+      // 뒤엣것을 빼먹으면 상위가 필터에 걸러진 조직이 통째로 사라진다.
+      const ids = new Set(mine.map((o) => o.orgId))
+      for (const o of mine) {
+        if (o.parentId && ids.has(o.parentId)) continue
+        const kids = byParent.get(o.orgId) ?? []
+        out.push({ ...o, _depth: 1, _kind: 'org', _key: o.orgId, _hasKids: kids.length > 0 })
+        if (kids.length && !collapsed.value.has(o.orgId)) walk(o.orgId, 2)
+      }
+    }
+  }
+  return out
+})
+
+/* 상세 보기 — 목록에 없는 칸(책임자 연락처 · 주소)이 여기 있다 */
+const detail = ref(null)
+const detailFields = computed(() => {
+  const d = detail.value
+  if (!d) return []
+  return [
+    { label: '조직코드', value: d.orgId, mono: true },
+    { label: '조직명', value: d.orgName },
+    { label: '유형', slot: 'orgType' },
+    { label: '회사', value: d.companyName },
+    { label: '상위 조직', value: d.parentName },
+    { label: '책임자', value: d.managerName },
+    { label: '연락처', value: d.phone, mono: true },
+    { label: '우편번호', value: d.zipCode, mono: true },
+    { label: '하위 조직', value: d.childCount != null ? d.childCount + '개' : null },
+    { label: '소속 인원', value: d.userCount != null ? d.userCount + '명' : null },
+    { label: '플랜트', value: d.plantCount != null ? d.plantCount + '개' : null },
+    { label: '사용', slot: 'useYn' },
+    { label: '주소', value: d.address, span: true },
+  ]
 })
 
 const columns = [
@@ -328,13 +443,52 @@ async function downloadAs(format) {
         ref="table"
         :columns="columns"
         :rows="rows"
-        row-key="orgId"
-        :page-size="10"
-        :muted-when="(o) => o.useYn !== 'Y'"
+        row-key="_key"
+        :page-size="0"
+        :show-pager="false"
+        :muted-when="(o) => o._kind === 'org' && o.useYn !== 'Y'"
         empty-text="조건에 맞는 조직이 없습니다."
       >
-        <template #cell-orgType="{ value }">
-          <CodeBadge group="ORG_TYPE" :code="value" />
+        <!--
+          계층을 들여쓰기로 보여 준다.
+
+          회사가 맨 위고 그 아래가 조직이다. 회사와 본사를 같은 것으로 헷갈리기
+          쉬운데, 목록으로 늘어놓으면 그 차이가 안 보이고 트리로 세우면 설명
+          없이 보인다.
+
+          페이지를 나누지 않는다. 10 개씩 끊으면 부모와 자식이 다른 쪽에
+          떨어져 계층이 끊긴다 — 조직은 수백 개가 되는 것이 아니라 괜찮다.
+        -->
+        <template #cell-orgId="{ row }">
+          <span class="tree-cell" :style="{ paddingLeft: `${row._depth * 18}px` }">
+            <button
+              v-if="row._hasKids"
+              class="tree-toggle"
+              :title="collapsed.has(row._key) ? '펼치기' : '접기'"
+              @click.stop="toggle(row._key)"
+            >{{ collapsed.has(row._key) ? '▸' : '▾' }}</button>
+            <span v-else class="tree-toggle tree-leaf">·</span>
+            <span :class="row._kind === 'company' ? 'bold' : 'code'">{{ row.orgId }}</span>
+          </span>
+        </template>
+
+        <!--
+          조직명을 누르면 상세가 열린다. 책임자 연락처 · 주소처럼 목록에 없는
+          칸은 전에는 '수정' 을 눌러야 볼 수 있었다.
+
+          회사 행은 누를 것이 없다 — 회사 상세는 회사 관리 화면이 맡는다.
+        -->
+        <template #cell-orgName="{ row }">
+          <span v-if="row._kind === 'company'" class="bold">
+            {{ row.orgName }}
+            <span class="small dim">법인 · 조직 {{ row.childCount }}개</span>
+          </span>
+          <button v-else class="link-cell" @click="detail = row">{{ row.orgName }}</button>
+        </template>
+
+        <template #cell-orgType="{ row, value }">
+          <span v-if="row._kind === 'company'" class="chip">회사</span>
+          <CodeBadge v-else group="ORG_TYPE" :code="value" />
         </template>
 
         <template #cell-managerName="{ value }">
@@ -345,8 +499,16 @@ async function downloadAs(format) {
           <CodeBadge group="USE_YN" :code="value" />
         </template>
 
+        <!--
+          회사 행에는 조직 수정 · 삭제를 걸지 않는다. 회사는 다른 화면
+          (회사 관리) 이 다루고, 여기에 버튼을 두면 누르는 순간 조직으로
+          처리되어 엉뚱한 것이 지워진다.
+        -->
         <template #cell-_act="{ row }">
-          <div class="btn-row" style="justify-content: flex-end">
+          <div v-if="row._kind === 'company'" class="small dim" style="text-align: right">
+            회사 관리에서
+          </div>
+          <div v-else class="btn-row" style="justify-content: flex-end">
             <button class="btn btn-sm" :disabled="!canUpdate" :title="updateDenyReason ?? '수정'" @click="openEdit(row)">
               수정
             </button>
@@ -362,6 +524,24 @@ async function downloadAs(format) {
         </template>
       </DataTable>
     </div>
+
+    <DetailDialog
+      v-if="detail"
+      title="조직 상세"
+      :subtitle="`${detail.orgName} · ${detail.orgId}`"
+      :fields="detailFields"
+      :can-edit="canUpdate"
+      :edit-deny-reason="updateDenyReason"
+      @edit="openEdit(detail); detail = null"
+      @close="detail = null"
+    >
+      <template #orgType>
+        <CodeBadge group="ORG_TYPE" :code="detail.orgType" />
+      </template>
+      <template #useYn>
+        <CodeBadge group="USE_YN" :code="detail.useYn" />
+      </template>
+    </DetailDialog>
 
     <ModalDialog
       v-if="dlgOpen"
@@ -455,3 +635,27 @@ async function downloadAs(format) {
     />
   </div>
 </template>
+
+<style scoped>
+/* 계층 — 들여쓰기와 접기 표시만. 선을 그리면 표의 다른 칸과 눈이 부딪친다. */
+.tree-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.tree-toggle {
+  width: 16px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--fg-dim, #6b7280);
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+}
+/* 자식이 없는 가지. 자리를 비워 두면 코드가 들쭉날쭉해 읽기 어렵다. */
+.tree-leaf {
+  cursor: default;
+  opacity: 0.35;
+}
+</style>

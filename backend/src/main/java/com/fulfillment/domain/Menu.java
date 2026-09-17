@@ -58,7 +58,22 @@ public class Menu {
 	@Builder.Default
 	private List<Menu> children = new ArrayList<>();
 
+	/**
+	 * 머리글인가 — 갈 화면이 없으면 머리글이다.
+	 *
+	 * 전에는 '부모가 없으면 머리글' 이었다. 머리글이 최상위에만 있을 때는
+	 * 같은 말이었는데, 기준정보 아래를 플랜트 · 제품 · 채널 · 거래처로 한 번
+	 * 더 나누면서(V19) 갈라졌다 — 이들은 부모가 있는 머리글이다.
+	 *
+	 * 기준을 route 로 옮기면 깊이와 무관해진다. 누를 곳이 있으면 화면이고
+	 * 없으면 머리글이다.
+	 */
 	public boolean isGroup() {
+		return routeName == null;
+	}
+
+	/** 사이드바 트리의 뿌리인가 */
+	public boolean isRoot() {
 		return parentSeq == null;
 	}
 }

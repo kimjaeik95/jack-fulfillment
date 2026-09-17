@@ -19,6 +19,7 @@ import ModalDialog from '@/components/ModalDialog.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import FormField from '@/components/FormField.vue'
 import CodeBadge from '@/components/CodeBadge.vue'
+import DetailDialog from '@/components/DetailDialog.vue'
 
 const catalog = useCatalogStore()
 const session = useSessionStore()
@@ -87,6 +88,31 @@ async function goPage(n) {
   page.value = n
   await fetchPage()
 }
+
+/*
+ * 상세 보기 — 목록에 없는 칸(원산지 · 생산일자 · 출시연도)이 여기 있다.
+ * SKU 건수는 목록에도 있지만, 0 이면 재고를 잡을 수 없다는 뜻이라
+ * 여기서는 숫자 대신 그 뜻을 적는다.
+ */
+const detail = ref(null)
+const detailFields = computed(() => {
+  const d = detail.value
+  if (!d) return []
+  return [
+    { label: '제품코드', value: d.productId, mono: true },
+    { label: '제품명', value: d.productName },
+    { label: '분류', value: d.categoryPath, span: true },
+    { label: '브랜드', value: d.brandName },
+    { label: '시즌', value: d.seasonLabel },
+    { label: '출시연도', value: d.releaseYear ? `${d.releaseYear}년` : null },
+    { label: '원산지', value: d.originCountry },
+    { label: '생산일자', value: d.producedOn },
+    { label: '원가', value: d.costAmount === null ? null : won(d.costAmount) },
+    { label: '상태', slot: 'status' },
+    { label: 'SKU', value: d.skuCount ? `${d.skuCount}건` : '없음 (재고를 잡을 수 없다)' },
+    { label: '사용', slot: 'useYn' },
+  ]
+})
 
 const columns = [
   { key: 'productId', label: '제품코드', width: '120px', sortable: true, cls: 'code' },
@@ -304,6 +330,11 @@ const readDenyReason = computed(() => session.denyReason('MST_PRODUCT', 'R'))
         :muted-when="(p) => p.useYn !== 'Y'"
         empty-text="조건에 맞는 제품이 없습니다."
       >
+        <!-- 제품명을 누르면 상세가 열린다 (원산지 · 생산일자 · 출시연도) -->
+        <template #cell-productName="{ row, value }">
+          <button class="link-cell" @click="detail = row">{{ value }}</button>
+        </template>
+
         <template #cell-categoryPath="{ value }">
           <span class="small">{{ value }}</span>
         </template>
@@ -358,6 +389,24 @@ const readDenyReason = computed(() => session.denyReason('MST_PRODUCT', 'R'))
         </div>
       </div>
     </div>
+
+    <DetailDialog
+      v-if="detail"
+      title="제품 상세"
+      :subtitle="detail.productName + ' · ' + detail.productId"
+      :fields="detailFields"
+      :can-edit="canUpdate"
+      :edit-deny-reason="updateDenyReason"
+      @edit="openEdit(detail); detail = null"
+      @close="detail = null"
+    >
+      <template #status>
+        <CodeBadge group="PRODUCT_STATUS" :code="detail.status" />
+      </template>
+      <template #useYn>
+        <CodeBadge group="USE_YN" :code="detail.useYn" />
+      </template>
+    </DetailDialog>
 
     <ModalDialog
       v-if="dlgOpen"

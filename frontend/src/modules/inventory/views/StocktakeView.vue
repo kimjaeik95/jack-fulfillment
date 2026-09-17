@@ -639,6 +639,8 @@ const progressPct = (t) =>
           v-model="form.blindYn"
           label="블라인드 카운트"
           type="switch"
+          on-label="숨김"
+          off-label="보여줌"
           class="span-2"
           help="세는 사람에게 장부수량을 숨깁니다. 보여 주면 맞추려는 쪽으로 세게 되어 실사의 목적 자체가 없어집니다."
         />
