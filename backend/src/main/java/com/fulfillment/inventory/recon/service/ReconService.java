@@ -83,6 +83,13 @@ public class ReconService {
 	 * 것을 세면 언젠가 둘의 답이 달라지고, 그때 어느 쪽을 믿어야 할지
 	 * 아무도 모른다.
 	 */
+	/*
+		// 코드,제목, 설명
+	 	// 검사 심각도: 장부와 재고 이력의 불일치는 중요한 정합성 오류
+		// 조회 조건: 플랜트, 창고 등의 검색 조건
+		// 상세 조회: 장부 수량과 재고 이력 합계가 불일치하는 데이터 목록 조회 (DB)
+		// 건수 조회: 장부 수량과 재고 이력 합계가 불일치하는 전체 건수 조회
+	 */
 	@Transactional(readOnly = true)
 	public ReconResponse run(ReconSearch search) {
 		List<ReconResponse.CheckResult> checks = new ArrayList<>();
@@ -128,9 +135,11 @@ public class ReconService {
 	private ReconResponse.CheckResult check(String code, String title, String description,
 			String severity, ReconSearch search,
 			Function<ReconSearch, List<ReconFinding>> selector,
-			ToIntFunction<ReconSearch> counter) {
+			ToIntFunction<ReconSearch> counter) {  // counter 인수의 위치
 		// 건수는 상한과 무관하게 전부 센다. 목록 길이로 세면 상한에 걸려
 		// 늘 상한값이 나오고, "정확히 200 건" 이라는 거짓말을 하게 된다.
+		// 7번째 인수로 전달받은 counter 함수에
+		// 5번째 인수로 전달받은 search를 넣어 실행한다.
 		int found = counter.applyAsInt(search);
 		List<ReconFindingResponse> rows = found == 0
 				? List.of()

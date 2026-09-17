@@ -7,8 +7,10 @@
     <select id="selectForLogin" resultType="com.fulfillment.domain.User">
         SELECT u.user_seq, u.user_id, u.user_name, u.password_hash,
                u.org_seq, u.email, u.phone, u.dept_name, u.position_name,
-               u.status, u.approval_limit, u.login_fail_count,
+               u.status, u.approval_limit, u.login_fail_count, u.locked_until,
                u.last_login_at, u.password_changed_at, u.must_change_password, u.use_yn,
+               -- 한 번도 로그인한 적 없는 계정은 만든 시각으로 휴면을 판정한다
+               u.created_at,
                o.org_id, o.org_name, o.org_type
           FROM tb_user u
           JOIN tb_org o ON o.org_seq = u.org_seq
@@ -111,17 +113,85 @@
          WHERE user_seq = #{userSeq}
     </update>
 
+    <!--
+      영구 잠금 (COM-PG-001).
+
+      시한 잠금도 함께 지운다. 사람이 풀어야 하는 상태가 되었는데 "언제까지"
+      가 남아 있으면, 그 시각이 지났을 때 풀린 것처럼 보인다.
+    -->
     <update id="lockAccount">
         UPDATE tb_user
            SET status = 'LOCKED',
+               locked_until = NULL,
                updated_by = 'system',
                updated_at = CURRENT_TIMESTAMP
          WHERE user_seq = #{userSeq}
     </update>
 
+    <!--
+      시한 잠금 — 그 시각이 지나면 스스로 풀린다.
+
+      status 는 ACTIVE 그대로 둔다. 잠긴 것은 <b>지금</b>이지 계정 자체가
+      아니고, status 를 건드리면 관리자 화면의 '잠긴 계정' 목록이 5분짜리
+      건으로 뒤덮인다.
+
+      실패 횟수는 여기서 손대지 않는다. 시한이 풀려도 횟수는 그대로 쌓여
+      있어야 다음 단계로 올라간다 — 풀릴 때마다 0 이 되면 영구 잠금에는
+      영영 닿지 못한다.
+    -->
+    <update id="lockUntil">
+        UPDATE tb_user
+           SET locked_until = #{until},
+               updated_by = 'system',
+               updated_at = CURRENT_TIMESTAMP
+         WHERE user_seq = #{userSeq}
+    </update>
+
+    <!--
+      휴면 처리 (COM-PG-001).
+
+      조건을 여기서 한 번 더 확인한다. 부르는 쪽이 이미 판단했지만, 그 판단과
+      실제 UPDATE 사이에 그 사람이 로그인에 성공했을 수 있다 — 그때 덮어쓰면
+      방금 들어온 사람을 쫓아내는 셈이다.
+
+      ACTIVE 만 건드린다. 잠긴 계정을 휴면으로 바꾸면 "비밀번호를 15회 틀려
+      막혔다" 가 "안 써서 잠들었다" 로 덮여, 왜 막혔는지가 사라진다.
+    -->
+    <update id="markDormant">
+        UPDATE tb_user
+           SET status = 'DORMANT',
+               updated_by = 'system',
+               updated_at = CURRENT_TIMESTAMP
+         WHERE user_seq = #{userSeq}
+           AND status = 'ACTIVE'
+           AND COALESCE(last_login_at, created_at) &lt; #{threshold}
+    </update>
+
+    <!--
+      휴면 대상 일괄 처리 — 배치가 부른다.
+
+      로그인할 때만 판정하면 <b>안 들어오는 계정은 영원히 ACTIVE 로 남는다.</b>
+      휴면 처리의 대상이 정확히 '안 들어오는 계정' 이라, 로그인을 기다리면
+      아무 일도 일어나지 않는다. 관리자 화면이 "지금 휴면 몇 건" 을 답하려면
+      누가 대신 훑어야 한다.
+
+      한 번도 로그인한 적 없는 계정은 만든 시각을 기준으로 본다 — 만들어
+      놓고 아무도 안 쓴 계정이 가장 위험하다.
+    -->
+    <update id="markDormantBatch">
+        UPDATE tb_user
+           SET status = 'DORMANT',
+               updated_by = 'system',
+               updated_at = CURRENT_TIMESTAMP
+         WHERE status = 'ACTIVE'
+           AND use_yn = 'Y'
+           AND COALESCE(last_login_at, created_at) &lt; #{threshold}
+    </update>
+
     <update id="markLoginSuccess">
         UPDATE tb_user
            SET login_fail_count = 0,
+               locked_until = NULL,
                last_login_at = CURRENT_TIMESTAMP,
                updated_by = 'system',
                updated_at = CURRENT_TIMESTAMP

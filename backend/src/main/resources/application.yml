@@ -23,3 +23,31 @@ management:
     web:
       exposure:
         include: health,info
+
+# ============================================================================
+# 보안 설정 (COM-PG-001)
+# ============================================================================
+app:
+  security:
+    # 계정을 만들 때 넣는 초기 비밀번호. 관리자가 계정마다 정하지 않는다.
+    # 첫 로그인에서 반드시 바꾸게 되어 있다 (must_change_password).
+    #
+    # 운영에서는 반드시 덮는다. 이 값은 공개 저장소에 적혀 있어, 그대로 두면
+    # 새로 만든 계정은 아이디만 알면 열린다.
+    #   dev/prod:  APP_SECURITY_INITIAL_PASSWORD 환경변수 또는 프로파일 설정
+    initial-password: ${APP_SECURITY_INITIAL_PASSWORD:wms1234!}
+
+    # 90일 동안 로그인하지 않으면 휴면 처리한다. 쓰지 않는 계정은 살아
+    # 있는 것이 아니라 잊힌 것이고, 잊힌 계정으로 누가 들어와도 아무도
+    # 이상하게 여기지 않는다.
+    dormant-after: 90d
+
+    # 로그인 실패 잠금 — 스스로 풀리는 단계를 앞에 둔다.
+    # 손가락이 미끄러진 사람은 1단계에서 끝나고, 집요하게 두드리는 쪽만
+    # 관리자까지 간다.
+    lockout:
+      temp-after: 5
+      temp-duration: 5m
+      long-after: 10
+      long-duration: 1h
+      permanent-after: 15

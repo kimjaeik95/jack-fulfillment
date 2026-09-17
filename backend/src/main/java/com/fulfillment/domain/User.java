@@ -44,6 +44,13 @@ public class User {
 	private String status;               // 코드그룹 USER_STATUS
 	private Long approvalLimit;
 	private Integer loginFailCount;
+	/**
+	 * 이 시각까지 로그인할 수 없다 (COM-PG-001). NULL 이면 시한 잠금이 없다.
+	 *
+	 * 영구 잠금은 이 컬럼이 아니라 status='LOCKED' 다. 시간이 지나면 풀리는
+	 * 것과 사람이 풀어야 하는 것은 다른 사실이라 자리를 나눴다.
+	 */
+	private LocalDateTime lockedUntil;
 	private LocalDateTime lastLoginAt;
 	private LocalDateTime passwordChangedAt;
 	/** 최초/초기화 후 비밀번호 변경 필요 여부. Y 이면 변경 화면 외 접근이 차단된다 */

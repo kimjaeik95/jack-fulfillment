@@ -2,6 +2,7 @@ package com.fulfillment.system.user.service;
 
 import com.fulfillment.common.audit.AuditAction;
 import com.fulfillment.common.audit.AuditRecorder;
+import com.fulfillment.common.config.SecurityProperties;
 import com.fulfillment.common.audit.AuditRecorder.Field;
 import com.fulfillment.common.code.CodeLabels;
 import com.fulfillment.common.exception.BusinessException;
@@ -34,8 +35,12 @@ import java.util.stream.Collectors;
  * 사용자 관리 (COM-PG-002).
  *
  * 사내 시스템이므로 자가 가입이 없다. 계정은 SYS_USER 권한을 가진 역할
- * (현재는 시스템 관리자뿐)만 만들 수 있고, 초기 비밀번호도 관리자가 정한다.
- * 담당자는 최초 로그인에서 반드시 비밀번호를 바꿔야 한다.
+ * (현재는 시스템 관리자뿐)만 만들 수 있다.
+ *
+ * 초기 비밀번호는 <b>관리자가 정하지 않는다</b>. 전 계정이 같은 값으로 시작하고
+ * (app.security.initial-password), 담당자는 최초 로그인에서 반드시 바꿔야 한다.
+ * 정하게 두면 결국 전 계정이 같아지는데, 그럴 바에는 같다는 사실을 드러내 놓고
+ * 첫 로그인에 강제로 바꾸게 하는 편이 낫다.
  *
  * 화면에서 버튼을 막는 것과 별개로 모든 진입점에서 서버가 다시 권한을 판정한다.
  * API 를 직접 호출하면 화면 통제는 아무 의미가 없기 때문이다.
@@ -86,13 +91,14 @@ public class UserService {
 	private final DataScopeResolver dataScopes;
 	private final PasswordPolicy passwordPolicy;
 	private final PasswordEncoder passwordEncoder;
+	private final SecurityProperties security;
 	private final AuditRecorder auditRecorder;
 	private final CodeLabels codeLabels;
 
 	public UserService(UserDao userDao, RoleDao roleDao, OrgDao orgDao,
 			PermissionChecker permissionChecker, DataScopeResolver dataScopes,
 			PasswordPolicy passwordPolicy,
-			PasswordEncoder passwordEncoder, AuditRecorder auditRecorder,
+			PasswordEncoder passwordEncoder, SecurityProperties security, AuditRecorder auditRecorder,
 			CodeLabels codeLabels) {
 		this.userDao = userDao;
 		this.roleDao = roleDao;
@@ -101,6 +107,7 @@ public class UserService {
 		this.dataScopes = dataScopes;
 		this.passwordPolicy = passwordPolicy;
 		this.passwordEncoder = passwordEncoder;
+		this.security = security;
 		this.auditRecorder = auditRecorder;
 		this.codeLabels = codeLabels;
 	}
@@ -143,8 +150,19 @@ public class UserService {
 		}
 		validateEmailUnique(request.email(), null);
 
-		// 관리자가 정한 초기 비밀번호. 사람이 정하면 약한 패턴이 나오므로 서버에서 막는다.
-		passwordPolicy.validate(request.password(), request.userId(), request.userName());
+		/*
+		 * 초기 비밀번호는 관리자가 정하지 않는다 (COM-PG-002).
+		 *
+		 * 정하게 두면 'a1234567' 같은 것이 나오고, 그걸 전화로 불러 주다 보면
+		 * 결국 전 계정이 같은 값이 된다. 어차피 같아질 것이라면 같다는 사실을
+		 * 드러내 놓고, 첫 로그인에 반드시 바꾸게 하는 편이 낫다
+		 * (must_change_password — 바꾸기 전에는 다른 기능이 다 막힌다).
+		 *
+		 * 값은 app.security.initial-password 에서 온다. 운영에서는 환경변수로
+		 * 덮는다 — 기본값은 공개 저장소에 적혀 있다.
+		 */
+		String initialPassword = security.initialPassword();
+		passwordPolicy.validate(initialPassword, request.userId(), request.userName());
 
 		Org org = mustFindOrg(request.orgId());
 		// 범위 밖 조직에 사람을 심으면 그 계정은 만든 사람도 관리할 수 없게 된다
@@ -153,7 +171,7 @@ public class UserService {
 		List<Role> roles = validateRoles(request.roleIds(), org);
 
 		User user = request.toNewUser(org.getOrgSeq(),
-				passwordEncoder.encode(request.password()), actorId(actor));
+				passwordEncoder.encode(initialPassword), actorId(actor));
 
 		userDao.insert(user);
 		userDao.insertRoles(user.getUserSeq(), roleIdsOf(roles), actorId(actor));

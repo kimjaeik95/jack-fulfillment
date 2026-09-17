@@ -3,7 +3,8 @@
  * 사용자 관리 (COM-PG-002) — 실제 API 연동.
  *
  * 사내 시스템이므로 자가 가입이 없다. 계정은 SYS_USER 권한을 가진 역할만
- * 만들 수 있고, 초기 비밀번호도 관리자가 정한다.
+ * 만들 수 있다. 초기 비밀번호는 관리자가 정하지 않고 전 계정이 같은 값으로
+ * 시작하며, 담당자가 첫 로그인에서 반드시 바꾼다 (COM-PG-002).
  *
  * 목록의 검색·필터·페이징·정렬은 모두 서버가 처리한다.
  * 전체를 받아 화면에서 자르면 사용자가 늘어났을 때 감당할 수 없다.
@@ -11,6 +12,7 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { codeOptions } from '@/api/codes.js'
 import * as userApi from '@/api/user.js'
+import { DEMO_PASSWORD } from '@/api/auth.js'
 import { useOrgStore } from '@/stores/org.js'
 import { useRoleStore } from '@/stores/role.js'
 import * as exportApi from '@/api/export.js'
@@ -242,7 +244,6 @@ function validate() {
     if (!form.userId.trim()) errors.userId = '사용자ID는 필수입니다.'
     else if (!/^[a-z][a-z0-9._-]{2,29}$/.test(form.userId))
       errors.userId = '영문 소문자로 시작하는 3~30자 (숫자 . _ - 허용)'
-    if (!form.password) errors.password = '초기 비밀번호는 필수입니다.'
   }
   if (!form.userName.trim()) errors.userName = '이름은 필수입니다.'
   if (!form.orgId) errors.orgId = '소속 조직을 선택하세요.'
@@ -632,16 +633,23 @@ async function downloadAs(format) {
         />
         <FormField v-model="form.userName" label="이름" required placeholder="홍길동" :error="errors.userName" />
 
-        <FormField
-          v-if="mode === 'create'"
-          v-model="form.password"
-          label="초기 비밀번호"
-          type="password"
-          required
-          span
-          :error="errors.password"
-          help="8자 이상, 영문·숫자·특수문자 중 2종류 이상. 담당자가 최초 로그인 시 변경합니다."
-        />
+        <!--
+          초기 비밀번호는 입력받지 않는다 (COM-PG-002).
+
+          관리자가 계정마다 정하게 두면 약한 패턴이 나오고, 전화로 불러 주다
+          보면 어차피 전 계정이 같아진다. 그럴 바에는 같다는 사실을 드러내 놓고
+          첫 로그인에 반드시 바꾸게 한다 — 바꾸기 전에는 다른 기능이 다 막힌다.
+        -->
+        <div v-if="mode === 'create'" class="field span-2">
+          <label class="field-label">초기 비밀번호</label>
+          <div class="init-pw">
+            <span class="mono bold">{{ DEMO_PASSWORD }}</span>
+            <span class="small dim">전 계정 공통 · 담당자가 첫 로그인에서 반드시 바꿉니다</span>
+          </div>
+          <span class="field-help">
+            바꾸기 전에는 다른 기능이 모두 막힙니다. 알려 줄 때 이 값을 그대로 전하세요.
+          </span>
+        </div>
 
         <FormField v-model="form.email" label="이메일" placeholder="user@corp.co.kr" :error="errors.email" />
         <FormField v-model="form.phone" label="연락처" placeholder="010-1234-5678" :error="errors.phone" />

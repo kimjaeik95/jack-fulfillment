@@ -2,6 +2,7 @@ package com.fulfillment.system.auth.service;
 
 import com.fulfillment.common.audit.AuditAction;
 import com.fulfillment.common.audit.AuditRecorder;
+import com.fulfillment.common.config.SecurityProperties;
 import com.fulfillment.common.exception.BusinessException;
 import com.fulfillment.common.exception.ErrorCode;
 import com.fulfillment.common.security.DataScope;
@@ -16,6 +17,8 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Duration;
+import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -36,20 +39,23 @@ import java.util.Set;
 @Service
 public class AuthService {
 
-	/** 연속 실패 허용 횟수. 초과 시 계정을 잠근다. */
-	public static final int MAX_LOGIN_FAIL = 5;
-
 	private final AuthDao authDao;
 	private final PasswordEncoder passwordEncoder;
 	private final AuditRecorder auditRecorder;
 	private final PasswordPolicy passwordPolicy;
+	private final SecurityProperties security;
+	/** 실패 기록은 별도 트랜잭션으로 — 던지면 같이 롤백되기 때문이다 */
+	private final LoginFailRecorder failRecorder;
 
 	public AuthService(AuthDao authDao, PasswordEncoder passwordEncoder,
-			AuditRecorder auditRecorder, PasswordPolicy passwordPolicy) {
+			AuditRecorder auditRecorder, PasswordPolicy passwordPolicy,
+			SecurityProperties security, LoginFailRecorder failRecorder) {
 		this.authDao = authDao;
 		this.passwordEncoder = passwordEncoder;
 		this.auditRecorder = auditRecorder;
 		this.passwordPolicy = passwordPolicy;
+		this.security = security;
+		this.failRecorder = failRecorder;
 	}
 
 	@Transactional
@@ -82,8 +88,9 @@ public class AuthService {
 			case "LOCKED" -> {
 				auditRecorder.recordLoginFail(user.getUserSeq(), user.getUserId(), user.getUserName(), "잠긴 계정");
 				throw new BusinessException(ErrorCode.ACCOUNT_LOCKED,
-						"비밀번호 %d회 오류로 잠긴 계정입니다. 시스템 관리자에게 잠금 해제를 요청하세요."
-								.formatted(MAX_LOGIN_FAIL));
+						("비밀번호 %d회 오류로 잠긴 계정입니다. 시간이 지나도 풀리지 않습니다 — "
+								+ "시스템 관리자에게 잠금 해제를 요청하세요.")
+								.formatted(security.lockout().permanentAfter()));
 			}
 			case "DORMANT" -> {
 				auditRecorder.recordLoginFail(user.getUserSeq(), user.getUserId(), user.getUserName(), "휴면 계정");
@@ -95,25 +102,15 @@ public class AuthService {
 			}
 		}
 
+		// 2-1) 장기 미접속 — 상태는 ACTIVE 지만 너무 오래 안 왔다
+		requireNotDormant(user);
+
+		// 2-2) 시한 잠금 — 상태는 ACTIVE 지만 지금은 못 들어온다
+		requireNotTemporarilyLocked(user);
+
 		// 3) 비밀번호
 		if (!passwordEncoder.matches(rawPassword, user.getPasswordHash())) {
-			authDao.increaseLoginFail(user.getUserSeq());
-			int failCount = (user.getLoginFailCount() == null ? 0 : user.getLoginFailCount()) + 1;
-			int remain = MAX_LOGIN_FAIL - failCount;
-
-			if (remain <= 0) {
-				authDao.lockAccount(user.getUserSeq());
-				auditRecorder.recordLoginFail(user.getUserSeq(), user.getUserId(), user.getUserName(),
-						"실패 한도 초과로 잠금");
-				throw new BusinessException(ErrorCode.ACCOUNT_LOCKED,
-						"비밀번호를 %d회 잘못 입력하여 계정이 잠겼습니다. 시스템 관리자에게 잠금 해제를 요청하세요."
-								.formatted(MAX_LOGIN_FAIL));
-			}
-			auditRecorder.recordLoginFail(user.getUserSeq(), user.getUserId(), user.getUserName(),
-					"비밀번호 불일치");
-			throw new BusinessException(ErrorCode.INVALID_CREDENTIALS,
-					"아이디 또는 비밀번호가 올바르지 않습니다. (%d/%d회 실패, %d회 남음)"
-							.formatted(failCount, MAX_LOGIN_FAIL, remain));
+			throw handleLoginFail(user);
 		}
 
 		// 4) 성공
@@ -122,6 +119,137 @@ public class AuthService {
 		auditRecorder.recordAction(loginUser, AuditAction.LOGIN, "tb_user", user.getUserId(), "로그인 성공");
 
 		return LoginResult.of(loginUser, warningFor(loginUser));
+	}
+
+	/**
+	 * 너무 오래 안 왔으면 휴면 처리하고 막는다 (COM-PG-001).
+	 *
+	 * 쓰지 않는 계정은 살아 있는 것이 아니라 <b>잊힌 것</b>이다. 퇴사했는데
+	 * 정리를 안 했거나 자리를 옮겨 안 쓰게 된 계정들이고, 그런 계정이 열린 채
+	 * 남아 있으면 누가 언제 그것으로 들어와도 아무도 이상하게 여기지 않는다.
+	 *
+	 * 배치도 같은 일을 한다 (DormantBatch). <b>여기가 있어야 하는 이유</b>는
+	 * 배치가 아직 안 돌았거나 꺼져 있을 때다 — 그 틈에 91일째 계정이 들어오면
+	 * 휴면 처리는 영영 늦는다. 배치는 관리자 화면의 숫자를 맞추기 위한 것이고,
+	 * 실제 통제는 여기다.
+	 *
+	 * 기준은 마지막 로그인이고, 한 번도 없으면 계정을 만든 시각이다 —
+	 * 만들어 놓고 아무도 안 쓴 계정이 가장 위험하다.
+	 */
+	private void requireNotDormant(User user) {
+		LocalDateTime since = user.getLastLoginAt() != null
+				? user.getLastLoginAt()
+				: user.getCreatedAt();
+		if (since == null) {
+			return; // 기준 삼을 시각이 없으면 판단하지 않는다
+		}
+		LocalDateTime threshold = LocalDateTime.now().minus(security.dormantAfter());
+		if (!since.isBefore(threshold)) {
+			return;
+		}
+
+		failRecorder.markDormant(user.getUserSeq(), threshold);
+		long days = Duration.between(since, LocalDateTime.now()).toDays();
+		auditRecorder.recordLoginFail(user.getUserSeq(), user.getUserId(), user.getUserName(),
+				"장기 미접속 %d일 — 휴면 처리".formatted(days));
+		throw new BusinessException(ErrorCode.ACCOUNT_DORMANT,
+				("%d일 동안 로그인하지 않아 휴면 처리된 계정입니다. (기준 %d일) 시스템 "
+						+ "관리자에게 활성화를 요청하세요.")
+						.formatted(days, security.dormantAfter().toDays()));
+	}
+
+	/**
+	 * 시한 잠금이 걸려 있으면 막는다 (COM-PG-001).
+	 *
+	 * 남은 시간을 알려 준다. "잠겼습니다" 만 있으면 사람은 1분 뒤에 또 누르고,
+	 * 그 시도가 실패로 또 쌓인다 — 알려 주지 않으면 잠금이 스스로 길어진다.
+	 *
+	 * 시각이 지났으면 아무것도 하지 않는다. 컬럼을 굳이 지우지 않는 이유는,
+	 * 다음 로그인 성공이 어차피 지우고(markLoginSuccess) 그전까지는 "언제까지
+	 * 잠겼었나" 가 남아 있는 편이 낫기 때문이다.
+	 */
+	private void requireNotTemporarilyLocked(User user) {
+		LocalDateTime until = user.getLockedUntil();
+		if (until == null || !LocalDateTime.now().isBefore(until)) {
+			return;
+		}
+		Duration remain = Duration.between(LocalDateTime.now(), until);
+		auditRecorder.recordLoginFail(user.getUserSeq(), user.getUserId(), user.getUserName(),
+				"시한 잠금 중 시도");
+		throw new BusinessException(ErrorCode.ACCOUNT_LOCKED,
+				("비밀번호를 여러 번 잘못 입력해 잠긴 상태입니다. %s 뒤에 풀립니다 — 그전에 "
+						+ "누르면 실패가 더 쌓여 잠금이 길어집니다.")
+						.formatted(human(remain)));
+	}
+
+	/**
+	 * 비밀번호가 틀렸다 — 몇 번째인지에 따라 다르게 대한다 (COM-PG-001).
+	 *
+	 * 5회 틀리는 사람 대부분은 공격자가 아니라 캡스록을 켜 둔 사람이다. 그
+	 * 사람까지 관리자를 찾아가게 만들면 관리자는 같은 일을 하루에 몇 번씩
+	 * 하다가 결국 아무에게나 해제 권한을 주게 된다 — 통제가 귀찮아지면 통제가
+	 * 사라진다. 그래서 스스로 풀리는 단계를 앞에 둔다.
+	 *
+	 * 실패 횟수는 <b>로그인에 성공할 때만</b> 0 이 된다. 시한이 풀렸다고
+	 * 지우면 5회씩 끊어 두드리는 쪽에게는 잠금이 없는 것과 같아진다.
+	 *
+	 * @return 던질 예외. 부르는 쪽에서 throw 한다 — 여기서 던지면 아래 코드가
+	 *         닿지 않는다는 것이 호출부에서 안 보인다.
+	 */
+	private BusinessException handleLoginFail(User user) {
+		failRecorder.increase(user.getUserSeq());
+		int failCount = nz(user.getLoginFailCount()) + 1;
+		SecurityProperties.Tier tier = security.tierOf(failCount);
+
+		if (tier == SecurityProperties.Tier.PERMANENT) {
+			failRecorder.lockPermanently(user.getUserSeq());
+			auditRecorder.recordLoginFail(user.getUserSeq(), user.getUserId(), user.getUserName(),
+					"실패 %d회 — 영구 잠금".formatted(failCount));
+			return new BusinessException(ErrorCode.ACCOUNT_LOCKED,
+					("비밀번호를 %d회 잘못 입력해 계정이 잠겼습니다. 시간이 지나도 풀리지 "
+							+ "않습니다 — 시스템 관리자에게 잠금 해제를 요청하세요.")
+							.formatted(failCount));
+		}
+
+		if (tier != SecurityProperties.Tier.NONE) {
+			Duration duration = security.durationOf(tier);
+			failRecorder.lockUntil(user.getUserSeq(), LocalDateTime.now().plus(duration));
+			auditRecorder.recordLoginFail(user.getUserSeq(), user.getUserId(), user.getUserName(),
+					"실패 %d회 — %s 잠금".formatted(failCount, human(duration)));
+			return new BusinessException(ErrorCode.ACCOUNT_LOCKED,
+					("비밀번호를 %d회 잘못 입력해 %s 동안 로그인할 수 없습니다. %s 뒤에 다시 "
+							+ "시도하세요. %d회가 되면 관리자만 풀 수 있게 됩니다.")
+							.formatted(failCount, human(duration), human(duration),
+									security.lockout().permanentAfter()));
+		}
+
+		int remain = security.lockout().tempAfter() - failCount;
+		auditRecorder.recordLoginFail(user.getUserSeq(), user.getUserId(), user.getUserName(),
+				"비밀번호 불일치");
+		return new BusinessException(ErrorCode.INVALID_CREDENTIALS,
+				("아이디 또는 비밀번호가 올바르지 않습니다. (%d회 실패) %d회 더 틀리면 %s 동안 "
+						+ "로그인할 수 없습니다.")
+						.formatted(failCount, remain,
+								human(security.lockout().tempDuration())));
+	}
+
+	/** "5분" · "1시간" — 초 단위로 말하면 사람이 못 읽는다 */
+	private static String human(Duration d) {
+		long minutes = Math.max(d.toMinutes(), 0);
+		if (minutes >= 60 && minutes % 60 == 0) {
+			return "%d시간".formatted(minutes / 60);
+		}
+		if (minutes >= 60) {
+			return "%d시간 %d분".formatted(minutes / 60, minutes % 60);
+		}
+		if (minutes >= 1) {
+			return "%d분".formatted(minutes);
+		}
+		return "%d초".formatted(Math.max(d.toSeconds(), 1));
+	}
+
+	private static int nz(Integer v) {
+		return v == null ? 0 : v;
 	}
 
 	@Transactional

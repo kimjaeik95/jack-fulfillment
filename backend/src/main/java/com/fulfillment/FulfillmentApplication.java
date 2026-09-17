@@ -3,6 +3,7 @@ package com.fulfillment;
 import org.mybatis.spring.annotation.MapperScan;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
@@ -22,6 +23,9 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 // 어노테이션만으로는 아무것도 돌지 않는다 — 켜는 것은 프로파일의 일이다.
 // 지금은 재고 정합성 점검(INV-BT-001) 하나뿐이다.
 @EnableScheduling
+// app.security.* 를 레코드로 받는다 (SecurityProperties). 로그인 잠금 기준처럼
+// 사고 한 번에 바뀌는 값을 코드에 상수로 박아 두지 않기 위해서다.
+@ConfigurationPropertiesScan
 public class FulfillmentApplication {
 
 	public static void main(String[] args) {
