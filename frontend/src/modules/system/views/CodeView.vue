@@ -7,7 +7,11 @@
  * 고쳐도 쓰는 곳이 모른다. 이제 서버가 단일 출처다.
  *
  * 왼쪽에서 그룹을 고르고 오른쪽에서 그 안의 코드를 편집한다.
- * 그룹이 9개뿐이라 목록 전체를 왼쪽에 펼쳐 두는 편이 찾기 쉽다.
+ *
+ * 그룹이 마흔 개 가까이 된다. 전부 펼치면 페이지가 화면 두 배로 길어져서,
+ * 아래쪽 그룹을 고른 뒤 코드를 보려고 다시 위로 올라가야 했다 — 고른 것과
+ * 그 결과가 한 화면에 없었다. 그래서 목록이 스크롤을 삼키고 카드는 화면
+ * 높이를 넘지 않는다 (아래 .code-groups).
  *
  * 저장하면 loadCodes(true) 로 앱 전체의 라벨을 다시 받는다.
  * 그러지 않으면 이 화면에서는 바뀌었는데 다른 화면은 옛 라벨을 계속 쓴다.
@@ -357,9 +361,9 @@ async function downloadAs(format) {
       <span class="alert-icon">⚠</span><span>{{ createDenyReason }}</span>
     </div>
 
-    <div style="display: grid; grid-template-columns: 300px 1fr; gap: 14px; align-items: start">
+    <div class="code-layout">
       <!-- 코드그룹 -->
-      <div class="card">
+      <div class="card code-groups">
         <div class="card-head">
           <span class="card-title">코드그룹 ({{ groups.length }})</span>
         </div>
@@ -373,24 +377,36 @@ async function downloadAs(format) {
             />
             <button class="btn btn-sm" :disabled="loading" @click="loadGroups()">조회</button>
           </div>
-          <div
-            v-for="g in groups"
-            :key="g.codeGroupId"
-            class="nav-item"
-            :class="{ active: g.codeGroupId === selectedGroupId }"
-            :style="g.useYn !== 'Y' ? { opacity: 0.5 } : null"
-            :title="g.description"
-            style="border-radius: 0; padding: 8px 12px"
-            @click="selectGroup(g.codeGroupId)"
-          >
-            <div style="min-width: 0">
-              <div class="bold" style="font-size: 12.5px">{{ g.codeGroupName }}</div>
-              <div class="mono dim" style="font-size: 10.5px">{{ g.codeGroupId }}</div>
+          <!--
+            목록에 자체 스크롤을 준다.
+
+            그룹이 마흔 개 가까이라 전부 펼치면 페이지가 화면 두 배로 길어진다.
+            그러면 아래쪽 그룹을 고른 뒤 오른쪽 코드 목록을 보려고 다시 위로
+            올라가야 한다 — 고른 것과 그 결과가 한 화면에 없기 때문이다.
+
+            여기서 스크롤을 삼키면 페이지 자체는 화면에 들어오고, 목록을 아무리
+            내려도 오른쪽 패널이 제자리에 남는다.
+          -->
+          <div class="group-list">
+            <div
+              v-for="g in groups"
+              :key="g.codeGroupId"
+              class="nav-item"
+              :class="{ active: g.codeGroupId === selectedGroupId }"
+              :style="g.useYn !== 'Y' ? { opacity: 0.5 } : null"
+              :title="g.description"
+              style="border-radius: 0; padding: 8px 12px"
+              @click="selectGroup(g.codeGroupId)"
+            >
+              <div style="min-width: 0">
+                <div class="bold" style="font-size: 12.5px">{{ g.codeGroupName }}</div>
+                <div class="mono dim" style="font-size: 10.5px">{{ g.codeGroupId }}</div>
+              </div>
+              <span class="nav-count">{{ g.codeCount }}</span>
             </div>
-            <span class="nav-count">{{ g.codeCount }}</span>
-          </div>
-          <div v-if="!groups.length && !loadError" class="dim small" style="padding: 12px">
-            조건에 맞는 코드그룹이 없습니다.
+            <div v-if="!groups.length && !loadError" class="dim small" style="padding: 12px">
+              조건에 맞는 코드그룹이 없습니다.
+            </div>
           </div>
         </div>
       </div>
@@ -632,3 +648,55 @@ async function downloadAs(format) {
     />
   </div>
 </template>
+
+<style scoped>
+/*
+  그룹 목록과 코드 목록이 한 화면에 같이 있어야 하는 화면이다.
+  왼쪽에서 고르면 오른쪽이 바뀌는 구조라, 둘 중 하나가 화면 밖으로 밀리면
+  고른 것과 그 결과를 동시에 볼 수 없다.
+
+  코드그룹이 마흔 개 가까이라 전부 펼치면 페이지가 화면 두 배로 길어졌다.
+  아래쪽 그룹을 누른 뒤 코드를 보려고 다시 위로 올라가야 했던 것이 그 때문이다.
+*/
+.code-layout {
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  gap: 14px;
+  align-items: start;
+}
+
+/* 그룹 카드는 화면을 넘지 않는다 — 넘는 만큼은 목록 안에서 스크롤한다 */
+.code-groups {
+  position: sticky;
+  top: 12px;
+  max-height: calc(100vh - 150px);
+  display: flex;
+  flex-direction: column;
+}
+
+.code-groups .card-body {
+  display: flex;
+  flex-direction: column;
+  min-height: 0; /* flex 자식이 줄어들 수 있게 — 없으면 스크롤이 안 생긴다 */
+}
+
+/*
+  검색칸은 위에 고정하고 목록만 흐른다. 같이 스크롤되면 마흔 개를 내려간 뒤
+  다시 올라와야 검색할 수 있다.
+*/
+.group-list {
+  overflow-y: auto;
+  min-height: 0;
+}
+
+/* 좁은 화면에서는 위아래로 쌓는다. 300px 옆에 표를 두면 둘 다 못 읽는다. */
+@media (max-width: 900px) {
+  .code-layout {
+    grid-template-columns: 1fr;
+  }
+  .code-groups {
+    position: static;
+    max-height: 320px;
+  }
+}
+</style>
