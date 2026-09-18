@@ -22,7 +22,25 @@
 -- ============================================================================
 -- 1. 재고 (STK-001 ~ STK-004)
 --
--- 재고 1행 = 로케이션 × SKU × 거래처 (STK-002).
+-- 재고 1행 = 플랜트 · 창고 · 빈 · SKU · 공급처 (STK-002).
+--
+-- 컬럼 순서가 그 다섯을 앞에 모아 큰 것부터 내려온다. 앞의 셋이 어디에 있나,
+-- 뒤의 둘이 무엇이 · 어디서 온 것이냐다.
+--
+-- 창고 · 플랜트는 빈에서 유도되는 값이지만 재고가 함께 들고 있다. 올라가는
+-- 방향(빈 → 창고 → 플랜트)은 언제나 1건이라 싸지만, 거르는 방향은 1건이
+-- N 건으로 펼쳐지기 때문이다 — '이 센터의 재고' 를 찾으려고 그 센터의 빈을
+-- 전부 꺼내 하나하나 뒤지게 된다. N 은 재고 행 수가 아니라 그 센터에 깔린
+-- 빈의 개수이고, 물량을 받기 시작하면 수천 개가 된다.
+--
+-- 그리고 이 경로는 예외가 아니라 주 경로다. 사용자가 센터를 고르지 않아도
+-- 데이터범위 판정(COM-PG-004)이 tb_plant.org_seq 로 걸려서, 시스템관리자가
+-- 아닌 모든 사용자의 모든 재고 조회가 여기를 지난다.
+--
+-- 어긋남은 DB 가 막는다. 아래 복합 FK 두 개가 '빈이 그 창고의 것이고 창고가
+-- 그 플랜트의 것' 임을 강제해, 틀린 조합은 INSERT 가 실패한다. 값은 부르는
+-- 쪽이 넘기지 않고 INSERT ... SELECT 가 빈에서 끌어온다 (stock-mapper) —
+-- 막히는 것과 애초에 틀릴 수 없는 것은 다르다.
 --
 -- 판매가능수량을 컬럼으로 저장하지 않고 DB 가 계산하게 둔다.
 --   판매가능 = 보유 − 할당 − 판매불가   (P-01, STK-004)
@@ -35,24 +53,26 @@
 -- ============================================================================
 CREATE TABLE tb_stock (
     stock_seq      bigint    GENERATED ALWAYS AS IDENTITY,
+
+    -- ── 재고주소 5축 ─────────────────────────────────────────────────
+    plant_seq      bigint    NOT NULL,
+    warehouse_seq  bigint    NOT NULL,
     location_seq   bigint    NOT NULL,
     sku_seq        bigint    NOT NULL,
-    -- 거래처. 3PL 처럼 화주별로 재고를 섞을 수 없는 경우에 쓴다.
-    -- 자사 물류는 대개 비어 있어 NULL 을 허용한다.
-    vendor_seq     bigint,
+    -- 이 재고가 어느 공급처에서 왔나 (V21). 같은 빈 · 같은 SKU 라도 공급처가
+    -- 다르면 행이 갈라진다. 이동입고처럼 출처가 없으면 NULL.
+    supplier_seq   bigint,
+    -- 공급처로 등록된 거래처만 가리키게 하는 고정값 (V20). 고객 전용 거래처를
+    -- 넣으면 아래 fk_stock_supplier 가 거부한다.
+    supplier_chk   char(1)   GENERATED ALWAYS AS ('Y') STORED,
 
-    -- 실제로 창고에 있는 수량. 출고 확정 시점에 줄어든다 (P-01).
+    -- ── 수량 ────────────────────────────────────────────────────────
     qty_on_hand    integer   NOT NULL DEFAULT 0,
-    -- 주문에 잡혀 있는 수량. 할당 시점에 늘어난다 (P-01).
     qty_allocated  integer   NOT NULL DEFAULT 0,
-    -- 불량 · 오염 · 검수대기 등 팔 수 없는 수량 (STK-004).
     qty_unsellable integer   NOT NULL DEFAULT 0,
-
-    -- 팔 수 있는 수량. 저장하지 않고 DB 가 계산한다.
     qty_available  integer   GENERATED ALWAYS AS
                              (qty_on_hand - qty_allocated - qty_unsellable) STORED,
 
-    -- 마지막 실사일자 (STK-001). 실사(INV-PG-009)가 갱신한다.
     last_counted_at timestamp,
 
     created_by     varchar(30) NOT NULL,
@@ -60,36 +80,55 @@ CREATE TABLE tb_stock (
     updated_by     varchar(30),
     updated_at     timestamp,
 
-    CONSTRAINT pk_stock        PRIMARY KEY (stock_seq),
-    CONSTRAINT fk_stock_loc    FOREIGN KEY (location_seq) REFERENCES tb_location (location_seq),
-    CONSTRAINT fk_stock_sku    FOREIGN KEY (sku_seq)      REFERENCES tb_sku (sku_seq),
-    CONSTRAINT fk_stock_vendor FOREIGN KEY (vendor_seq)   REFERENCES tb_supplier (supplier_seq),
+    CONSTRAINT pk_stock PRIMARY KEY (stock_seq),
+
+    -- 5축이 서로 어긋나지 않게 사슬로 묶는다 (V22).
+    --   (location_seq, warehouse_seq) → 빈이 정말 그 창고의 것인가
+    --   (warehouse_seq, plant_seq)    → 창고가 정말 그 플랜트의 것인가
+    CONSTRAINT fk_stock_loc      FOREIGN KEY (location_seq)
+        REFERENCES tb_location (location_seq),
+    CONSTRAINT fk_stock_loc_wh   FOREIGN KEY (location_seq, warehouse_seq)
+        REFERENCES tb_location (location_seq, warehouse_seq),
+    CONSTRAINT fk_stock_wh_plant FOREIGN KEY (warehouse_seq, plant_seq)
+        REFERENCES tb_warehouse (warehouse_seq, plant_seq),
+    CONSTRAINT fk_stock_sku      FOREIGN KEY (sku_seq)
+        REFERENCES tb_sku (sku_seq),
+    CONSTRAINT fk_stock_supplier FOREIGN KEY (supplier_seq, supplier_chk)
+        REFERENCES tb_partner (partner_seq, supplier_yn),
 
     -- 수량은 음수가 될 수 없다 (STK-003)
     CONSTRAINT ck_stock_on_hand    CHECK (qty_on_hand    >= 0),
     CONSTRAINT ck_stock_allocated  CHECK (qty_allocated  >= 0),
     CONSTRAINT ck_stock_unsellable CHECK (qty_unsellable >= 0),
-    -- 할당 + 판매불가가 보유를 넘을 수 없다. 넘으면 판매가능이 음수가 된다.
     CONSTRAINT ck_stock_available  CHECK (qty_on_hand - qty_allocated - qty_unsellable >= 0)
 );
 
 -- 동일 조합 중복 행 생성 불가 (STK-002).
 --
--- 거래처가 NULL 일 수 있어 인덱스를 둘로 나눈다. NULL 끼리는 = 로 비교되지
--- 않아 하나짜리 유니크로는 중복이 막히지 않는다 — 채널 SKU 매핑(V5)에서
+-- 공급처가 NULL 일 수 있어 인덱스를 둘로 나눈다. NULL 끼리는 = 로 비교되지
+-- 않아 하나짜리 유니크로는 중복이 막히지 않는다 — 채널 SKU 매핑(V4)에서
 -- 같은 이유로 같은 처리를 했다.
-CREATE UNIQUE INDEX ux_stock_key_vendor ON tb_stock (location_seq, sku_seq, vendor_seq)
- WHERE vendor_seq IS NOT NULL;
-CREATE UNIQUE INDEX ux_stock_key_novendor ON tb_stock (location_seq, sku_seq)
- WHERE vendor_seq IS NULL;
+CREATE UNIQUE INDEX ux_stock_key_supplier   ON tb_stock (location_seq, sku_seq, supplier_seq)
+ WHERE supplier_seq IS NOT NULL;
+CREATE UNIQUE INDEX ux_stock_key_nosupplier ON tb_stock (location_seq, sku_seq)
+ WHERE supplier_seq IS NULL;
 
 -- 'SKU 가 어디에 몇 개 있나' 가 가장 잦은 질의다 (재고 현황 조회)
-CREATE INDEX ix_stock_sku ON tb_stock (sku_seq, location_seq);
--- 빈 하나를 스캔해 그 안의 재고를 보는 경로 (피킹 · 실사)
-CREATE INDEX ix_stock_loc ON tb_stock (location_seq, sku_seq);
+CREATE INDEX ix_stock_sku   ON tb_stock (sku_seq, location_seq);
+-- 빈 하나를 훑어 그 안의 재고를 보는 경로 (피킹 · 실사)
+CREATE INDEX ix_stock_loc   ON tb_stock (location_seq, sku_seq);
+-- 센터 · 창고로 거르는 경로. 데이터범위 판정이 여기를 지난다.
+CREATE INDEX ix_stock_plant ON tb_stock (plant_seq, sku_seq);
+CREATE INDEX ix_stock_wh    ON tb_stock (warehouse_seq, sku_seq);
+
+COMMENT ON COLUMN tb_stock.plant_seq IS
+    '플랜트 순번 — 창고에서 유도되는 값을 조회를 위해 함께 둔다. fk_stock_wh_plant 가 창고와 어긋나지 않도록 강제한다.';
+COMMENT ON COLUMN tb_stock.warehouse_seq IS
+    '창고 순번 — 빈에서 유도되는 값을 조회를 위해 함께 둔다. fk_stock_loc_wh 가 빈과 어긋나지 않도록 강제한다.';
+COMMENT ON COLUMN tb_stock.supplier_seq IS
+    '공급처 순번 — 이 재고가 어느 공급처에서 왔나. 같은 빈 · 같은 SKU 라도 공급처가 다르면 행이 갈라진다. 출처를 모르는 재고(실사 무적재고 등)는 NULL.';
 
 
--- ============================================================================
 -- 2. 재고이력 (STK-007)
 --
 -- 수량이 바뀐 모든 사건을 남긴다. 수정 · 삭제 불가.

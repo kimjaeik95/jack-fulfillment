@@ -320,10 +320,14 @@ SELECT r.role_seq, p.perm_seq, 'R', 'system'
 INSERT INTO tb_menu (menu_id, menu_name, parent_seq, route_name, icon, perm_seq, sort_order, created_by)
 SELECT v.menu_id, v.menu_name, g.menu_seq, v.route_name, v.icon, p.perm_seq, v.sort_order, 'system'
   FROM (VALUES
-        ('MST_CATEGORIES', '카테고리 관리', 'GRP_MASTER', 'categories', '🗂', 'MST_CATEGORY', 40),
-        ('MST_BRANDS',     '브랜드 관리',   'GRP_MASTER', 'brands',     '🏷', 'MST_BRAND',    50),
-        ('MST_PRODUCTS',   '제품 관리',     'GRP_MASTER', 'products',   '👕', 'MST_PRODUCT',  60),
-        ('MST_SKUS',       'SKU 관리',      'GRP_MASTER', 'skus',       '🔖', 'MST_SKU',      70)
+        ('MST_CATEGORIES', '카테고리 관리', 'GRP_MST_PRODUCT', 'categories', '🗂', 'MST_CATEGORY', 10),
+        ('MST_BRANDS',     '브랜드 관리',   'GRP_MST_PRODUCT', 'brands',     '🏷', 'MST_BRAND',    20),
+        ('MST_PRODUCTS',   '제품 관리',     'GRP_MST_PRODUCT', 'products',   '👕', 'MST_PRODUCT',  30),
+        ('MST_SKUS',       'SKU 관리',      'GRP_MST_PRODUCT', 'skus',       '🔖', 'MST_SKU',      40),
+        -- 일괄생성은 별도 권한을 두지 않는다. 하는 일이 SKU 를 만드는 것이라
+        -- MST_SKU 의 C 와 같다 — 권한을 나누면 "SKU 는 만들 수 있지만 한 번에
+        -- 만들지는 못하는 사람" 이라는, 업무에 없는 역할이 생긴다.
+        ('MST_SKU_BULK',   'SKU 일괄생성',  'GRP_MST_PRODUCT', 'sku-bulk',   '⚡', 'MST_SKU',      50)
        ) AS v(menu_id, menu_name, parent_id, route_name, icon, perm_id, sort_order)
   JOIN tb_menu g       ON g.menu_id = v.parent_id
   JOIN tb_permission p ON p.perm_id = v.perm_id;

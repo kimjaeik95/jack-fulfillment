@@ -227,12 +227,12 @@ CREATE TABLE tb_stocktake_line (
     -- 거래처. 재고 한 행의 키가 로케이션 × SKU × 거래처라(STK-002) 실사
     -- 라인도 같은 키를 따라간다.
     --
-    -- 합치지 않는다. 한 빈에 화주가 다른 같은 SKU 가 있을 때 둘을 한 줄로
+    -- 합치지 않는다. 한 빈에 공급처가 다른 같은 SKU 가 있을 때 둘을 한 줄로
     -- 세면, 나중에 차이가 났을 때 그것이 누구 물건인지 정할 수 없다.
     -- 한쪽에 몰아 반영하면 남의 재고가 조용히 줄어들고 정산이 틀어진다.
-    -- 애초에 화주가 섞이지 않도록 구역을 나누는 것이 현장의 관행이고,
+    -- 애초에 공급처가 섞이지 않도록 구역을 나누는 것이 현장의 관행이고,
     -- 그 관행이 깨졌다는 사실도 실사가 드러내야 한다.
-    vendor_seq   bigint,
+    supplier_seq   bigint,
 
     -- 장부의 재고 행. 장부에 없는데 실물이 나온 경우(무적재고)에는 비어
     -- 있다 — 마감할 때 재고 행을 새로 만든다. 실사가 잡아야 하는 것이
@@ -267,12 +267,17 @@ CREATE TABLE tb_stocktake_line (
     -- 마감으로 만들어진 이력
     applied_history_seq bigint,
 
+    -- 공급처로 등록된 거래처만 가리키게 하는 고정값. 고객 전용 거래처를 넣으면
+    -- 아래 fk_takel_supplier 가 거부한다 (V20 과 같은 수법).
+    supplier_chk char(1) GENERATED ALWAYS AS ('Y') STORED,
+
     CONSTRAINT pk_take_line    PRIMARY KEY (line_seq),
     CONSTRAINT fk_takel_take   FOREIGN KEY (take_seq)     REFERENCES tb_stocktake (take_seq)
                                ON DELETE CASCADE,
     CONSTRAINT fk_takel_loc    FOREIGN KEY (location_seq) REFERENCES tb_location (location_seq),
     CONSTRAINT fk_takel_sku    FOREIGN KEY (sku_seq)      REFERENCES tb_sku (sku_seq),
-    CONSTRAINT fk_takel_vendor FOREIGN KEY (vendor_seq)   REFERENCES tb_supplier (supplier_seq),
+    CONSTRAINT fk_takel_supplier FOREIGN KEY (supplier_seq, supplier_chk)
+                               REFERENCES tb_partner (partner_seq, supplier_yn),
     CONSTRAINT fk_takel_stock  FOREIGN KEY (stock_seq)    REFERENCES tb_stock (stock_seq),
     CONSTRAINT fk_takel_hist   FOREIGN KEY (applied_history_seq)
                                REFERENCES tb_stock_history (history_seq),
@@ -288,18 +293,18 @@ CREATE TABLE tb_stocktake_line (
     AND (qty_counted IS NULL) = (counted_at IS NULL))
 );
 
--- 같은 자리 · 같은 물건 · 같은 화주를 두 번 세지 않는다. 두 번 세면 어느
+-- 같은 자리 · 같은 물건 · 같은 공급처를 두 번 세지 않는다. 두 번 세면 어느
 -- 쪽이 맞는지 정할 수 없고, 합산하면 실제의 두 배가 된다.
 --
 -- 거래처가 NULL 일 수 있어 인덱스를 둘로 나눈다. NULL 끼리는 = 로 비교되지
 -- 않아 하나짜리 유니크로는 중복이 막히지 않는다 — tb_stock 이 같은 이유로
 -- 같은 처리를 하고 있다.
-CREATE UNIQUE INDEX ux_takel_key_vendor
-    ON tb_stocktake_line (take_seq, location_seq, sku_seq, vendor_seq)
- WHERE vendor_seq IS NOT NULL;
-CREATE UNIQUE INDEX ux_takel_key_novendor
+CREATE UNIQUE INDEX ux_takel_key_supplier
+    ON tb_stocktake_line (take_seq, location_seq, sku_seq, supplier_seq)
+ WHERE supplier_seq IS NOT NULL;
+CREATE UNIQUE INDEX ux_takel_key_nosupplier
     ON tb_stocktake_line (take_seq, location_seq, sku_seq)
- WHERE vendor_seq IS NULL;
+ WHERE supplier_seq IS NULL;
 
 CREATE INDEX ix_takel_take ON tb_stocktake_line (take_seq, line_status);
 CREATE INDEX ix_takel_loc  ON tb_stocktake_line (location_seq, sku_seq);

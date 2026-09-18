@@ -163,8 +163,8 @@ SELECT r.role_seq, p.perm_seq, 'R', 'system'
 INSERT INTO tb_menu (menu_id, menu_name, parent_seq, route_name, icon, perm_seq, sort_order, created_by)
 SELECT v.menu_id, v.menu_name, g.menu_seq, v.route_name, v.icon, p.perm_seq, v.sort_order, 'system'
   FROM (VALUES
-        ('MST_CHANNELS',    '판매채널 관리',  'GRP_MASTER', 'channels',    '🛒', 'MST_CHANNEL',     80),
-        ('MST_CHANNEL_SKUS', '채널 SKU 매핑', 'GRP_MASTER', 'channel-skus', '🔗', 'MST_CHANNEL_SKU', 90)
+        ('MST_CHANNELS',    '판매채널 관리',  'GRP_MST_CHANNEL', 'channels',    '🛒', 'MST_CHANNEL',     10),
+        ('MST_CHANNEL_SKUS', '채널 SKU 매핑', 'GRP_MST_CHANNEL', 'channel-skus', '🔗', 'MST_CHANNEL_SKU', 20)
        ) AS v(menu_id, menu_name, parent_id, route_name, icon, perm_id, sort_order)
   JOIN tb_menu g       ON g.menu_id = v.parent_id
   JOIN tb_permission p ON p.perm_id = v.perm_id;

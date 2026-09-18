@@ -1,4 +1,14 @@
 -- ============================================================================
+-- V3 : 공통코드 — 시스템 코드와 사유 코드
+--
+-- 스키마가 아니라 값이다. 뒤따르는 파일들이 이 코드를 쓴다.
+--
+-- 사유코드는 별도 테이블을 만들지 않는다. 데이터 요구사항이 사유코드와
+-- 공통코드를 한 행으로 묶고 속성도 같게 적었다 — 이미 있는 tb_code_group ·
+-- tb_code 가 그 구조다. 대신 화면과 권한은 group_kind 로 가른다 (V1).
+-- ============================================================================
+
+-- ============================================================================
 -- V2 : 공통코드  (PostgreSQL)
 --
 -- 화면의 셀렉트박스 · 배지 라벨 · 서버 검증이 모두 이 코드를 참조한다.
@@ -138,3 +148,76 @@ SELECT g.code_group_seq, v.code_id, v.code_name, v.description, v.attr1, v.sort_
         ('USE_YN',        'N',          '미사용',         NULL,                                       'gray',   20)
        ) AS v(code_group_id, code_id, code_name, description, attr1, sort_order)
   JOIN tb_code_group g ON g.code_group_id = v.code_group_id;
+
+
+-- ============================================================================
+-- 5. 공통코드 — 거래처와 사유코드
+--
+-- 사유코드 그룹은 요구사항 MST-012 가 열거한 여섯 가지다.
+--   취소 · 반품 · 검수불량 · 결품 · 조정 · 배송실패
+--
+-- 각 그룹의 코드는 업무가 정하는 것이라 화면에서 추가할 수 있다. 여기서는
+-- 요구사항이 예로 든 것과 각 예외 처리에서 반드시 필요한 최소만 넣는다.
+-- ============================================================================
+-- 거래처 상태 · 결제조건 · 고객유형은 SYSTEM 이다. 서버가 이 값으로
+-- 분기하므로(거래중지면 발주 차단) 업무가 임의로 늘릴 수 없다.
+INSERT INTO tb_code_group (code_group_id, code_group_name, description, group_kind, created_by) VALUES
+  ('PARTNER_STATUS', '거래처 상태',   '거래중 · 거래중지 · 거래종료',           'SYSTEM', 'system'),
+  ('PAY_TERM',       '결제조건',      '선결제 · 착불 · 30일 · 60일 · 월말결산', 'SYSTEM', 'system'),
+  ('ADDR_TYPE',      '주소 용도',     '배송지 · 반품지 · 기타',                 'SYSTEM', 'system'),
+  -- 사유는 업무가 늘린다. 현장이 새 실패 유형을 발견하면 코드가 생긴다.
+  ('REASON_CANCEL',  '취소 사유',     '주문 취소 (ORD-008)',                    'REASON', 'system'),
+  ('REASON_RETURN',  '반품 사유',     '반품 접수',                              'REASON', 'system'),
+  ('REASON_INSPECT', '검수불량 사유', '입고 거부 (INB-006)',                    'REASON', 'system'),
+  ('REASON_SHORT',   '결품 사유',     '피킹 결품 (OUT-007)',                    'REASON', 'system'),
+  ('REASON_ADJUST',  '재고조정 사유', '실사 차이 · 분실 · 파손 (STK-009)',      'REASON', 'system'),
+  ('REASON_DLV_FAIL','배송실패 사유', '주소불명 · 부재 (DLV-006)',              'REASON', 'system');
+
+INSERT INTO tb_code (code_group_seq, code_id, code_name, description, sort_order, created_by)
+SELECT g.code_group_seq, v.code_id, v.code_name, v.description, v.sort_order, 'system'
+  FROM (VALUES
+        -- 거래처 상태
+        ('PARTNER_STATUS', 'ACTIVE',    '거래중',     '신규 거래 가능',                      10),
+        ('PARTNER_STATUS', 'SUSPENDED', '거래중지',   '신규 거래 차단. 기존 건은 마무리 가능', 20),
+        ('PARTNER_STATUS', 'CLOSED',    '거래종료',   '거래 관계 종료',                      30),
+        -- 결제조건
+        ('PAY_TERM', 'PREPAID', '선결제',     '발주 시 선지급',       10),
+        ('PAY_TERM', 'COD',     '착불',       '입고 시 지급',         20),
+        ('PAY_TERM', 'NET30',   '30일',       '세금계산서 후 30일',   30),
+        ('PAY_TERM', 'NET60',   '60일',       '세금계산서 후 60일',   40),
+        ('PAY_TERM', 'MONTHLY', '월말결산',   '당월 마감 익월 지급',  50),
+        -- 주소 용도 — 거래처 주소가 배송지와 반품지를 함께 담는다
+        ('ADDR_TYPE', 'SHIP',   '배송지', '물건을 보낼 곳',   10),
+        ('ADDR_TYPE', 'RETURN', '반품지', '반품을 받을 곳',   20),
+        ('ADDR_TYPE', 'ETC',    '기타',   '그 밖의 주소',     30),
+        -- 취소 사유 (ORD-008)
+        ('REASON_CANCEL', 'CUST_CHANGE', '고객 변심',     NULL, 10),
+        ('REASON_CANCEL', 'OUT_OF_STOCK','재고 부족',     NULL, 20),
+        ('REASON_CANCEL', 'WRONG_ORDER', '주문 오류',     NULL, 30),
+        ('REASON_CANCEL', 'DUPLICATE',   '중복 주문',     NULL, 40),
+        -- 반품 사유
+        ('REASON_RETURN', 'CUST_CHANGE', '단순 변심',     NULL, 10),
+        ('REASON_RETURN', 'DEFECT',      '상품 불량',     NULL, 20),
+        ('REASON_RETURN', 'WRONG_ITEM',  '오배송',        NULL, 30),
+        ('REASON_RETURN', 'DAMAGED',     '배송 중 파손',  NULL, 40),
+        -- 검수불량 사유 (INB-006)
+        ('REASON_INSPECT', 'DAMAGED',    '파손',          NULL, 10),
+        ('REASON_INSPECT', 'SHORTAGE',   '수량 부족',     NULL, 20),
+        ('REASON_INSPECT', 'WRONG_ITEM', '오품',          NULL, 30),
+        ('REASON_INSPECT', 'QUALITY',    '품질 미달',     NULL, 40),
+        -- 결품 사유 (OUT-007)
+        ('REASON_SHORT', 'NOT_FOUND',  '현품 없음',       NULL, 10),
+        ('REASON_SHORT', 'DAMAGED',    '현품 파손',       NULL, 20),
+        ('REASON_SHORT', 'LOC_ERROR',  '위치 오류',       NULL, 30),
+        -- 재고조정 사유 (STK-009)
+        ('REASON_ADJUST', 'STOCKTAKE', '실사 차이',       NULL, 10),
+        ('REASON_ADJUST', 'LOST',      '분실',            NULL, 20),
+        ('REASON_ADJUST', 'BROKEN',    '파손',            NULL, 30),
+        ('REASON_ADJUST', 'SYS_FIX',   '전산 오류 정정',  NULL, 40),
+        -- 배송실패 사유 (DLV-006)
+        ('REASON_DLV_FAIL', 'BAD_ADDRESS', '주소 불명',   NULL, 10),
+        ('REASON_DLV_FAIL', 'ABSENT',      '수령인 부재', NULL, 20),
+        ('REASON_DLV_FAIL', 'REFUSED',     '수취 거부',   NULL, 30)
+       ) AS v(group_id, code_id, code_name, description, sort_order)
+  JOIN tb_code_group g ON g.code_group_id = v.group_id;
+

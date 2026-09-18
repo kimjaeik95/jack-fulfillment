@@ -27,9 +27,9 @@ SELECT r.role_seq, p.perm_seq, a.action_code, 'system'
         ('PURCHASER',   'PUR_REQUEST', 'RCUD'),
 
         -- 공급처를 골라야 하므로 거래처를 읽는다. V900 이 MST_VENDOR 를
-        -- 줬는데 실제 공급처 화면의 권한은 MST_SUPPLIER 다.
-        ('PURCHASER',   'MST_SUPPLIER', 'R'),
-        ('INV_MANAGER', 'MST_SUPPLIER', 'R'),
+        -- 줬는데 실제 거래처 화면의 권한은 MST_PARTNER 다.
+        ('PURCHASER',   'MST_PARTNER', 'R'),
+        ('INV_MANAGER', 'MST_PARTNER', 'R'),
 
         -- 요청은 SKU 단위라 SKU 를 읽을 수 있어야 한다
         ('INV_MANAGER', 'MST_SKU', 'R'),

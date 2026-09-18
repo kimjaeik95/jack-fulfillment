@@ -1,10 +1,12 @@
 -- ============================================================================
--- V1 : 전체 스키마  (PostgreSQL)
+-- V1 : 시스템 스키마  (PostgreSQL)
 --      공통코드 · 회사 · 조직 · 사용자 · 역할 · 권한 · 공통정책 · 감사로그
---      · 메뉴 · 업로드이력 · 플랜트 · 창고 · 빈
+--      · 메뉴 · 업로드이력
 --
 -- 한 파일에 모아 둔 이유는 FK 의존 순서가 곧 읽는 순서이기 때문이다.
--- 회사 -> 조직 -> 플랜트 -> 창고 -> 빈 이 그대로 파일 순서다.
+-- 회사 -> 조직 -> 사용자 -> 역할 -> 권한 이 그대로 파일 순서다.
+-- 거점(플랜트 · 창고 · 빈)은 V2 로 넘겼다 — 사람의 조직과 물건이 있는 곳은
+-- 수명이 다르다.
 --
 -- 설계 규칙
 --   1) PK 는 대리키(*_seq, GENERATED ALWAYS AS IDENTITY). 업무코드는 UNIQUE.
@@ -39,10 +41,26 @@ CREATE TABLE tb_code_group (
     created_at       timestamp    NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_by       varchar(30),
     updated_at       timestamp,
+    /*
+     * 누가 관리하는 코드인가.
+     *
+     *   SYSTEM  시스템이 동작하는 데 쓰는 값. 바꾸면 권한 판정 · 상태 전이가
+     *           깨진다. 시스템 관리자만 다룬다 (공통코드 화면).
+     *   REASON  업무가 예외를 설명하는 값. 현장이 새 실패 유형을 발견하면
+     *           늘어난다. 기준정보 담당이 다룬다 (사유코드 화면).
+     *
+     * 코드 자체의 구조는 같으므로 테이블을 나누지 않고 이 한 컬럼으로 가른다.
+     * 현장이 결품 사유 하나를 추가하려고 공통코드 화면에 들어가야 한다면,
+     * 같은 화면에서 데이터범위 코드도 지울 수 있게 된다.
+     */
+    group_kind       varchar(20)  NOT NULL DEFAULT 'SYSTEM',
     CONSTRAINT pk_code_group        PRIMARY KEY (code_group_seq),
     CONSTRAINT uk_code_group_id     UNIQUE (code_group_id),
-    CONSTRAINT ck_code_group_use_yn CHECK (use_yn IN ('Y', 'N'))
+    CONSTRAINT ck_code_group_use_yn CHECK (use_yn IN ('Y', 'N')),
+    CONSTRAINT ck_code_group_kind   CHECK (group_kind IN ('SYSTEM', 'REASON'))
 );
+
+CREATE INDEX ix_code_group_kind ON tb_code_group (group_kind, code_group_id);
 
 COMMENT ON TABLE  tb_code_group                 IS '코드그룹';
 COMMENT ON COLUMN tb_code_group.code_group_seq  IS '코드그룹 순번 (PK)';
@@ -210,6 +228,26 @@ CREATE TABLE tb_user (
     created_at           timestamp    NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_by           varchar(30),
     updated_at           timestamp,
+    /*
+     * 이 시각까지 로그인할 수 없다. NULL 이면 시한 잠금이 없다는 뜻이다.
+     *
+     * 잠금을 셋으로 나눈다 (COM-PG-001).
+     *    5회   일시잠금  5분     스스로 풀린다
+     *   10회   장기잠금  1시간   스스로 풀리지만 한 번 쉬어 간다
+     *   15회   영구잠금  관리자 해제 필요
+     *
+     * 5회 틀리는 사람 대부분은 공격자가 아니라 캡스록을 켜 둔 사람이다. 그
+     * 사람까지 관리자를 찾아가게 만들면 관리자는 결국 "그냥 풀어 주는 버튼" 을
+     * 아무에게나 주게 된다 — 통제가 귀찮아지면 통제가 사라진다.
+     *
+     * 영구 잠금은 이 컬럼이 아니라 status='LOCKED' 로 남는다. 둘을 나눈 이유는
+     * "시간이 지나면 풀리는 것" 과 "사람이 풀어야 하는 것" 이 다른 사실이기
+     * 때문이다. 한 컬럼에 담으면 9999년 같은 값을 넣게 되고, 그 값을 나중에
+     * 아무도 설명하지 못한다.
+     *
+     * 횟수와 시간은 application.yml 의 app.security.lockout 에서 바꾼다.
+     */
+    locked_until         timestamp,
     CONSTRAINT pk_user            PRIMARY KEY (user_seq),
     CONSTRAINT uk_user_id         UNIQUE (user_id),
     CONSTRAINT uk_user_email      UNIQUE (email),
@@ -223,6 +261,9 @@ CREATE TABLE tb_user (
 
 CREATE INDEX ix_user_org    ON tb_user (org_seq);
 CREATE INDEX ix_user_status ON tb_user (status);
+-- 잠긴 계정을 찾을 때 쓴다. 관리자 화면이 "지금 몇 명이 잠겨 있나" 를 묻는다.
+CREATE INDEX ix_user_locked_until ON tb_user (locked_until)
+    WHERE locked_until IS NOT NULL;
 -- 로그인은 user_id 로만 조회하므로 uk_user_id 인덱스가 그대로 쓰인다
 
 COMMENT ON TABLE  tb_user                     IS '사용자';
@@ -234,6 +275,7 @@ COMMENT ON COLUMN tb_user.position_name       IS '직위. position 은 내장 �
 COMMENT ON COLUMN tb_user.status              IS '계정상태 — 코드그룹 USER_STATUS (ACTIVE/LOCKED/DORMANT/RETIRED)';
 COMMENT ON COLUMN tb_user.approval_limit      IS '승인 한도 금액(원). 0 = 승인 권한 없음';
 COMMENT ON COLUMN tb_user.login_fail_count    IS '연속 로그인 실패 횟수. 한도 초과 시 status=LOCKED';
+COMMENT ON COLUMN tb_user.locked_until        IS '이 시각까지 로그인 불가. 시한 잠금 전용이며 영구 잠금은 status=LOCKED (COM-PG-001)';
 COMMENT ON COLUMN tb_user.password_changed_at IS '비밀번호 최종 변경일시 — 변경 주기 통제용';
 COMMENT ON COLUMN tb_user.must_change_password IS
     '최초/초기화 후 비밀번호 변경 필요 여부 Y/N. Y 이면 변경 화면 외 접근을 차단한다';
@@ -547,9 +589,23 @@ CREATE TABLE tb_menu (
     CONSTRAINT fk_menu_parent     FOREIGN KEY (parent_seq) REFERENCES tb_menu (menu_seq),
     CONSTRAINT fk_menu_perm       FOREIGN KEY (perm_seq)   REFERENCES tb_permission (perm_seq),
     CONSTRAINT ck_menu_use_yn     CHECK (use_yn IN ('Y', 'N')),
-    -- 최상위는 그룹 머리글이라 라우트가 없고, 하위는 반드시 이동할 화면이 있어야 한다.
-    CONSTRAINT ck_menu_route      CHECK ((parent_seq IS NULL) = (route_name IS NULL)),
-    -- 자기 자신을 부모로 지정할 수 없다 (2단 구조라 그 이상의 순환은 생기지 않는다)
+    /*
+     * 라우트가 있으면 반드시 부모가 있어야 한다 — 최상위는 그룹 머리글이다.
+     *
+     * 반대 방향은 걸지 않는다. 전에는 "최상위면 라우트 없음" 과 "하위면 라우트
+     * 있음" 을 등호로 묶어 두었는데, 그러면 중간 머리글을 만들 수 없다.
+     * 기준정보처럼 항목이 많은 묶음은 그 아래 한 단을 더 나눠야 읽힌다
+     * (기준정보 → 제품 → SKU 관리).
+     *
+     * 남은 절반은 여전히 참이다. 부모 없는 라우트는 어느 묶음에도 속하지
+     * 않아 사이드바에 나타날 자리가 없다.
+     *
+     * 머리글이냐 화면이냐는 route_name 유무로 갈린다. 라우트를 빠뜨린 화면이
+     * 조용히 머리글이 되는 것을 막으려고, 저장 요청은 groupYn 을 함께 받아
+     * 의도를 명시하게 한다 (MenuSaveRequest).
+     */
+    CONSTRAINT ck_menu_route      CHECK (route_name IS NULL OR parent_seq IS NOT NULL),
+    -- 자기 자신을 부모로 지정할 수 없다
     CONSTRAINT ck_menu_not_self   CHECK (parent_seq IS NULL OR parent_seq <> menu_seq)
 );
 
@@ -607,133 +663,4 @@ COMMENT ON TABLE  tb_upload_error             IS '업로드 실패 행 (오류 C
 COMMENT ON COLUMN tb_upload_error.row_no      IS '파일 기준 행 번호 (머리글 제외, 1부터)';
 COMMENT ON COLUMN tb_upload_error.raw_line    IS '실패한 행의 원문. 고쳐서 재업로드할 수 있게 그대로 보관';
 
-
--- ============================================================================
--- 11. 플랜트 · 창고 · 빈 — 물건이 있는 곳
---
---     재고주소는 이 세 단계로 정해진다.
---       재고주소 = 플랜트 - 창고 - 빈 - 상품(SKU) - 거래처
---
---     조직(사람) 과 분리해 두는 이유는 둘의 수명이 다르기 때문이다. 조직은
---     개편되지만 거점은 그대로 있고, 그 반대도 있다. 플랜트가 조직을
---     참조하므로 조직개편은 플랜트의 org_seq 만 바꾸면 되고, 그 아래
---     창고 · 빈 · 재고는 건드리지 않는다.
---
---     유형 컬럼(plant_type / warehouse_type / location_type)은 tb_code 를
---     참조하지만 FK 는 걸지 않는다 — 위 설계규칙 4).
--- ============================================================================
-
--- ----------------------------------------------------------------------------
--- 플랜트 (물류센터) — 재고의 원천
--- ----------------------------------------------------------------------------
-CREATE TABLE tb_plant (
-    plant_seq     bigint       GENERATED ALWAYS AS IDENTITY,
-    org_seq       bigint       NOT NULL,
-    plant_id      varchar(20)  NOT NULL,
-    plant_name    varchar(100) NOT NULL,
-    plant_type    varchar(20)  NOT NULL,
-    zip_code      varchar(10),
-    address       varchar(300),
-    manager_name  varchar(50),
-    phone         varchar(30),
-    sort_order    integer      NOT NULL DEFAULT 0,
-    use_yn        char(1)      NOT NULL DEFAULT 'Y',
-    created_by    varchar(30)  NOT NULL,
-    created_at    timestamp    NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_by    varchar(30),
-    updated_at    timestamp,
-    CONSTRAINT pk_plant         PRIMARY KEY (plant_seq),
-    CONSTRAINT uk_plant_id      UNIQUE (plant_id),
-    CONSTRAINT uk_plant_name    UNIQUE (plant_name),
-    -- 플랜트가 딸린 조직은 삭제를 막는다
-    CONSTRAINT fk_plant_org     FOREIGN KEY (org_seq) REFERENCES tb_org (org_seq),
-    CONSTRAINT ck_plant_use_yn  CHECK (use_yn IN ('Y', 'N'))
-);
-
-CREATE INDEX ix_plant_org  ON tb_plant (org_seq);
-CREATE INDEX ix_plant_type ON tb_plant (plant_type);
-
-COMMENT ON TABLE  tb_plant              IS '플랜트 (물류센터) — 재고의 원천. MST-001';
-COMMENT ON COLUMN tb_plant.plant_seq    IS '플랜트 순번 (PK)';
-COMMENT ON COLUMN tb_plant.org_seq      IS '운영 조직 순번. 조직개편 시 이 값만 바꾼다';
-COMMENT ON COLUMN tb_plant.plant_id     IS '플랜트코드 (예: PL001)';
-COMMENT ON COLUMN tb_plant.plant_type   IS '플랜트유형 — 코드그룹 PLANT_TYPE (DC/RC/XD)';
-
-
--- ----------------------------------------------------------------------------
--- 창고 — 플랜트 안의 구획 (양품 / 반품 / 불량)
--- ----------------------------------------------------------------------------
-CREATE TABLE tb_warehouse (
-    warehouse_seq   bigint       GENERATED ALWAYS AS IDENTITY,
-    plant_seq       bigint       NOT NULL,
-    warehouse_id    varchar(20)  NOT NULL,
-    warehouse_name  varchar(100) NOT NULL,
-    warehouse_type  varchar(20)  NOT NULL,
-    position_desc   varchar(200),
-    sort_order      integer      NOT NULL DEFAULT 0,
-    use_yn          char(1)      NOT NULL DEFAULT 'Y',
-    created_by      varchar(30)  NOT NULL,
-    created_at      timestamp    NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_by      varchar(30),
-    updated_at      timestamp,
-    CONSTRAINT pk_warehouse         PRIMARY KEY (warehouse_seq),
-    -- 코드는 플랜트 안에서만 유일하다. 센터마다 양품 창고가 있는 것이
-    -- 정상이고, 전역 유일로 두면 코드에 플랜트를 중복해 적어야 한다.
-    CONSTRAINT uk_warehouse_id      UNIQUE (plant_seq, warehouse_id),
-    CONSTRAINT uk_warehouse_name    UNIQUE (plant_seq, warehouse_name),
-    CONSTRAINT fk_warehouse_plant   FOREIGN KEY (plant_seq) REFERENCES tb_plant (plant_seq),
-    CONSTRAINT ck_warehouse_use_yn  CHECK (use_yn IN ('Y', 'N'))
-);
-
-CREATE INDEX ix_warehouse_plant ON tb_warehouse (plant_seq, sort_order);
-CREATE INDEX ix_warehouse_type  ON tb_warehouse (warehouse_type);
-
-COMMENT ON TABLE  tb_warehouse                IS '창고 — 플랜트 내 구획. MST-002';
-COMMENT ON COLUMN tb_warehouse.warehouse_seq  IS '창고 순번 (PK)';
-COMMENT ON COLUMN tb_warehouse.warehouse_id   IS '창고코드. 플랜트 안에서 유일 (예: GD, RT, DF)';
-COMMENT ON COLUMN tb_warehouse.warehouse_type IS '창고유형 — 코드그룹 WH_TYPE (GOOD/RETURN/DEFECT)';
-COMMENT ON COLUMN tb_warehouse.position_desc  IS '물리적 위치 설명. position 은 함수명과 겹쳐 회피';
-
-
--- ----------------------------------------------------------------------------
--- 빈 — 피킹 · 적치 단위
--- ----------------------------------------------------------------------------
-CREATE TABLE tb_location (
-    location_seq   bigint       GENERATED ALWAYS AS IDENTITY,
-    warehouse_seq  bigint       NOT NULL,
-    location_id    varchar(30)  NOT NULL,
-    sector         varchar(20),
-    zone_code      varchar(20),
-    floor_no       varchar(20),
-    location_type  varchar(20)  NOT NULL,
-    barcode        varchar(50),
-    sort_order     integer      NOT NULL DEFAULT 0,
-    use_yn         char(1)      NOT NULL DEFAULT 'Y',
-    created_by     varchar(30)  NOT NULL,
-    created_at     timestamp    NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_by     varchar(30),
-    updated_at     timestamp,
-    CONSTRAINT pk_location         PRIMARY KEY (location_seq),
-    -- 빈코드는 전역 유일이다. 라벨에 찍혀 현장에서 스캔되는 값이고,
-    -- 스캔 한 번으로 한 곳이 지목되어야 한다 (MST-PG-004 바코드 출력).
-    CONSTRAINT uk_location_id      UNIQUE (location_id),
-    CONSTRAINT fk_location_wh      FOREIGN KEY (warehouse_seq)
-        REFERENCES tb_warehouse (warehouse_seq),
-    CONSTRAINT ck_location_use_yn  CHECK (use_yn IN ('Y', 'N'))
-);
-
-CREATE INDEX ix_location_wh   ON tb_location (warehouse_seq, sort_order);
-CREATE INDEX ix_location_type ON tb_location (location_type);
--- 바코드를 따로 부여한 경우에만 유일성을 본다. 비우면 location_id 를 쓴다.
-CREATE UNIQUE INDEX ux_location_barcode ON tb_location (barcode)
-    WHERE barcode IS NOT NULL;
-
-COMMENT ON TABLE  tb_location               IS '빈 — 피킹 · 적치 단위. MST-003';
-COMMENT ON COLUMN tb_location.location_seq  IS '빈 순번 (PK)';
-COMMENT ON COLUMN tb_location.location_id   IS '빈코드. 전역 유일 (예: 1A-01-01)';
-COMMENT ON COLUMN tb_location.sector        IS '섹터';
-COMMENT ON COLUMN tb_location.zone_code     IS '구역. zone 은 AT TIME ZONE 과 겹쳐 회피';
-COMMENT ON COLUMN tb_location.floor_no      IS '층. floor 는 내장 함수명과 겹쳐 회피';
-COMMENT ON COLUMN tb_location.location_type IS '빈유형 — 코드그룹 LOC_TYPE (NORMAL/RETURN/DEFECT/TRANSIT)';
-COMMENT ON COLUMN tb_location.barcode       IS '라벨 바코드. 비우면 location_id 를 그대로 쓴다';
 

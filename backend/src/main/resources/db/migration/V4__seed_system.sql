@@ -213,6 +213,26 @@ INSERT INTO tb_menu (menu_id, menu_name, parent_seq, route_name, icon, perm_seq,
   ('GRP_COMMON', '공통 정책',     NULL, NULL, NULL, NULL, 50, 'system'),
   ('GRP_AUDIT',  '감사',          NULL, NULL, NULL, NULL, 60, 'system');
 
+/*
+ * 기준정보 아래에 한 단을 더 둔다.
+ *
+ * 기준정보에 걸리는 화면이 열두 개가 넘는다. 한 단으로 늘어놓으면 시스템
+ * 관리자의 사이드바가 오십 줄이 되어 무엇을 찾는지 스스로도 잊는다. 성격이
+ * 다른 넷으로 나눈다 — 플랜트(장소) · 제품 · 채널 · 거래처.
+ *
+ * 머리글은 route_name 이 없다. ck_menu_route 가 '라우트가 있으면 부모가
+ * 있어야 한다' 만 보므로 중간 머리글이 성립한다 (V1).
+ */
+INSERT INTO tb_menu (menu_id, menu_name, parent_seq, route_name, icon, perm_seq, sort_order, created_by)
+SELECT v.menu_id, v.menu_name, g.menu_seq, NULL, v.icon, NULL, v.sort_order, 'system'
+  FROM (VALUES
+        ('GRP_MST_PLANT',   '플랜트',  '🏭', 10),
+        ('GRP_MST_PRODUCT', '제품',    '👕', 20),
+        ('GRP_MST_CHANNEL', '채널',    '🛒', 30),
+        ('GRP_MST_PARTNER', '거래처',  '🤝', 40)
+       ) AS v(menu_id, menu_name, icon, sort_order)
+  JOIN tb_menu g ON g.menu_id = 'GRP_MASTER';
+
 INSERT INTO tb_menu (menu_id, menu_name, parent_seq, route_name, icon, perm_seq, sort_order, created_by)
 SELECT v.menu_id, v.menu_name, g.menu_seq, v.route_name, v.icon, p.perm_seq, v.sort_order, 'system'
   FROM (VALUES
@@ -220,9 +240,12 @@ SELECT v.menu_id, v.menu_name, g.menu_seq, v.route_name, v.icon, p.perm_seq, v.s
         ('SYS_USERS',     '사용자 관리',    'GRP_USER',   'users',            '👤', 'SYS_USER',      10),
         ('SYS_COMPANIES', '회사 관리',      'GRP_USER',   'companies',        '🏛', 'SYS_COMPANY',   20),
         ('SYS_ORGS',      '조직 관리',      'GRP_USER',   'orgs',             '🏢', 'SYS_COMPANY',   30),
-        ('MST_PLANTS',    '플랜트 관리',    'GRP_MASTER', 'plants',           '🏭', 'MST_PLANT',     10),
-        ('MST_WAREHOUSES','창고 관리',      'GRP_MASTER', 'warehouses',       '📦', 'MST_WAREHOUSE', 20),
-        ('MST_LOCATIONS', '빈 관리',  'GRP_MASTER', 'locations',        '🧭', 'MST_LOCATION',  30),
+        -- 장소 3단계 + 라벨 출력. 라벨은 새 권한을 두지 않고 MST_LOCATION 의
+        -- X(출력)를 쓴다 — 빈 정보를 종이에 옮기는 일이라 데이터를 바꾸지 않는다.
+        ('MST_PLANTS',    '플랜트 관리',    'GRP_MST_PLANT', 'plants',        '🏭', 'MST_PLANT',     10),
+        ('MST_WAREHOUSES','창고 관리',      'GRP_MST_PLANT', 'warehouses',    '📦', 'MST_WAREHOUSE', 20),
+        ('MST_LOCATIONS', '빈 관리',        'GRP_MST_PLANT', 'locations',     '🧭', 'MST_LOCATION',  30),
+        ('MST_LABELS',    '빈 바코드 출력', 'GRP_MST_PLANT', 'label-print',   '🏷', 'MST_LOCATION',  40),
         ('SYS_ROLES',     '역할 관리',      'GRP_AUTH',   'roles',            '🎫', 'SYS_ROLE',      10),
         ('SYS_PERMS',     '권한 관리',      'GRP_AUTH',   'permissions',      '🔑', 'SYS_ROLE',      20),
         ('SYS_ROLEPERMS', '역할-권한 매핑', 'GRP_AUTH',   'role-permissions', '▦',  'SYS_ROLE',      30),
