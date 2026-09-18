@@ -26,7 +26,7 @@ public class ReconFinding {
 	private String locationId;
 	private String skuId;
 	private String productName;
-	private String vendorId;
+	private String supplierId;
 
 	/** 장부가 말하는 값 */
 	private Integer bookQty;

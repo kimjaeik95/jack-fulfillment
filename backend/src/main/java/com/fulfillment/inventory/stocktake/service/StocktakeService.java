@@ -572,7 +572,7 @@ public class StocktakeService {
 				// 화주까지 그대로 따라간다. 라인이 화주별로 갈려 있으므로
 				// 여기서 합치면 라인과 재고의 키가 어긋난다.
 				Stock created = ledger.findOrCreate(actor, line.getLocationSeq(),
-						line.getSkuSeq(), line.getVendorSeq());
+						line.getSkuSeq(), line.getSupplierSeq());
 				stockSeq = created.getStockSeq();
 				phantoms++;
 			}

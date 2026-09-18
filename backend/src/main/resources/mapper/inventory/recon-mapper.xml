@@ -12,7 +12,7 @@
         <result property="locationId"  column="location_id"/>
         <result property="skuId"       column="sku_id"/>
         <result property="productName" column="product_name"/>
-        <result property="vendorId"    column="vendor_id"/>
+        <result property="supplierId"    column="supplier_id"/>
         <result property="bookQty"     column="book_qty"/>
         <result property="computedQty" column="computed_qty"/>
         <result property="diffQty"     column="diff_qty"/>
@@ -28,7 +28,7 @@
         JOIN tb_plant     p  ON p.plant_seq     = w.plant_seq
         JOIN tb_sku       k  ON k.sku_seq       = s.sku_seq
         JOIN tb_product   pr ON pr.product_seq  = k.product_seq
-        LEFT JOIN tb_supplier v ON v.supplier_seq = s.vendor_seq
+        LEFT JOIN tb_partner v ON v.partner_seq = s.supplier_seq
     </sql>
 
     <sql id="stockColumns">
@@ -39,7 +39,7 @@
         l.location_id   AS location_id,
         k.sku_id        AS sku_id,
         pr.product_name AS product_name,
-        v.supplier_id   AS vendor_id
+        v.partner_id   AS supplier_id
     </sql>
 
     <!--
@@ -270,7 +270,7 @@
                NULL           AS location_id,
                NULL           AS sku_id,
                NULL           AS product_name,
-               NULL           AS vendor_id,
+               NULL           AS supplier_id,
                NULL::integer  AS book_qty,
                NULL::integer  AS computed_qty,
                (SELECT COALESCE(SUM(l.qty_delta), 0) FROM tb_stock_adjust_line l

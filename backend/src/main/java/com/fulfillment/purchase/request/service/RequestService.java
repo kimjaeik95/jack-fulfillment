@@ -14,10 +14,10 @@ import com.fulfillment.domain.Plant;
 import com.fulfillment.domain.PurchaseRequest;
 import com.fulfillment.domain.PurchaseRequestLine;
 import com.fulfillment.domain.Sku;
-import com.fulfillment.domain.Supplier;
+import com.fulfillment.domain.Partner;
 import com.fulfillment.master.plant.dao.PlantDao;
 import com.fulfillment.master.sku.dao.SkuDao;
-import com.fulfillment.master.supplier.dao.SupplierDao;
+import com.fulfillment.master.partner.dao.PartnerDao;
 import com.fulfillment.purchase.request.dao.RequestDao;
 import com.fulfillment.purchase.request.dto.RequestDecisionRequest;
 import com.fulfillment.purchase.request.dto.RequestLineResponse;
@@ -72,7 +72,7 @@ public class RequestService {
 	private final RequestDao requestDao;
 	private final PlantDao plantDao;
 	private final SkuDao skuDao;
-	private final SupplierDao supplierDao;
+	private final PartnerDao partnerDao;
 	private final CodeValues codeValues;
 	private final DocNumbers docNumbers;
 	private final PermissionChecker permissionChecker;
@@ -80,13 +80,13 @@ public class RequestService {
 	private final AuditRecorder auditRecorder;
 
 	public RequestService(RequestDao requestDao, PlantDao plantDao, SkuDao skuDao,
-			SupplierDao supplierDao, CodeValues codeValues, DocNumbers docNumbers,
+			PartnerDao partnerDao, CodeValues codeValues, DocNumbers docNumbers,
 			PermissionChecker permissionChecker, DataScopeResolver dataScopes,
 			AuditRecorder auditRecorder) {
 		this.requestDao = requestDao;
 		this.plantDao = plantDao;
 		this.skuDao = skuDao;
-		this.supplierDao = supplierDao;
+		this.partnerDao = partnerDao;
 		this.codeValues = codeValues;
 		this.docNumbers = docNumbers;
 		this.permissionChecker = permissionChecker;
@@ -403,13 +403,13 @@ public class RequestService {
 
 			Long supplierSeq = null;
 			if (rl.prefSupplierId() != null) {
-				Supplier supplier = supplierDao.selectBySupplierId(rl.prefSupplierId());
+				Partner supplier = partnerDao.selectByPartnerId(rl.prefSupplierId());
 				if (supplier == null) {
 					throw new BusinessException(ErrorCode.NOT_FOUND,
 							"%d 번째 줄의 희망 공급처를 찾을 수 없습니다. (%s)"
 									.formatted(lineNo, rl.prefSupplierId()));
 				}
-				supplierSeq = supplier.getSupplierSeq();
+				supplierSeq = supplier.getPartnerSeq();
 			}
 
 			if (requestDao.countPendingBySku(sku.getSkuSeq(), requestSeq) > 0) {

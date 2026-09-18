@@ -2,14 +2,19 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 
-<mapper namespace="com.fulfillment.master.customer.dao.CustomerDao">
+<mapper namespace="com.fulfillment.master.partner.dao.PartnerDao">
 
-    <resultMap id="customerMap" type="com.fulfillment.domain.Customer">
-        <id     property="customerSeq"        column="customer_seq"/>
-        <result property="customerId"         column="customer_id"/>
-        <result property="customerName"       column="customer_name"/>
-        <result property="customerType"       column="customer_type"/>
+    <resultMap id="partnerMap" type="com.fulfillment.domain.Partner">
+        <id     property="partnerSeq"        column="partner_seq"/>
+        <result property="partnerId"         column="partner_id"/>
+        <result property="partnerName"       column="partner_name"/>
+        <result property="supplierYn"         column="supplier_yn"/>
+        <result property="customerYn"         column="customer_yn"/>
         <result property="bizRegNo"           column="biz_reg_no"/>
+        <result property="ceoName"            column="ceo_name"/>
+        <result property="zipCode"            column="zip_code"/>
+        <result property="address"            column="address"/>
+        <result property="overReceiptRate"    column="over_receipt_rate"/>
         <result property="managerName"        column="manager_name"/>
         <result property="phone"              column="phone"/>
         <result property="email"              column="email"/>
@@ -26,9 +31,10 @@
         <result property="defaultAddressCount" column="default_address_count"/>
     </resultMap>
 
-    <resultMap id="addressMap" type="com.fulfillment.domain.CustomerAddress">
+    <resultMap id="addressMap" type="com.fulfillment.domain.PartnerAddress">
         <id     property="addressSeq"    column="address_seq"/>
-        <result property="customerSeq"   column="customer_seq"/>
+        <result property="addrType"      column="addr_type"/>
+        <result property="partnerSeq"   column="partner_seq"/>
         <result property="addressName"   column="address_name"/>
         <result property="receiverName"  column="receiver_name"/>
         <result property="phone"         column="phone"/>
@@ -43,128 +49,147 @@
         <result property="createdAt"     column="created_at"/>
         <result property="updatedBy"     column="updated_by"/>
         <result property="updatedAt"     column="updated_at"/>
-        <result property="customerId"    column="customer_id"/>
-        <result property="customerName"  column="customer_name"/>
+        <result property="partnerId"    column="partner_id"/>
+        <result property="partnerName"  column="partner_name"/>
     </resultMap>
 
     <!--
       배송지 수와 기본배송지 수를 함께 센다. 기본배송지가 없으면 판매오더에서
       배송지를 매번 골라야 하므로, 목록에서 바로 보여야 한다 (MST-010).
     -->
-    <sql id="customerColumns">
-        c.customer_seq, c.customer_id, c.customer_name, c.customer_type, c.biz_reg_no,
-        c.manager_name, c.phone, c.email, c.status, c.pay_term, c.remark,
-        c.sort_order, c.use_yn,
-        c.created_by, c.created_at, c.updated_by, c.updated_at,
-        (SELECT COUNT(*) FROM tb_customer_address a WHERE a.customer_seq = c.customer_seq)
+    <sql id="partnerColumns">
+        p.partner_seq, p.partner_id, p.partner_name,
+        p.supplier_yn, p.customer_yn,
+        p.biz_reg_no, p.ceo_name, p.manager_name, p.phone, p.email,
+        p.zip_code, p.address,
+        p.status, p.pay_term, p.over_receipt_rate, p.remark,
+        p.sort_order, p.use_yn,
+        p.created_by, p.created_at, p.updated_by, p.updated_at,
+        (SELECT COUNT(*) FROM tb_partner_address a WHERE a.partner_seq = p.partner_seq)
             AS address_count,
-        (SELECT COUNT(*) FROM tb_customer_address a
-          WHERE a.customer_seq = c.customer_seq AND a.default_yn = 'Y')
+        (SELECT COUNT(*) FROM tb_partner_address a
+          WHERE a.partner_seq = p.partner_seq AND a.default_yn = 'Y')
             AS default_address_count
     </sql>
 
     <sql id="searchWhere">
         <where>
-            <if test="customerType != null and customerType != ''">
-                AND c.customer_type = #{customerType}
+            <!--
+              '공급처' 로 거르면 양쪽인 거래처도 나와야 한다. 임가공 업체가
+              발주 화면에서 사라지면 안 된다.
+            -->
+            <if test='direction == "SUPPLIER"'>
+                AND p.supplier_yn = 'Y'
+            </if>
+            <if test='direction == "CUSTOMER"'>
+                AND p.customer_yn = 'Y'
             </if>
             <if test="status != null and status != ''">
-                AND c.status = #{status}
+                AND p.status = #{status}
             </if>
             <if test="useYn != null and useYn != ''">
-                AND c.use_yn = #{useYn}
+                AND p.use_yn = #{useYn}
             </if>
             <if test="keyword != null and keyword != ''">
-                AND ( LOWER(c.customer_id)   LIKE '%' || LOWER(#{keyword}) || '%'
-                   OR LOWER(c.customer_name) LIKE '%' || LOWER(#{keyword}) || '%'
-                   OR LOWER(c.biz_reg_no)    LIKE '%' || LOWER(#{keyword}) || '%'
-                   OR LOWER(c.manager_name)  LIKE '%' || LOWER(#{keyword}) || '%' )
+                AND ( LOWER(p.partner_id)   LIKE '%' || LOWER(#{keyword}) || '%'
+                   OR LOWER(p.partner_name) LIKE '%' || LOWER(#{keyword}) || '%'
+                   OR LOWER(p.biz_reg_no)    LIKE '%' || LOWER(#{keyword}) || '%'
+                   OR LOWER(p.manager_name)  LIKE '%' || LOWER(#{keyword}) || '%' )
             </if>
         </where>
     </sql>
 
-    <select id="selectList" resultMap="customerMap">
-        SELECT <include refid="customerColumns"/>
-          FROM tb_customer c
+    <select id="selectList" resultMap="partnerMap">
+        SELECT <include refid="partnerColumns"/>
+          FROM tb_partner p
         <include refid="searchWhere"/>
-        <!-- ${} 치환 자리다. CustomerSearch 가 화이트리스트로 걸러 SQL 인젝션을 막는다. -->
-         ORDER BY ${sortColumn} ${sortDirection}, c.customer_id ASC
+        <!-- ${} 치환 자리다. PartnerSearch 가 화이트리스트로 걸러 SQL 인젝션을 막는다. -->
+         ORDER BY ${sortColumn} ${sortDirection}, p.partner_id ASC
         <if test="size > 0">
             LIMIT #{size} OFFSET #{offset}
         </if>
     </select>
 
     <select id="countList" resultType="long">
-        SELECT COUNT(*) FROM tb_customer c
+        SELECT COUNT(*) FROM tb_partner p
         <include refid="searchWhere"/>
     </select>
 
-    <select id="selectByCustomerId" resultMap="customerMap">
-        SELECT <include refid="customerColumns"/>
-          FROM tb_customer c
-         WHERE c.customer_id = #{customerId}
+    <select id="selectByPartnerId" resultMap="partnerMap">
+        SELECT <include refid="partnerColumns"/>
+          FROM tb_partner p
+         WHERE p.partner_id = #{partnerId}
     </select>
 
-    <select id="selectByCustomerSeq" resultMap="customerMap">
-        SELECT <include refid="customerColumns"/>
-          FROM tb_customer c
-         WHERE c.customer_seq = #{customerSeq}
+    <select id="selectByPartnerSeq" resultMap="partnerMap">
+        SELECT <include refid="partnerColumns"/>
+          FROM tb_partner p
+         WHERE p.partner_seq = #{partnerSeq}
     </select>
 
-    <select id="countByCustomerId" resultType="int">
-        SELECT COUNT(*) FROM tb_customer WHERE customer_id = #{customerId}
+    <select id="countByPartnerId" resultType="int">
+        SELECT COUNT(*) FROM tb_partner WHERE partner_id = #{partnerId}
     </select>
 
-    <select id="countByCustomerName" resultType="int">
-        SELECT COUNT(*) FROM tb_customer
-         WHERE customer_name = #{customerName}
-        <if test="exceptCustomerId != null and exceptCustomerId != ''">
-            AND customer_id &lt;&gt; #{exceptCustomerId}
+    <select id="countByPartnerName" resultType="int">
+        SELECT COUNT(*) FROM tb_partner
+         WHERE partner_name = #{partnerName}
+        <if test="exceptPartnerId != null and exceptPartnerId != ''">
+            AND partner_id &lt;&gt; #{exceptPartnerId}
         </if>
     </select>
 
     <!-- 사업자등록번호 중복은 막지 않고 센다 (MST-010 은 '중복 경고') -->
     <select id="countByBizRegNo" resultType="int">
-        SELECT COUNT(*) FROM tb_customer
+        SELECT COUNT(*) FROM tb_partner
          WHERE biz_reg_no = #{bizRegNo}
-        <if test="exceptCustomerId != null and exceptCustomerId != ''">
-            AND customer_id &lt;&gt; #{exceptCustomerId}
+        <if test="exceptPartnerId != null and exceptPartnerId != ''">
+            AND partner_id &lt;&gt; #{exceptPartnerId}
         </if>
     </select>
 
-    <insert id="insert" parameterType="com.fulfillment.domain.Customer"
-            useGeneratedKeys="true" keyProperty="customerSeq" keyColumn="customer_seq">
-        INSERT INTO tb_customer (
-            customer_id, customer_name, customer_type, biz_reg_no, manager_name,
-            phone, email, status, pay_term, remark, sort_order, use_yn, created_by
+    <insert id="insert" parameterType="com.fulfillment.domain.Partner"
+            useGeneratedKeys="true" keyProperty="partnerSeq" keyColumn="partner_seq">
+        INSERT INTO tb_partner (
+            partner_id, partner_name, supplier_yn, customer_yn,
+            biz_reg_no, ceo_name, manager_name, phone, email,
+            zip_code, address,
+            status, pay_term, over_receipt_rate, remark, sort_order, use_yn, created_by
         ) VALUES (
-            #{customerId}, #{customerName}, #{customerType}, #{bizRegNo}, #{managerName},
-            #{phone}, #{email}, #{status}, #{payTerm}, #{remark},
+            #{partnerId}, #{partnerName}, #{supplierYn}, #{customerYn},
+            #{bizRegNo}, #{ceoName}, #{managerName}, #{phone}, #{email},
+            #{zipCode}, #{address},
+            #{status}, #{payTerm}, #{overReceiptRate}, #{remark},
             #{sortOrder}, #{useYn}, #{createdBy}
         )
     </insert>
 
-    <!-- 고객코드는 바꾸지 않는다. 판매오더가 이 코드로 고객을 부른다. -->
-    <update id="update" parameterType="com.fulfillment.domain.Customer">
-        UPDATE tb_customer
-           SET customer_name = #{customerName},
-               customer_type = #{customerType},
+    <!-- 거래처코드는 바꾸지 않는다. 발주 · 입고 · 재고가 이 코드로 부른다. -->
+    <update id="update" parameterType="com.fulfillment.domain.Partner">
+        UPDATE tb_partner
+           SET partner_name = #{partnerName},
+               supplier_yn   = #{supplierYn},
+               customer_yn   = #{customerYn},
                biz_reg_no    = #{bizRegNo},
+               ceo_name      = #{ceoName},
                manager_name  = #{managerName},
                phone         = #{phone},
                email         = #{email},
+               zip_code      = #{zipCode},
+               address       = #{address},
                status        = #{status},
                pay_term      = #{payTerm},
+               over_receipt_rate = #{overReceiptRate},
                remark        = #{remark},
                sort_order    = #{sortOrder},
                use_yn        = #{useYn},
                updated_by    = #{updatedBy},
                updated_at    = CURRENT_TIMESTAMP
-         WHERE customer_seq = #{customerSeq}
+         WHERE partner_seq = #{partnerSeq}
     </update>
 
     <delete id="delete">
-        DELETE FROM tb_customer WHERE customer_seq = #{customerSeq}
+        DELETE FROM tb_partner WHERE partner_seq = #{partnerSeq}
     </delete>
 
 
@@ -173,49 +198,49 @@
     <!-- ================================================================ -->
 
     <sql id="addressColumns">
-        a.address_seq, a.customer_seq, a.address_name, a.receiver_name, a.phone,
+        a.address_seq, a.partner_seq, a.address_name, a.receiver_name, a.phone,
         a.zip_code, a.address, a.address_detail, a.delivery_memo,
         a.default_yn, a.sort_order, a.use_yn,
         a.created_by, a.created_at, a.updated_by, a.updated_at,
-        c.customer_id   AS customer_id,
-        c.customer_name AS customer_name
+        p.partner_id   AS partner_id,
+        p.partner_name AS partner_name
     </sql>
 
     <!-- 기본배송지가 맨 위에 온다. 가장 자주 쓰는 것이다. -->
     <select id="selectAddresses" resultMap="addressMap">
         SELECT <include refid="addressColumns"/>
-          FROM tb_customer_address a
-          JOIN tb_customer c ON c.customer_seq = a.customer_seq
-         WHERE a.customer_seq = #{customerSeq}
+          FROM tb_partner_address a
+          JOIN tb_partner p ON p.partner_seq = a.partner_seq
+         WHERE a.partner_seq = #{partnerSeq}
          ORDER BY a.default_yn DESC, a.sort_order, a.address_seq
     </select>
 
     <select id="selectAddressBySeq" resultMap="addressMap">
         SELECT <include refid="addressColumns"/>
-          FROM tb_customer_address a
-          JOIN tb_customer c ON c.customer_seq = a.customer_seq
+          FROM tb_partner_address a
+          JOIN tb_partner p ON p.partner_seq = a.partner_seq
          WHERE a.address_seq = #{addressSeq}
     </select>
 
     <select id="countAddresses" resultType="int">
-        SELECT COUNT(*) FROM tb_customer_address WHERE customer_seq = #{customerSeq}
+        SELECT COUNT(*) FROM tb_partner_address WHERE partner_seq = #{partnerSeq}
     </select>
 
-    <insert id="insertAddress" parameterType="com.fulfillment.domain.CustomerAddress"
+    <insert id="insertAddress" parameterType="com.fulfillment.domain.PartnerAddress"
             useGeneratedKeys="true" keyProperty="addressSeq" keyColumn="address_seq">
-        INSERT INTO tb_customer_address (
-            customer_seq, address_name, receiver_name, phone, zip_code,
+        INSERT INTO tb_partner_address (
+            partner_seq, addr_type, address_name, receiver_name, phone, zip_code,
             address, address_detail, delivery_memo, default_yn,
             sort_order, use_yn, created_by
         ) VALUES (
-            #{customerSeq}, #{addressName}, #{receiverName}, #{phone}, #{zipCode},
+            #{partnerSeq}, #{addrType}, #{addressName}, #{receiverName}, #{phone}, #{zipCode},
             #{address}, #{addressDetail}, #{deliveryMemo}, #{defaultYn},
             #{sortOrder}, #{useYn}, #{createdBy}
         )
     </insert>
 
-    <update id="updateAddress" parameterType="com.fulfillment.domain.CustomerAddress">
-        UPDATE tb_customer_address
+    <update id="updateAddress" parameterType="com.fulfillment.domain.PartnerAddress">
+        UPDATE tb_partner_address
            SET address_name   = #{addressName},
                receiver_name  = #{receiverName},
                phone          = #{phone},
@@ -232,28 +257,28 @@
     </update>
 
     <delete id="deleteAddress">
-        DELETE FROM tb_customer_address WHERE address_seq = #{addressSeq}
+        DELETE FROM tb_partner_address WHERE address_seq = #{addressSeq}
     </delete>
 
     <!--
       새 기본을 올리기 직전에 기존 것을 내린다. 부분 유니크 인덱스
-      (ux_cusaddr_default)가 걸려 있어 내리지 않고 올리면 제약 위반이 난다.
+      (ux_partaddr_default)가 걸려 있어 내리지 않고 올리면 제약 위반이 난다.
     -->
     <update id="clearDefault">
-        UPDATE tb_customer_address
+        UPDATE tb_partner_address
            SET default_yn = 'N',
                updated_by = #{actorId},
                updated_at = CURRENT_TIMESTAMP
-         WHERE customer_seq = #{customerSeq}
+         WHERE partner_seq = #{partnerSeq}
            AND default_yn = 'Y'
     </update>
 
     <!-- 기본배송지를 지웠을 때 승계할 다음 배송지 -->
     <select id="selectFirstAddress" resultMap="addressMap">
         SELECT <include refid="addressColumns"/>
-          FROM tb_customer_address a
-          JOIN tb_customer c ON c.customer_seq = a.customer_seq
-         WHERE a.customer_seq = #{customerSeq}
+          FROM tb_partner_address a
+          JOIN tb_partner p ON p.partner_seq = a.partner_seq
+         WHERE a.partner_seq = #{partnerSeq}
         <if test="exceptAddressSeq != null">
             AND a.address_seq &lt;&gt; #{exceptAddressSeq}
         </if>

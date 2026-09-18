@@ -18,7 +18,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { codeOptions } from '@/api/codes.js'
 import * as inboundApi from '@/api/inbound.js'
 import * as stockApi from '@/api/stock.js'
-import * as supplierApi from '@/api/supplier.js'
+import * as partnerApi from '@/api/partner.js'
 import { useHierarchyStore } from '@/stores/hierarchy.js'
 import { useSessionStore } from '@/stores/session.js'
 import { useToastStore } from '@/stores/toast.js'
@@ -87,7 +87,7 @@ const suppliers = ref([])
 onMounted(async () => {
   await hierarchy.loadPlants(false)
   try {
-    const data = await supplierApi.list({ useYn: 'Y', size: 0 })
+    const data = await partnerApi.suppliers({ useYn: 'Y', size: 0 })
     suppliers.value = data.rows
   } catch {
     // 공급처를 못 읽어도 예정은 세울 수 있다 — 발주에서 오면 자동으로 붙는다
@@ -97,7 +97,7 @@ onMounted(async () => {
 })
 
 const supplierOptions = computed(() =>
-  suppliers.value.map((s) => ({ value: s.supplierId, label: s.supplierName })),
+  suppliers.value.map((s) => ({ value: s.partnerId, label: s.partnerName })),
 )
 
 const columns = [

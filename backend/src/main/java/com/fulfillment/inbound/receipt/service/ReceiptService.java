@@ -384,12 +384,18 @@ public class ReceiptService {
 		int applied = 0;
 		for (InboundPutaway p : putaways) {
 			/*
-			 * 화주(vendor)는 지금 비워 둔다. 위탁재고는 발주가 아니라 위탁
-			 * 계약에서 오고, 그 경로가 아직 없다. 넣을 값이 없는데 아무거나
-			 * 넣으면 재고 키가 엉킨다.
+			 * 공급처를 재고에 새긴다 — 이 물건이 어디서 왔는지다 (V21).
+			 *
+			 * 같은 빈에 같은 SKU 라도 공급처가 다르면 재고 행이 갈라진다.
+			 * 합쳐 두면 불량이 터졌을 때 어느 공급처 물량인지 가릴 수 없고,
+			 * 정산도 그 단위로 하기 때문이다.
+			 *
+			 * 이동입고는 공급처가 비어 있다 (tb_inbound.supplier_seq 가
+			 * NULL 을 허용하는 이유). 그 경우 재고도 비운 채로 둔다 —
+			 * 출처를 모르는 것과 아무 공급처나 적어 두는 것은 다르다.
 			 */
 			Stock stock = ledger.findOrCreate(actor, p.getLocationSeq(),
-					skuSeqOf(p), null);
+					skuSeqOf(p), inbound.getSupplierSeq());
 
 			StockHistory history = ledger.apply(actor, stock.getStockSeq(), Movement.of(
 					"RECEIVE", StockLedger.ON_HAND, p.getQty(),

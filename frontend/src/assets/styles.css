@@ -838,9 +838,28 @@ input[type='radio'] {
   color: var(--text-3);
 }
 
+/*
+  숫자 칸은 값도 머리글도 오른쪽에 붙인다.
+
+  머리글 쪽에 .table th.right 가 없어서 오랫동안 어긋나 있었다. th 에는
+  유틸리티 클래스 .right 가 붙는데, 그것만으로는 몇 줄 위의
+
+      .table th, .table td { text-align: left }
+
+  을 못 이긴다 — 선택자 우선순위가 (0,1,0) 대 (0,1,1) 이다. 그래서 값만
+  오른쪽으로 가고 머리글은 왼쪽에 남아, 숫자가 제 제목에서 떨어져 보였다.
+  가운데 정렬은 아래에 .table th.center 가 있어 멀쩡했다.
+
+  tabular-nums 는 값에만 준다. 자릿수를 세로로 맞추려는 것이라 머리글에는
+  쓸 일이 없다.
+*/
 .table td.num {
-  text-align: right;
   font-variant-numeric: tabular-nums;
+}
+
+.table td.num,
+.table th.right {
+  text-align: right;
 }
 
 .table td.center,

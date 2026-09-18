@@ -8,7 +8,7 @@
         <id     property="stockSeq"      column="stock_seq"/>
         <result property="locationSeq"   column="location_seq"/>
         <result property="skuSeq"        column="sku_seq"/>
-        <result property="vendorSeq"     column="vendor_seq"/>
+        <result property="supplierSeq"     column="supplier_seq"/>
         <result property="qtyOnHand"     column="qty_on_hand"/>
         <result property="qtyAllocated"  column="qty_allocated"/>
         <result property="qtyUnsellable" column="qty_unsellable"/>
@@ -31,8 +31,8 @@
         <result property="productId"     column="product_id"/>
         <result property="productName"   column="product_name"/>
         <result property="brandName"     column="brand_name"/>
-        <result property="vendorId"      column="vendor_id"/>
-        <result property="vendorName"    column="vendor_name"/>
+        <result property="supplierId"      column="supplier_id"/>
+        <result property="supplierName"    column="supplier_name"/>
     </resultMap>
 
     <resultMap id="historyMap" type="com.fulfillment.domain.StockHistory">
@@ -103,11 +103,11 @@
         JOIN tb_sku       k  ON k.sku_seq       = s.sku_seq
         JOIN tb_product   pr ON pr.product_seq  = k.product_seq
         LEFT JOIN tb_brand   b  ON b.brand_seq     = pr.brand_seq
-        LEFT JOIN tb_supplier v ON v.supplier_seq  = s.vendor_seq
+        LEFT JOIN tb_partner v ON v.partner_seq  = s.supplier_seq
     </sql>
 
     <sql id="stockColumns">
-        s.stock_seq, s.location_seq, s.sku_seq, s.vendor_seq,
+        s.stock_seq, s.location_seq, s.sku_seq, s.supplier_seq,
         s.qty_on_hand, s.qty_allocated, s.qty_unsellable, s.qty_available,
         s.last_counted_at, s.created_by, s.created_at, s.updated_by, s.updated_at,
         l.location_id   AS location_id,
@@ -123,16 +123,26 @@
         pr.product_id   AS product_id,
         pr.product_name AS product_name,
         b.brand_name    AS brand_name,
-        v.supplier_id   AS vendor_id,
-        v.supplier_name AS vendor_name
+        v.partner_id   AS supplier_id,
+        v.partner_name AS supplier_name
     </sql>
 
     <!--
       데이터 범위 (COM-PG-004, STK-001).
 
-      재고는 조직을 직접 갖지 않는다. 로케이션 → 창고 → 플랜트 → 운영
-      조직으로 거슬러 판정한다. scope 를 넣지 않고 조회하면
-      ScopedSearch.getScope() 가 예외를 던진다.
+      재고는 조직을 직접 갖지 않는다. 플랜트가 운영 조직을 가리키므로 그쪽으로
+      판정한다. scope 를 넣지 않고 조회하면 ScopedSearch.getScope() 가 예외를
+      던진다.
+
+      조건을 s.plant_seq 에 건다 (V22). p.org_seq 로 걸면 조건이 조인 세 단
+      건너편이라, DB 가 그 조직의 빈을 전부 펼친 다음 빈 하나하나로 재고를
+      뒤진다 — 센터에 깔린 빈이 N 개면 N 번이다. s.plant_seq 로 걸면
+      ix_stock_plant 를 한 번 훑고 끝난다.
+
+      시스템관리자가 아닌 모든 사용자의 모든 재고 조회가 이 조각을 지난다.
+      가장 자주 도는 조건이라 여기가 인덱스를 타는 것이 제일 중요하다.
+
+      안쪽 서브쿼리가 도는 tb_plant 는 수십 행이라 사실상 상수다.
     -->
     <sql id="scopeFilter">
         <if test="!scope.unrestricted">
@@ -141,34 +151,67 @@
                     AND s.created_by = #{scope.ownerId}
                 </when>
                 <otherwise>
-                    AND ( p.org_seq IN
-                          <foreach collection="scope.orgSeqs" item="o" open="(" separator="," close=")">
-                              #{o}
-                          </foreach>
+                    AND ( s.plant_seq IN (
+                              SELECT pp.plant_seq FROM tb_plant pp
+                               WHERE pp.org_seq IN
+                              <foreach collection="scope.orgSeqs" item="o" open="(" separator="," close=")">
+                                  #{o}
+                              </foreach>
+                          )
                           OR s.created_by = #{scope.ownerId} )
                 </otherwise>
             </choose>
         </if>
     </sql>
 
+    <!--
+      장소 조건 — 재고 · 이력 · 할당이 같이 쓴다.
+
+      셋 다 tb_stock 을 s 로 물고 있어서 같은 조각이 그대로 붙는다.
+
+      이름은 여전히 조인에서 나온다. 여기서 하는 일은 '거르기' 뿐이고,
+      거르는 일은 재고 인덱스가 먼저 해야 한다 — 100 건으로 좁혀진 뒤에
+      붙는 조인은 비용이 없다.
+    -->
+    <sql id="placeFilter">
+        <if test="plantId != null and plantId != ''">
+            AND s.plant_seq = (SELECT pp.plant_seq FROM tb_plant pp
+                                WHERE pp.plant_id = #{plantId})
+        </if>
+        <!--
+          창고코드는 플랜트 안에서만 유일하다 (uk_warehouse_id). 플랜트를 같이
+          주지 않으면 이름이 같은 다른 센터의 창고까지 걸리므로, 플랜트가
+          지정됐을 때는 그 안에서 찾는다.
+        -->
+        <if test="warehouseId != null and warehouseId != ''">
+            AND s.warehouse_seq IN (
+                    SELECT ww.warehouse_seq FROM tb_warehouse ww
+                     WHERE ww.warehouse_id = #{warehouseId}
+                <if test="plantId != null and plantId != ''">
+                       AND ww.plant_seq = (SELECT pp.plant_seq FROM tb_plant pp
+                                            WHERE pp.plant_id = #{plantId})
+                </if>
+                )
+        </if>
+    </sql>
+
     <sql id="stockWhere">
         <where>
             <include refid="scopeFilter"/>
-            <if test="plantId != null and plantId != ''">
-                AND p.plant_id = #{plantId}
-            </if>
-            <if test="warehouseId != null and warehouseId != ''">
-                AND w.warehouse_id = #{warehouseId}
-            </if>
+            <include refid="placeFilter"/>
             <!--
               창고 하나가 아니라 유형 전체로 거른다.
 
               반품창고는 센터마다 따로 있고 한 센터에 플랜트가 둘 달리기도 한다.
               유형으로 못 묶으면 '반품 재고가 얼마나 쌓였나' 를 보려고 창고를
               하나씩 골라 더해야 한다 — 하나 빠뜨려도 티가 안 난다.
+
+              이것도 s.warehouse_seq 로 건다 (V22). tb_warehouse 는 수백 행을
+              넘지 않아 안쪽이 먼저 풀리고, 바깥은 재고 인덱스를 탄다.
             -->
             <if test="warehouseType != null and warehouseType != ''">
-                AND w.warehouse_type = #{warehouseType}
+                AND s.warehouse_seq IN (SELECT ww.warehouse_seq FROM tb_warehouse ww
+                                         WHERE ww.warehouse_type = #{warehouseType})
             </if>
             <if test="locationId != null and locationId != ''">
                 AND l.location_id = #{locationId}
@@ -179,8 +222,8 @@
             <if test="productId != null and productId != ''">
                 AND pr.product_id = #{productId}
             </if>
-            <if test="vendorId != null and vendorId != ''">
-                AND v.supplier_id = #{vendorId}
+            <if test="supplierId != null and supplierId != ''">
+                AND v.partner_id = #{supplierId}
             </if>
             <if test='onHandOnly == "Y"'>
                 AND s.qty_on_hand &gt; 0
@@ -280,12 +323,7 @@
             <if test="stockSeq != null">
                 AND h.stock_seq = #{stockSeq}
             </if>
-            <if test="plantId != null and plantId != ''">
-                AND p.plant_id = #{plantId}
-            </if>
-            <if test="warehouseId != null and warehouseId != ''">
-                AND w.warehouse_id = #{warehouseId}
-            </if>
+            <include refid="placeFilter"/>
             <if test="skuId != null and skuId != ''">
                 AND k.sku_id = #{skuId}
             </if>
@@ -372,12 +410,7 @@
             <if test="stockSeq != null">
                 AND a.stock_seq = #{stockSeq}
             </if>
-            <if test="plantId != null and plantId != ''">
-                AND p.plant_id = #{plantId}
-            </if>
-            <if test="warehouseId != null and warehouseId != ''">
-                AND w.warehouse_id = #{warehouseId}
-            </if>
+            <include refid="placeFilter"/>
             <if test="skuId != null and skuId != ''">
                 AND k.sku_id = #{skuId}
             </if>
@@ -468,11 +501,11 @@
          WHERE s.location_seq = #{locationSeq}
            AND s.sku_seq      = #{skuSeq}
         <choose>
-            <when test="vendorSeq != null">
-           AND s.vendor_seq = #{vendorSeq}
+            <when test="supplierSeq != null">
+           AND s.supplier_seq = #{supplierSeq}
             </when>
             <otherwise>
-           AND s.vendor_seq IS NULL
+           AND s.supplier_seq IS NULL
             </otherwise>
         </choose>
     </select>
@@ -484,17 +517,30 @@
       넣었으면 아무 일도 하지 않고, 부르는 쪽이 다시 읽어 그것을 쓴다.
 
       대상 인덱스를 적지 않는다. 거래처 유무에 따라 걸리는 인덱스가 둘로
-      나뉘어 있어(ux_stock_key_vendor · ux_stock_key_novendor) 하나를 지목할
+      나뉘어 있어(ux_stock_key_supplier · ux_stock_key_nosupplier) 하나를 지목할
       수 없다. 어느 쪽에 걸리든 하려는 일은 같다 — 넣지 말고 넘어간다.
 
       순번을 돌려받지 않는다. 건너뛴 경우에는 돌려줄 것이 없어서,
       useGeneratedKeys 를 쓰면 그때 빈 결과로 터진다.
     -->
     <insert id="insertIfAbsent" parameterType="com.fulfillment.domain.Stock">
-        INSERT INTO tb_stock (location_seq, sku_seq, vendor_seq,
+        <!--
+          창고 · 플랜트는 값을 받지 않고 빈에서 끌어온다 (V22).
+
+          부르는 쪽이 셋을 다 넘기게 하면, 언젠가 빈과 다른 창고를 넘기는 날이
+          온다. 복합 FK 가 그것을 막아 주기는 하지만, 막히는 것과 애초에 틀릴
+          수 없는 것은 다르다. 빈 하나만 받아 나머지는 DB 가 정한다.
+
+          그래서 findOrCreate 의 인자도 늘지 않는다 — 부르는 쪽(입고 · 정정 ·
+          이동 · 실사)은 창고 · 플랜트를 알 필요가 없다.
+        -->
+        INSERT INTO tb_stock (location_seq, warehouse_seq, plant_seq, sku_seq, supplier_seq,
                               qty_on_hand, qty_allocated, qty_unsellable, created_by)
-        VALUES (#{locationSeq}, #{skuSeq}, #{vendorSeq},
-                #{qtyOnHand}, #{qtyAllocated}, #{qtyUnsellable}, #{createdBy})
+        SELECT l.location_seq, l.warehouse_seq, w.plant_seq, #{skuSeq}, #{supplierSeq},
+               #{qtyOnHand}, #{qtyAllocated}, #{qtyUnsellable}, #{createdBy}
+          FROM tb_location  l
+          JOIN tb_warehouse w ON w.warehouse_seq = l.warehouse_seq
+         WHERE l.location_seq = #{locationSeq}
         ON CONFLICT DO NOTHING
     </insert>
 

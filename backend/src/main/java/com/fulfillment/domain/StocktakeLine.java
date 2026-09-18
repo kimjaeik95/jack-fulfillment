@@ -39,7 +39,7 @@ public class StocktakeLine {
 	private Long locationSeq;
 	private Long skuSeq;
 	/** 거래처. 재고 키가 로케이션 × SKU × 거래처라 실사 라인도 같은 키를 따라간다. */
-	private Long vendorSeq;
+	private Long supplierSeq;
 	/** 장부의 재고 행. 무적재고면 비어 있다. */
 	private Long stockSeq;
 

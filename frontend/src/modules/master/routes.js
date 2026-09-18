@@ -91,16 +91,12 @@ export const routes = [
     meta: { title: '채널 SKU 매핑', perm: 'MST_CHANNEL_SKU' },
   },
   {
-    path: '/suppliers',
-    name: 'suppliers',
-    component: () => import('./views/SupplierView.vue'),
-    meta: { title: '공급처 관리', perm: 'MST_SUPPLIER' },
-  },
-  {
-    path: '/customers',
-    name: 'customers',
-    component: () => import('./views/CustomerView.vue'),
-    meta: { title: '고객·배송지 관리', perm: 'MST_CUSTOMER' },
+    // 공급처와 고객을 합쳤다(V20). 한 회사가 양쪽인 경우가 있어서다 —
+    // 임가공은 우리에게 옷을 대 주면서 우리 원단을 사 간다.
+    path: '/partners',
+    name: 'partners',
+    component: () => import('./views/PartnerView.vue'),
+    meta: { title: '거래처 관리', perm: 'MST_PARTNER' },
   },
   {
     // 저장은 공통코드와 같은 테이블이지만 화면과 권한은 다르다.

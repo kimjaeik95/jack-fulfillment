@@ -97,8 +97,8 @@
         pl.org_seq      AS org_seq,
         w.warehouse_id  AS warehouse_id,
         w.warehouse_name AS warehouse_name,
-        s.supplier_id   AS supplier_id,
-        s.supplier_name AS supplier_name,
+        s.partner_id   AS supplier_id,
+        s.partner_name AS supplier_name,
         /* 초과입고 허용 오차율. 공급처가 없으면(이동입고) 0 — 봐줄 근거가 없다. */
         COALESCE(s.over_receipt_rate, 0) AS over_receipt_rate,
         au.user_name    AS arrived_by_name,
@@ -111,7 +111,7 @@
         JOIN tb_plant     pl ON pl.plant_seq     = i.plant_seq
         JOIN tb_warehouse w  ON w.warehouse_seq  = i.warehouse_seq
         LEFT JOIN tb_purchase_order o ON o.order_seq    = i.order_seq
-        LEFT JOIN tb_supplier       s ON s.supplier_seq = i.supplier_seq
+        LEFT JOIN tb_partner        s ON s.partner_seq = i.supplier_seq
         LEFT JOIN tb_user          au ON au.user_id     = i.arrived_by
         LEFT JOIN tb_user          cu ON cu.user_id     = i.closed_by
         LEFT JOIN tb_user          ou ON ou.user_id     = i.over_approved_by
@@ -139,7 +139,7 @@
                 AND (i.inbound_no    ILIKE '%' || #{keyword} || '%'
                   OR i.remark        ILIKE '%' || #{keyword} || '%'
                   OR o.order_no      ILIKE '%' || #{keyword} || '%'
-                  OR s.supplier_name ILIKE '%' || #{keyword} || '%')
+                  OR s.partner_name ILIKE '%' || #{keyword} || '%')
             </if>
             <if test="plantId != null">
                 AND pl.plant_id = #{plantId}
@@ -148,7 +148,7 @@
                 AND w.warehouse_id = #{warehouseId}
             </if>
             <if test="supplierId != null">
-                AND s.supplier_id = #{supplierId}
+                AND s.partner_id = #{supplierId}
             </if>
             <if test="inboundType != null">
                 AND i.inbound_type = #{inboundType}

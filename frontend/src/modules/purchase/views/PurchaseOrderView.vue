@@ -18,7 +18,7 @@ import { codeOptions } from '@/api/codes.js'
 import * as orderApi from '@/api/purchaseOrder.js'
 import * as purchaseApi from '@/api/purchase.js'
 import * as stockApi from '@/api/stock.js'
-import * as supplierApi from '@/api/supplier.js'
+import * as partnerApi from '@/api/partner.js'
 import { useHierarchyStore } from '@/stores/hierarchy.js'
 import { useSessionStore } from '@/stores/session.js'
 import { useToastStore } from '@/stores/toast.js'
@@ -90,7 +90,7 @@ onMounted(async () => {
   await hierarchy.loadPlants(false)
   try {
     // 필터에서는 거래중지된 곳도 골라야 한다 — 예전 발주를 찾아야 하기 때문이다.
-    const data = await supplierApi.list({ useYn: 'Y', size: 0 })
+    const data = await partnerApi.suppliers({ useYn: 'Y', size: 0 })
     suppliers.value = data.rows
   } catch {
     suppliers.value = []
@@ -99,10 +99,10 @@ onMounted(async () => {
 })
 
 const supplierOptions = computed(() =>
-  suppliers.value.map((s) => ({ value: s.supplierId, label: s.supplierName })),
+  suppliers.value.map((s) => ({ value: s.partnerId, label: s.partnerName })),
 )
 const activeSupplierOptions = computed(() =>
-  activeSuppliers.value.map((s) => ({ value: s.supplierId, label: s.supplierName })),
+  activeSuppliers.value.map((s) => ({ value: s.partnerId, label: s.partnerName })),
 )
 
 const columns = [
@@ -148,7 +148,7 @@ const pickedIds = computed(() => lines.value.map((l) => l.sku.skuId))
  * 이 값을 쓴다 — 화면에는 무엇이 적용될지만 보여 준다.
  */
 const pickedSupplier = computed(() =>
-  suppliers.value.find((s) => s.supplierId === form.supplierId),
+  suppliers.value.find((s) => s.partnerId === form.supplierId),
 )
 const effectivePayTerm = computed(() => form.payTerm || pickedSupplier.value?.payTerm || '')
 

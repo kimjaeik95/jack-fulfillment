@@ -229,8 +229,8 @@
         pr.product_id   AS product_id,
         pr.product_name AS product_name,
         b.brand_name    AS brand_name,
-        sp.supplier_id   AS pref_supplier_id,
-        sp.supplier_name AS pref_supplier_name,
+        sp.partner_id   AS pref_supplier_id,
+        sp.partner_name AS pref_supplier_name,
         COALESCE((SELECT SUM(s.qty_available) FROM tb_stock s
                    WHERE s.sku_seq = l.sku_seq), 0) AS current_available
     </sql>
@@ -240,7 +240,7 @@
         JOIN tb_sku     k  ON k.sku_seq     = l.sku_seq
         JOIN tb_product pr ON pr.product_seq = k.product_seq
         LEFT JOIN tb_brand    b  ON b.brand_seq    = pr.brand_seq
-        LEFT JOIN tb_supplier sp ON sp.supplier_seq = l.pref_supplier_seq
+        LEFT JOIN tb_partner sp ON sp.partner_seq = l.pref_supplier_seq
     </sql>
 
     <select id="selectLines" resultMap="lineMap">

@@ -166,15 +166,15 @@ public class StockLedger {
 	 * (tb_doc_number)에서 쓴 것과 같은 방식이다.
 	 */
 	@Transactional(propagation = Propagation.MANDATORY)
-	public Stock findOrCreate(LoginUser actor, Long locationSeq, Long skuSeq, Long vendorSeq) {
-		Stock found = stockDao.selectByKey(locationSeq, skuSeq, vendorSeq);
+	public Stock findOrCreate(LoginUser actor, Long locationSeq, Long skuSeq, Long supplierSeq) {
+		Stock found = stockDao.selectByKey(locationSeq, skuSeq, supplierSeq);
 		if (found != null) {
 			return found;
 		}
 		stockDao.insertIfAbsent(Stock.builder()
 				.locationSeq(locationSeq)
 				.skuSeq(skuSeq)
-				.vendorSeq(vendorSeq)
+				.supplierSeq(supplierSeq)
 				.qtyOnHand(0)
 				.qtyAllocated(0)
 				.qtyUnsellable(0)
@@ -183,7 +183,7 @@ public class StockLedger {
 
 		// 넣었으면 그것이, 남이 먼저 넣었으면 남의 것이 나온다. 어느 쪽이든
 		// 수량은 0 이고 이력도 없으니 이어지는 apply 가 똑같이 동작한다.
-		Stock after = stockDao.selectByKey(locationSeq, skuSeq, vendorSeq);
+		Stock after = stockDao.selectByKey(locationSeq, skuSeq, supplierSeq);
 		if (after == null) {
 			throw new BusinessException(ErrorCode.INTERNAL_ERROR,
 					"재고 행을 만들지 못했습니다. (빈 %s · SKU %s)".formatted(locationSeq, skuSeq));

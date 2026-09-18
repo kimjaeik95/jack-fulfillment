@@ -10,11 +10,21 @@ import lombok.Setter;
 import java.time.LocalDateTime;
 
 /**
- * 고객 배송지. tb_customer_address
+ * 거래처 주소 — 물건을 보내고 받는 곳. tb_partner_address
  *
- * 고객 하나에 배송지 여럿. 판매오더(11차)가 배송지를 FK 로 가리킨다.
+ * 거래처 하나에 주소 여럿. 용도가 갈린다.
+ *   SHIP    배송지 — 고객에게 물건을 보낼 곳
+ *   RETURN  반품지 — 공급처로 반품을 보낼 곳
+ *   ETC     그 밖
  *
- * 고객당 기본 배송지는 하나다 (MST-010). DB 에 부분 유니크 인덱스로
+ * 공급처에도 필요하다. 반품을 보낼 곳이 사업장 주소와 다른 경우가 흔하다
+ * (본사는 서울, 공장은 지방).
+ *
+ * <b>사업장 주소(tb_partner.address)와는 다른 것이다.</b> 그쪽은 회사의
+ * 법적 주소라 하나뿐이고 세금계산서에 찍힌다. 여기 있는 것은 거래할 때
+ * 쓰는 곳이라 여럿이고 자주 바뀐다.
+ *
+ * 거래처당 기본 주소는 하나다 (MST-010). DB 에 부분 유니크 인덱스로
  * 걸려 있고, 서비스가 새 기본을 지정할 때 기존 것을 내린다.
  *
  * 만들 때는 빌더를 쓴다. setter 는 MyBatis 가 조회 결과를 담을 때 쓴다.
@@ -25,10 +35,12 @@ import java.time.LocalDateTime;
 // 빌더가 쓸 생성자다. 위치로 넘기는 실수를 막으려 패키지 밖으로는 열지 않는다.
 @AllArgsConstructor(access = AccessLevel.PACKAGE)
 @Builder
-public class CustomerAddress {
+public class PartnerAddress {
 
 	private Long addressSeq;
-	private Long customerSeq;
+	private Long partnerSeq;
+	/** 코드그룹 ADDR_TYPE — SHIP(배송지) · RETURN(반품지) · ETC */
+	private String addrType;
 	private String addressName;
 	private String receiverName;
 	private String phone;
@@ -47,8 +59,8 @@ public class CustomerAddress {
 	private LocalDateTime updatedAt;
 
 	/* 조회 전용 파생 컬럼 -------------------------------------------------- */
-	private String customerId;
-	private String customerName;
+	private String partnerId;
+	private String partnerName;
 
 	/** 주소 + 상세를 합친 한 줄. 송장과 목록이 함께 쓴다. */
 	public String fullAddress() {

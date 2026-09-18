@@ -289,7 +289,7 @@ public class CorrectService {
 		requireChanged(changed, correct, "승인");
 
 		for (InboundCorrectLine line : lines) {
-			applyLine(actor, correct, line);
+			applyLine(actor, correct, inbound, line);
 		}
 
 		// 발주 상태를 잔량에 맞춰 다시 판정한다. 정정으로 잔량이 되살아나면
@@ -319,10 +319,15 @@ public class CorrectService {
 	 * 재고를 먼저 건드린다. 모자라면 원장이 여기서 막아, 입고와 발주는 손도
 	 * 대기 전에 트랜잭션이 되돌아간다.
 	 */
-	private void applyLine(LoginUser actor, InboundCorrect correct, InboundCorrectLine line) {
+	private void applyLine(LoginUser actor, InboundCorrect correct, Inbound inbound,
+			InboundCorrectLine line) {
 		requireWithinPutaway(line, correct);
 
-		Stock stock = ledger.findOrCreate(actor, line.getLocationSeq(), line.getSkuSeq(), null);
+		// 공급처는 정정 대상 입고의 것을 따라간다 (V21). 입고완료가 만든 재고
+		// 행이 그 공급처를 달고 있으므로, 여기서 비워 넘기면 같은 자리 · 같은
+		// SKU 에 공급처 없는 행이 하나 더 생기고 정정이 엉뚱한 행에 얹힌다.
+		Stock stock = ledger.findOrCreate(actor, line.getLocationSeq(), line.getSkuSeq(),
+				inbound.getSupplierSeq());
 		StockHistory history = ledger.apply(actor, stock.getStockSeq(), new Movement(
 				MOVE_CORRECT, StockLedger.ON_HAND, line.getQtyDelta(),
 				line.getReasonCode() != null ? line.getReasonCode() : correct.getReasonCode(),

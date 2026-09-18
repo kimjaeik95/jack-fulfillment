@@ -37,7 +37,7 @@ public class Stock {
 	private Long locationSeq;
 	private Long skuSeq;
 	/** 거래처. 3PL 처럼 화주별로 섞을 수 없는 경우에 쓴다. 자사 물류는 대개 비어 있다. */
-	private Long vendorSeq;
+	private Long supplierSeq;
 
 	/** 실제로 창고에 있는 수량. 출고 확정 시점에 줄어든다 (P-01). */
 	private Integer qtyOnHand;
@@ -69,8 +69,8 @@ public class Stock {
 	private String productId;
 	private String productName;
 	private String brandName;
-	private String vendorId;
-	private String vendorName;
+	private String supplierId;
+	private String supplierName;
 
 	/** 사람이 읽는 재고주소 — PL001-GD-1A-01-01 */
 	public String locationFullCode() {

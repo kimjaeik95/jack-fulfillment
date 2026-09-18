@@ -75,8 +75,8 @@
         o.order_status, o.order_date, o.due_date, o.pay_term, o.remark,
         o.issued_by, o.issued_at, o.canceled_by, o.canceled_at, o.cancel_reason,
         o.created_by, o.created_at, o.updated_by, o.updated_at,
-        s.supplier_id       AS supplier_id,
-        s.supplier_name     AS supplier_name,
+        s.partner_id       AS supplier_id,
+        s.partner_name     AS supplier_name,
         s.status            AS supplier_status,
         s.over_receipt_rate AS over_receipt_rate,
         pl.plant_id         AS plant_id,
@@ -88,7 +88,7 @@
 
     <sql id="orderFrom">
         FROM tb_purchase_order o
-        JOIN tb_supplier         s  ON s.supplier_seq = o.supplier_seq
+        JOIN tb_partner          s  ON s.partner_seq = o.supplier_seq
         JOIN tb_plant            pl ON pl.plant_seq   = o.plant_seq
         LEFT JOIN tb_purchase_request r  ON r.request_seq = o.request_seq
         LEFT JOIN tb_user             iu ON iu.user_id    = o.issued_by
@@ -113,13 +113,13 @@
             <if test="keyword != null">
                 AND (o.order_no      ILIKE '%' || #{keyword} || '%'
                   OR o.remark        ILIKE '%' || #{keyword} || '%'
-                  OR s.supplier_name ILIKE '%' || #{keyword} || '%')
+                  OR s.partner_name ILIKE '%' || #{keyword} || '%')
             </if>
             <if test="plantId != null">
                 AND pl.plant_id = #{plantId}
             </if>
             <if test="supplierId != null">
-                AND s.supplier_id = #{supplierId}
+                AND s.partner_id = #{supplierId}
             </if>
             <if test="orderStatus != null">
                 AND o.order_status = #{orderStatus}

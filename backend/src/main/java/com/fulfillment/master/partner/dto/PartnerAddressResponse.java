@@ -1,6 +1,6 @@
-package com.fulfillment.master.customer.dto;
+package com.fulfillment.master.partner.dto;
 
-import com.fulfillment.domain.CustomerAddress;
+import com.fulfillment.domain.PartnerAddress;
 
 import java.time.LocalDateTime;
 
@@ -13,10 +13,10 @@ import java.time.LocalDateTime;
  * 경로에 순번을 쓰므로 addressSeq 를 함께 준다 — 배송지에는 사람이 읽는
  * 업무코드가 없다.
  */
-public record CustomerAddressResponse(
+public record PartnerAddressResponse(
 		Long addressSeq,
-		String customerId,
-		String customerName,
+		String partnerId,
+		String partnerName,
 		String addressName,
 		String receiverName,
 		String phone,
@@ -34,9 +34,9 @@ public record CustomerAddressResponse(
 		LocalDateTime updatedAt
 ) {
 
-	public static CustomerAddressResponse of(CustomerAddress a) {
-		return new CustomerAddressResponse(
-				a.getAddressSeq(), a.getCustomerId(), a.getCustomerName(),
+	public static PartnerAddressResponse of(PartnerAddress a) {
+		return new PartnerAddressResponse(
+				a.getAddressSeq(), a.getPartnerId(), a.getPartnerName(),
 				a.getAddressName(), a.getReceiverName(), a.getPhone(),
 				a.getZipCode(), a.getAddress(), a.getAddressDetail(), a.fullAddress(),
 				a.getDeliveryMemo(), a.getDefaultYn(), a.getSortOrder(), a.getUseYn(),

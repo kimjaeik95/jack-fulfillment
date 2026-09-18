@@ -1,7 +1,7 @@
-package com.fulfillment.master.customer.dto;
+package com.fulfillment.master.partner.dto;
 
 import com.fulfillment.common.util.Texts;
-import com.fulfillment.domain.CustomerAddress;
+import com.fulfillment.domain.PartnerAddress;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.PositiveOrZero;
@@ -14,7 +14,7 @@ import jakarta.validation.constraints.Size;
  * 것을 내린다 — 사용자에게 "먼저 해제하세요" 를 요구하지 않는다. 그건
  * 사람이 두 번 눌러야 하는 일을 시스템이 떠넘기는 것이다.
  */
-public record CustomerAddressSaveRequest(
+public record PartnerAddressSaveRequest(
 
 		@NotBlank(message = "배송지명은 필수입니다.")
 		@Size(max = 100, message = "배송지명은 100자 이하여야 합니다.")
@@ -52,7 +52,7 @@ public record CustomerAddressSaveRequest(
 ) {
 
 	/** 빈 문자열을 null 로 맞춰 둔다. 이유는 {@link Texts} 참고. */
-	public CustomerAddressSaveRequest {
+	public PartnerAddressSaveRequest {
 		addressName = Texts.trimToNull(addressName);
 		receiverName = Texts.trimToNull(receiverName);
 		phone = Texts.trimToNull(phone);
@@ -66,29 +66,29 @@ public record CustomerAddressSaveRequest(
 	}
 
 	/**
-	 * @param customerSeq 검증을 마친 고객의 순번
+	 * @param partnerSeq 검증을 마친 고객의 순번
 	 * @param asDefault   기본배송지로 저장할지. 서비스가 정한다 — 첫 배송지는
 	 *                    요청과 무관하게 기본이 된다.
 	 */
-	public CustomerAddress toNewAddress(Long customerSeq, boolean asDefault, String actorId) {
+	public PartnerAddress toNewAddress(Long partnerSeq, boolean asDefault, String actorId) {
 		return editable(asDefault)
-				.customerSeq(customerSeq)
+				.partnerSeq(partnerSeq)
 				.createdBy(actorId)
 				.build();
 	}
 
-	public CustomerAddress toUpdatedAddress(Long addressSeq, Long customerSeq,
+	public PartnerAddress toUpdatedAddress(Long addressSeq, Long partnerSeq,
 			boolean asDefault, String actorId) {
 		return editable(asDefault)
 				.addressSeq(addressSeq)
-				.customerSeq(customerSeq)
+				.partnerSeq(partnerSeq)
 				.updatedBy(actorId)
 				.build();
 	}
 
 	/** 등록 · 수정이 공통으로 채우는 값 */
-	private CustomerAddress.CustomerAddressBuilder editable(boolean asDefault) {
-		return CustomerAddress.builder()
+	private PartnerAddress.PartnerAddressBuilder editable(boolean asDefault) {
+		return PartnerAddress.builder()
 				.addressName(addressName)
 				.receiverName(receiverName)
 				.phone(phone)

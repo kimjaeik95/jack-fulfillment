@@ -17,7 +17,7 @@
  */
 import { computed, onMounted, reactive, ref } from 'vue'
 import * as orderApi from '@/api/purchaseOrder.js'
-import * as supplierApi from '@/api/supplier.js'
+import * as partnerApi from '@/api/partner.js'
 import { useHierarchyStore } from '@/stores/hierarchy.js'
 import { useSessionStore } from '@/stores/session.js'
 import DataTable from '@/components/DataTable.vue'
@@ -78,7 +78,7 @@ const suppliers = ref([])
 onMounted(async () => {
   await hierarchy.loadPlants(false)
   try {
-    const data = await supplierApi.list({ useYn: 'Y', size: 0 })
+    const data = await partnerApi.suppliers({ useYn: 'Y', size: 0 })
     suppliers.value = data.rows
   } catch {
     suppliers.value = []
@@ -87,7 +87,7 @@ onMounted(async () => {
 })
 
 const supplierOptions = computed(() =>
-  suppliers.value.map((s) => ({ value: s.supplierId, label: s.supplierName })),
+  suppliers.value.map((s) => ({ value: s.partnerId, label: s.partnerName })),
 )
 
 /* 지금 화면에 뜬 것들의 요약. 목록을 세지 않고도 규모가 보여야 한다. */

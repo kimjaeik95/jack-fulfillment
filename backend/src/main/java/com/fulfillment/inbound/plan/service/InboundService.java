@@ -15,7 +15,7 @@ import com.fulfillment.domain.InboundLine;
 import com.fulfillment.domain.Plant;
 import com.fulfillment.domain.PurchaseOrder;
 import com.fulfillment.domain.Sku;
-import com.fulfillment.domain.Supplier;
+import com.fulfillment.domain.Partner;
 import com.fulfillment.domain.Warehouse;
 import com.fulfillment.inbound.plan.dao.InboundDao;
 import com.fulfillment.inbound.plan.dto.ArriveRequest;
@@ -27,7 +27,7 @@ import com.fulfillment.inbound.plan.dto.InspectResponse;
 import com.fulfillment.inbound.plan.dto.PutawayResponse;
 import com.fulfillment.master.plant.dao.PlantDao;
 import com.fulfillment.master.sku.dao.SkuDao;
-import com.fulfillment.master.supplier.dao.SupplierDao;
+import com.fulfillment.master.partner.dao.PartnerDao;
 import com.fulfillment.master.warehouse.dao.WarehouseDao;
 import com.fulfillment.purchase.order.dao.OrderDao;
 import org.springframework.stereotype.Service;
@@ -78,7 +78,7 @@ public class InboundService {
 	private final OrderDao orderDao;
 	private final WarehouseDao warehouseDao;
 	private final PlantDao plantDao;
-	private final SupplierDao supplierDao;
+	private final PartnerDao partnerDao;
 	private final SkuDao skuDao;
 	private final CodeValues codeValues;
 	private final DocNumbers docNumbers;
@@ -87,14 +87,14 @@ public class InboundService {
 	private final AuditRecorder auditRecorder;
 
 	public InboundService(InboundDao inboundDao, OrderDao orderDao, WarehouseDao warehouseDao,
-			PlantDao plantDao, SupplierDao supplierDao, SkuDao skuDao, CodeValues codeValues,
+			PlantDao plantDao, PartnerDao partnerDao, SkuDao skuDao, CodeValues codeValues,
 			DocNumbers docNumbers, PermissionChecker permissionChecker,
 			DataScopeResolver dataScopes, AuditRecorder auditRecorder) {
 		this.inboundDao = inboundDao;
 		this.orderDao = orderDao;
 		this.warehouseDao = warehouseDao;
 		this.plantDao = plantDao;
-		this.supplierDao = supplierDao;
+		this.partnerDao = partnerDao;
 		this.skuDao = skuDao;
 		this.codeValues = codeValues;
 		this.docNumbers = docNumbers;
@@ -195,7 +195,7 @@ public class InboundService {
 				.orderSeq(ctx.order() == null ? null : ctx.order().getOrderSeq())
 				.plantSeq(ctx.plant().getPlantSeq())
 				.warehouseSeq(ctx.warehouse().getWarehouseSeq())
-				.supplierSeq(ctx.supplier() == null ? null : ctx.supplier().getSupplierSeq())
+				.supplierSeq(ctx.supplier() == null ? null : ctx.supplier().getPartnerSeq())
 				.plannedDate(request.plannedDate())
 				.inboundStatus(Inbound.PLANNED)
 				.remark(request.remark())
@@ -249,7 +249,7 @@ public class InboundService {
 				.orderSeq(ctx.order() == null ? null : ctx.order().getOrderSeq())
 				.plantSeq(ctx.plant().getPlantSeq())
 				.warehouseSeq(ctx.warehouse().getWarehouseSeq())
-				.supplierSeq(ctx.supplier() == null ? null : ctx.supplier().getSupplierSeq())
+				.supplierSeq(ctx.supplier() == null ? null : ctx.supplier().getPartnerSeq())
 				.plannedDate(request.plannedDate())
 				.remark(request.remark())
 				.updatedBy(actorId(actor))
@@ -504,7 +504,7 @@ public class InboundService {
 							+ "물건이면 반품입고 · 이동입고로 고르세요."));
 		}
 
-		Supplier supplier = null;
+		Partner supplier = null;
 		if (request.supplierId() != null) {
 			supplier = mustFindSupplier(request.supplierId());
 		} else if (order != null) {
@@ -600,8 +600,8 @@ public class InboundService {
 		return warehouse;
 	}
 
-	private Supplier mustFindSupplier(String supplierId) {
-		Supplier supplier = supplierDao.selectBySupplierId(supplierId);
+	private Partner mustFindSupplier(String supplierId) {
+		Partner supplier = partnerDao.selectByPartnerId(supplierId);
 		if (supplier == null) {
 			throw new BusinessException(ErrorCode.NOT_FOUND,
 					"공급처를 찾을 수 없습니다. (%s)".formatted(supplierId));
@@ -633,7 +633,7 @@ public class InboundService {
 
 	/** 등록에 필요한 것들을 한 번에 찾아 둔다 */
 	private record Context(Plant plant, Warehouse warehouse, PurchaseOrder order,
-			Supplier supplier) {
+			Partner supplier) {
 	}
 
 	/** 결과와 경고. 막지 않고 알린다. */

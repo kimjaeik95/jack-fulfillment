@@ -16,7 +16,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { codeOptions } from '@/api/codes.js'
 import * as purchaseApi from '@/api/purchase.js'
 import * as stockApi from '@/api/stock.js'
-import * as supplierApi from '@/api/supplier.js'
+import * as partnerApi from '@/api/partner.js'
 import { useHierarchyStore } from '@/stores/hierarchy.js'
 import { useSessionStore } from '@/stores/session.js'
 import { useToastStore } from '@/stores/toast.js'
@@ -85,7 +85,7 @@ onMounted(async () => {
   await hierarchy.loadPlants(false)
   try {
     // 거래중인 곳만. 거래중지된 공급처를 희망으로 적으면 발주가 안 나간다.
-    const data = await supplierApi.list({ status: 'ACTIVE', useYn: 'Y', size: 0 })
+    const data = await partnerApi.suppliers({ status: 'ACTIVE', useYn: 'Y', size: 0 })
     suppliers.value = data.rows
   } catch {
     // 공급처를 못 읽어도 요청은 올릴 수 있다 — 희망 공급처는 참고값이다
@@ -95,7 +95,7 @@ onMounted(async () => {
 })
 
 const supplierOptions = computed(() =>
-  suppliers.value.map((s) => ({ value: s.supplierId, label: s.supplierName })),
+  suppliers.value.map((s) => ({ value: s.partnerId, label: s.partnerName })),
 )
 
 const columns = [

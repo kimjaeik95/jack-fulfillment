@@ -39,7 +39,7 @@
         <result property="takeSeq"      column="take_seq"/>
         <result property="locationSeq"  column="location_seq"/>
         <result property="skuSeq"       column="sku_seq"/>
-        <result property="vendorSeq"    column="vendor_seq"/>
+        <result property="supplierSeq"    column="supplier_seq"/>
         <result property="stockSeq"     column="stock_seq"/>
         <result property="qtyBook"      column="qty_book"/>
         <result property="qtyCounted"   column="qty_counted"/>
@@ -256,11 +256,11 @@
     -->
     <insert id="insertTargets">
         INSERT INTO tb_stocktake_line
-            (take_seq, location_seq, sku_seq, vendor_seq, stock_seq, qty_book)
+            (take_seq, location_seq, sku_seq, supplier_seq, stock_seq, qty_book)
         SELECT #{takeSeq},
                s.location_seq,
                s.sku_seq,
-               s.vendor_seq,
+               s.supplier_seq,
                s.stock_seq,
                s.qty_on_hand
           FROM tb_stock     s
@@ -310,8 +310,8 @@
     -->
     <insert id="insertTargetsByStock">
         INSERT INTO tb_stocktake_line
-            (take_seq, location_seq, sku_seq, vendor_seq, stock_seq, qty_book)
-        SELECT #{takeSeq}, s.location_seq, s.sku_seq, s.vendor_seq, s.stock_seq, s.qty_on_hand
+            (take_seq, location_seq, sku_seq, supplier_seq, stock_seq, qty_book)
+        SELECT #{takeSeq}, s.location_seq, s.sku_seq, s.supplier_seq, s.stock_seq, s.qty_on_hand
           FROM tb_stock    s
           JOIN tb_location l ON l.location_seq = s.location_seq
          WHERE l.warehouse_seq = #{warehouseSeq}
@@ -324,8 +324,8 @@
                 WHERE x.take_seq     = #{takeSeq}
                   AND x.location_seq = s.location_seq
                   AND x.sku_seq      = s.sku_seq
-                  AND (x.vendor_seq  = s.vendor_seq
-                    OR (x.vendor_seq IS NULL AND s.vendor_seq IS NULL)))
+                  AND (x.supplier_seq  = s.supplier_seq
+                    OR (x.supplier_seq IS NULL AND s.supplier_seq IS NULL)))
     </insert>
 
     <delete id="deleteLine">
@@ -340,9 +340,9 @@
     -->
     <insert id="insertExtraLine">
         INSERT INTO tb_stocktake_line
-            (take_seq, location_seq, sku_seq, vendor_seq, stock_seq, qty_book)
+            (take_seq, location_seq, sku_seq, supplier_seq, stock_seq, qty_book)
         VALUES
-            (#{takeSeq}, #{locationSeq}, #{skuSeq}, #{vendorSeq}, #{stockSeq}, #{qtyBook})
+            (#{takeSeq}, #{locationSeq}, #{skuSeq}, #{supplierSeq}, #{stockSeq}, #{qtyBook})
     </insert>
 
     <select id="countLineByKey" resultType="int">
@@ -373,7 +373,7 @@
       무적재고(장부에 없던 물건)는 stock_seq 가 비어 있어 LEFT JOIN 이다.
     -->
     <select id="selectLines" resultMap="takeLineMap">
-        SELECT tl.line_seq, tl.take_seq, tl.location_seq, tl.sku_seq, tl.vendor_seq, tl.stock_seq,
+        SELECT tl.line_seq, tl.take_seq, tl.location_seq, tl.sku_seq, tl.supplier_seq, tl.stock_seq,
                tl.qty_book, tl.qty_counted, tl.counted_by, tl.counted_at,
                tl.qty_recount, tl.recount_by, tl.recount_at,
                tl.qty_final, tl.qty_diff, tl.line_status,
@@ -409,7 +409,7 @@
     </select>
 
     <select id="selectLine" resultMap="takeLineMap">
-        SELECT tl.line_seq, tl.take_seq, tl.location_seq, tl.sku_seq, tl.vendor_seq, tl.stock_seq,
+        SELECT tl.line_seq, tl.take_seq, tl.location_seq, tl.sku_seq, tl.supplier_seq, tl.stock_seq,
                tl.qty_book, tl.qty_counted, tl.counted_by, tl.counted_at,
                tl.qty_recount, tl.recount_by, tl.recount_at,
                tl.qty_final, tl.qty_diff, tl.line_status,

@@ -16,10 +16,10 @@ import com.fulfillment.domain.PurchaseOrderLine;
 import com.fulfillment.domain.PurchaseRequest;
 import com.fulfillment.domain.PurchaseRequestLine;
 import com.fulfillment.domain.Sku;
-import com.fulfillment.domain.Supplier;
+import com.fulfillment.domain.Partner;
 import com.fulfillment.master.plant.dao.PlantDao;
 import com.fulfillment.master.sku.dao.SkuDao;
-import com.fulfillment.master.supplier.dao.SupplierDao;
+import com.fulfillment.master.partner.dao.PartnerDao;
 import com.fulfillment.purchase.order.dao.OrderDao;
 import com.fulfillment.purchase.order.dto.OrderCancelRequest;
 import com.fulfillment.purchase.order.dto.OrderLineResponse;
@@ -74,7 +74,7 @@ public class OrderService {
 
 	private final OrderDao orderDao;
 	private final RequestDao requestDao;
-	private final SupplierDao supplierDao;
+	private final PartnerDao partnerDao;
 	private final PlantDao plantDao;
 	private final SkuDao skuDao;
 	private final CodeValues codeValues;
@@ -83,13 +83,13 @@ public class OrderService {
 	private final DataScopeResolver dataScopes;
 	private final AuditRecorder auditRecorder;
 
-	public OrderService(OrderDao orderDao, RequestDao requestDao, SupplierDao supplierDao,
+	public OrderService(OrderDao orderDao, RequestDao requestDao, PartnerDao partnerDao,
 			PlantDao plantDao, SkuDao skuDao, CodeValues codeValues, DocNumbers docNumbers,
 			PermissionChecker permissionChecker, DataScopeResolver dataScopes,
 			AuditRecorder auditRecorder) {
 		this.orderDao = orderDao;
 		this.requestDao = requestDao;
-		this.supplierDao = supplierDao;
+		this.partnerDao = partnerDao;
 		this.plantDao = plantDao;
 		this.skuDao = skuDao;
 		this.codeValues = codeValues;
@@ -137,7 +137,7 @@ public class OrderService {
 	public Result create(LoginUser actor, OrderSaveRequest request) {
 		permissionChecker.require(actor, PERM, "C");
 
-		Supplier supplier = mustFindSupplier(request.supplierId());
+		Partner supplier = mustFindSupplier(request.supplierId());
 		Plant plant = mustFindPlant(request.plantId());
 		requireWriteScope(actor, plant);
 		PurchaseRequest source = resolveRequest(request.requestNo());
@@ -146,7 +146,7 @@ public class OrderService {
 
 		PurchaseOrder order = PurchaseOrder.builder()
 				.orderNo(docNumbers.next(DocNumbers.PURCHASE_ORDER))
-				.supplierSeq(supplier.getSupplierSeq())
+				.supplierSeq(supplier.getPartnerSeq())
 				.plantSeq(plant.getPlantSeq())
 				.requestSeq(source == null ? null : source.getRequestSeq())
 				.orderStatus(PurchaseOrder.DRAFT)
@@ -162,7 +162,7 @@ public class OrderService {
 		PurchaseOrder saved = mustFind(order.getOrderSeq());
 		auditRecorder.recordAction(actor, "CREATE", TABLE, saved.getOrderNo(),
 				"구매오더 작성 %d 줄 (%s, 납기 %s)".formatted(
-						request.lines().size(), supplier.getSupplierName(), request.dueDate()));
+						request.lines().size(), supplier.getPartnerName(), request.dueDate()));
 
 		return new Result(OrderResponse.of(saved, linesOf(saved.getOrderSeq())),
 				joinWarnings(warnOnSupplier(supplier), overWarning(over)));
@@ -176,7 +176,7 @@ public class OrderService {
 		PurchaseOrder before = mustFindInScope(actor, orderSeq, PERM, "U");
 		requireDraft(before, "수정");
 
-		Supplier supplier = mustFindSupplier(request.supplierId());
+		Partner supplier = mustFindSupplier(request.supplierId());
 		Plant plant = mustFindPlant(request.plantId());
 		requireWriteScope(actor, plant);
 		PurchaseRequest source = resolveRequest(request.requestNo());
@@ -185,7 +185,7 @@ public class OrderService {
 
 		orderDao.update(PurchaseOrder.builder()
 				.orderSeq(orderSeq)
-				.supplierSeq(supplier.getSupplierSeq())
+				.supplierSeq(supplier.getPartnerSeq())
 				.plantSeq(plant.getPlantSeq())
 				.requestSeq(source == null ? null : source.getRequestSeq())
 				.dueDate(request.dueDate())
@@ -373,13 +373,13 @@ public class OrderService {
 	 * "결제조건은 필수입니다" 만 나오면 화면에는 그 입력칸이 없어
 	 * 무엇을 하라는 것인지 알 수 없다.
 	 */
-	private String resolvePayTerm(String requested, Supplier supplier) {
+	private String resolvePayTerm(String requested, Partner supplier) {
 		String payTerm = requested != null ? requested : supplier.getPayTerm();
 		if (payTerm == null || payTerm.isBlank()) {
 			throw new BusinessException(ErrorCode.INVALID_INPUT,
 					("결제조건을 정할 수 없습니다. 공급처(%s)에 기본 결제조건이 없으니 "
 							+ "발주에서 직접 고르거나, 공급처 기준정보에 결제조건을 "
-							+ "먼저 등록하세요.").formatted(supplier.getSupplierName()));
+							+ "먼저 등록하세요.").formatted(supplier.getPartnerName()));
 		}
 		codeValues.require("PAY_TERM", payTerm, "결제조건");
 		return payTerm;
@@ -472,12 +472,12 @@ public class OrderService {
 	}
 
 	/** 거래중이 아닌 공급처는 만들 때 알리고, 낼 때 막는다 (MST-010) */
-	private static String warnOnSupplier(Supplier supplier) {
+	private static String warnOnSupplier(Partner supplier) {
 		if ("ACTIVE".equals(supplier.getStatus())) {
 			return null;
 		}
 		return ("%s 은(는) 거래중이 아닙니다 (%s). 작성은 되지만 이대로는 발주할 수 "
-				+ "없습니다.").formatted(supplier.getSupplierName(), supplier.getStatus());
+				+ "없습니다.").formatted(supplier.getPartnerName(), supplier.getStatus());
 	}
 
 	/** 이미 지난 납기로 발주하는 경우 */
@@ -533,8 +533,8 @@ public class OrderService {
 		return order;
 	}
 
-	private Supplier mustFindSupplier(String supplierId) {
-		Supplier supplier = supplierDao.selectBySupplierId(supplierId);
+	private Partner mustFindSupplier(String supplierId) {
+		Partner supplier = partnerDao.selectByPartnerId(supplierId);
 		if (supplier == null) {
 			throw new BusinessException(ErrorCode.NOT_FOUND,
 					"공급처를 찾을 수 없습니다. (%s)".formatted(supplierId));

@@ -181,7 +181,7 @@ public class StockMoveService {
 
 		// 도착지 재고 행. 없으면 0 으로 만든다 — 수량은 이력과 함께 올린다.
 		Stock dest = ledger.findOrCreate(actor, to.getLocationSeq(),
-				from.getSkuSeq(), from.getVendorSeq());
+				from.getSkuSeq(), from.getSupplierSeq());
 		String refNo = docNumbers.next(DocNumbers.MOVE);
 		String remark = request.remark();
 		int lines = 0;

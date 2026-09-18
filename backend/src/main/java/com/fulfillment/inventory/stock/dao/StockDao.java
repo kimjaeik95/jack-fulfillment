@@ -69,7 +69,7 @@ public interface StockDao {
 	/** 로케이션 × SKU × 거래처로 찾는다. 이동 도착지와 실사의 무적재고가 쓴다. */
 	Stock selectByKey(@Param("locationSeq") Long locationSeq,
 			@Param("skuSeq") Long skuSeq,
-			@Param("vendorSeq") Long vendorSeq);
+			@Param("supplierSeq") Long supplierSeq);
 
 	/**
 	 * 수량 0 인 재고 행을 만든다. 수량은 이력과 함께 올라간다.

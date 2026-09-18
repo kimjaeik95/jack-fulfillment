@@ -2,9 +2,12 @@
 /**
  * 재고 현황 · 상세 (INV-PG-001, INV-PG-002).
  *
- * 재고 한 줄은 '로케이션 × SKU × 거래처' 다. 같은 SKU 라도 빈이 다르면 다른
- * 줄이고, 위탁이면 거래처까지 갈라진다 — 남의 물건과 우리 물건을 한 줄에
- * 섞으면 정산이 안 된다.
+ * 재고 한 줄은 '빈 × SKU × 공급처' 다. 같은 SKU 라도 빈이 다르면 다른 줄이고,
+ * 같은 빈에 있어도 공급처가 다르면 갈라진다 — 불량이 터졌을 때 어느 공급처
+ * 물량인지 가려야 하고, 정산도 그 단위로 하기 때문이다.
+ *
+ * 공급처가 비는 경우가 있다. 이동입고처럼 출처가 없는 경우다 — 그때는
+ * '출처 없음' 으로 둔다. 모르는 것과 아무 공급처나 적어 두는 것은 다르다.
  *
  * 수량이 넷이다. 그중 하나만 사람이 못 고친다.
  *   보유      창고에 실제로 있는 수량
@@ -56,7 +59,7 @@ const filters = reactive({
   locationId: '',
   skuId: route.query.skuId ?? '',
   productId: '',
-  vendorId: '',
+  supplierId: '',
   onHandOnly: '',
   lockedOnly: '',
   unsellableOnly: '',
@@ -89,7 +92,7 @@ watch(quick, (key) => {
 function resetFilters() {
   Object.assign(filters, {
     keyword: '', plantId: '', warehouseId: '', warehouseType: '', locationId: '',
-    skuId: '', productId: '', vendorId: '',
+    skuId: '', productId: '', supplierId: '',
     onHandOnly: '', lockedOnly: '', unsellableOnly: '', neverCountedOnly: '',
   })
   quick.value = ''
@@ -152,7 +155,7 @@ const columns = [
   { key: 'locationFullCode', label: '재고주소', width: '180px', cls: 'code' },
   { key: 'skuId', label: 'SKU', width: '165px', cls: 'code' },
   { key: 'productName', label: '제품', width: '180px' },
-  { key: 'vendorName', label: '거래처', width: '110px' },
+  { key: 'supplierName', label: '공급처', width: '110px' },
   { key: 'qtyOnHand', label: '보유', width: '82px', align: 'right' },
   { key: 'qtyAllocated', label: '할당', width: '82px', align: 'right' },
   { key: 'qtyUnsellable', label: '판매불가', width: '88px', align: 'right' },
@@ -202,7 +205,7 @@ const lockedCount = computed(() => rows.value.filter((r) => r.locked).length)
       <div>
         <h1 class="page-title">재고 현황</h1>
         <p class="page-desc">
-          로케이션 · SKU · 거래처별 보유 수량입니다.
+          빈 · SKU · 공급처별 보유 수량입니다.
           <strong>판매가능 = 보유 − 할당 − 판매불가</strong> 이며 이 값은 서버가 계산합니다.
           재고를 이 화면에서 직접 고칠 수는 없습니다 — 수량은 입고 · 출고 · 조정 · 실사의
           결과로만 바뀝니다.
@@ -296,10 +299,10 @@ const lockedCount = computed(() => rows.value.filter((r) => r.locked).length)
           @enter="search()"
         />
         <FormField
-          v-model="filters.vendorId"
-          label="거래처"
+          v-model="filters.supplierId"
+          label="공급처"
           mono
-          placeholder="위탁 재고만"
+          placeholder="SUP-001"
           @enter="search()"
         />
         <div class="toolbar-actions">
@@ -360,9 +363,9 @@ const lockedCount = computed(() => rows.value.filter((r) => r.locked).length)
           <div v-if="row.brandName" class="small dim">{{ row.brandName }}</div>
         </template>
 
-        <template #cell-vendorName="{ row, value }">
+        <template #cell-supplierName="{ row, value }">
           <span v-if="value">{{ value }}</span>
-          <span v-else class="dim" title="자사 재고입니다">자사</span>
+          <span v-else class="dim" title="이동입고 등 출처가 없는 재고입니다">-</span>
         </template>
 
         <template #cell-qtyOnHand="{ value }">{{ num(value) }}</template>
@@ -471,10 +474,10 @@ const lockedCount = computed(() => rows.value.filter((r) => r.locked).length)
         </div>
         <div><span class="dt">브랜드</span><span class="dd">{{ picked.brandName ?? '-' }}</span></div>
         <div>
-          <span class="dt">거래처</span>
+          <span class="dt">공급처</span>
           <span class="dd">
-            <template v-if="picked.vendorId">{{ picked.vendorName }} ({{ picked.vendorId }})</template>
-            <span v-else class="dim">자사 재고</span>
+            <template v-if="picked.supplierId">{{ picked.supplierName }} ({{ picked.supplierId }})</template>
+            <span v-else class="dim">출처 없음 (이동입고 등)</span>
           </span>
         </div>
         <div>
