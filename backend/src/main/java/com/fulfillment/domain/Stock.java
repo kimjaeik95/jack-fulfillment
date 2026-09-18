@@ -34,9 +34,18 @@ import java.time.LocalDateTime;
 public class Stock {
 
 	private Long stockSeq;
+
+	/* 재고주소 5축 — 플랜트 → 창고 → 빈 → SKU → 공급처 (V23) ------------- */
+
+	/** 플랜트 · 창고는 빈에서 유도되지만 거를 때 쓰려고 함께 둔다 (V22). */
+	private Long plantSeq;
+	private Long warehouseSeq;
 	private Long locationSeq;
 	private Long skuSeq;
-	/** 거래처. 3PL 처럼 화주별로 섞을 수 없는 경우에 쓴다. 자사 물류는 대개 비어 있다. */
+	/**
+	 * 이 재고가 어느 공급처에서 왔나 (V21). 같은 빈 · 같은 SKU 라도 공급처가
+	 * 다르면 행이 갈라진다. 이동입고처럼 출처가 없으면 비어 있다.
+	 */
 	private Long supplierSeq;
 
 	/** 실제로 창고에 있는 수량. 출고 확정 시점에 줄어든다 (P-01). */

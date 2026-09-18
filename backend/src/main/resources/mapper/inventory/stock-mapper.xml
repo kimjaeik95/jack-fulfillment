@@ -6,9 +6,12 @@
 
     <resultMap id="stockMap" type="com.fulfillment.domain.Stock">
         <id     property="stockSeq"      column="stock_seq"/>
+        <!-- 재고주소 5축 — 플랜트 → 창고 → 빈 → SKU → 공급처 (V23) -->
+        <result property="plantSeq"      column="plant_seq"/>
+        <result property="warehouseSeq"  column="warehouse_seq"/>
         <result property="locationSeq"   column="location_seq"/>
         <result property="skuSeq"        column="sku_seq"/>
-        <result property="supplierSeq"     column="supplier_seq"/>
+        <result property="supplierSeq"   column="supplier_seq"/>
         <result property="qtyOnHand"     column="qty_on_hand"/>
         <result property="qtyAllocated"  column="qty_allocated"/>
         <result property="qtyUnsellable" column="qty_unsellable"/>
@@ -107,7 +110,8 @@
     </sql>
 
     <sql id="stockColumns">
-        s.stock_seq, s.location_seq, s.sku_seq, s.supplier_seq,
+        s.stock_seq,
+        s.plant_seq, s.warehouse_seq, s.location_seq, s.sku_seq, s.supplier_seq,
         s.qty_on_hand, s.qty_allocated, s.qty_unsellable, s.qty_available,
         s.last_counted_at, s.created_by, s.created_at, s.updated_by, s.updated_at,
         l.location_id   AS location_id,
