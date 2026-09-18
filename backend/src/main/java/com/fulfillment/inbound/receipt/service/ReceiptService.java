@@ -384,18 +384,20 @@ public class ReceiptService {
 		int applied = 0;
 		for (InboundPutaway p : putaways) {
 			/*
-			 * 공급처를 재고에 새긴다 — 이 물건이 어디서 왔는지다 (V21).
+			 * 공급처는 비워 둔다.
 			 *
-			 * 같은 빈에 같은 SKU 라도 공급처가 다르면 재고 행이 갈라진다.
-			 * 합쳐 두면 불량이 터졌을 때 어느 공급처 물량인지 가릴 수 없고,
-			 * 정산도 그 단위로 하기 때문이다.
+			 * 채우면 같은 빈 · 같은 SKU 가 공급처별로 갈라지는데, 선반 위에서는
+			 * 섞여 있다. 장부만 갈라지면 피킹 화면에 같은 상품이 두 줄로 뜨고,
+			 * 출고할 때 어느 줄에서 뺄지 정하는 규칙까지 필요해진다.
 			 *
-			 * 이동입고는 공급처가 비어 있다 (tb_inbound.supplier_seq 가
-			 * NULL 을 허용하는 이유). 그 경우 재고도 비운 채로 둔다 —
-			 * 출처를 모르는 것과 아무 공급처나 적어 두는 것은 다르다.
+			 * 출처는 잃지 않는다. 아래 이력이 입고번호를 남기므로
+			 * 재고 → 이력 → 입고 → 공급처 로 거슬러 갈 수 있다.
+			 *
+			 * 이 칸은 위탁재고를 다루게 될 때 쓴다 — 남의 물건과 우리 물건은
+			 * 반드시 갈라야 하고, 그것은 재고 행에서만 알 수 있는 사실이다.
 			 */
 			Stock stock = ledger.findOrCreate(actor, p.getLocationSeq(),
-					skuSeqOf(p), inbound.getSupplierSeq());
+					skuSeqOf(p), null);
 
 			StockHistory history = ledger.apply(actor, stock.getStockSeq(), Movement.of(
 					"RECEIVE", StockLedger.ON_HAND, p.getQty(),

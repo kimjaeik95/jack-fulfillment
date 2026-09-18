@@ -15,7 +15,7 @@ public record ReconFindingResponse(
 		String locationFullCode,
 		String skuId,
 		String productName,
-		String supplierId,
+		String vendorId,
 		Integer bookQty,
 		Integer computedQty,
 		Integer diffQty,
@@ -27,7 +27,7 @@ public record ReconFindingResponse(
 		return new ReconFindingResponse(
 				f.getStockSeq(), f.getPlantId(), f.getPlantName(),
 				f.getWarehouseId(), f.getLocationId(), f.locationFullCode(),
-				f.getSkuId(), f.getProductName(), f.getSupplierId(),
+				f.getSkuId(), f.getProductName(), f.getVendorId(),
 				f.getBookQty(), f.getComputedQty(), f.getDiffQty(),
 				f.getDays(), f.getDetail());
 	}

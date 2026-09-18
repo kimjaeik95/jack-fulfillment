@@ -24,7 +24,7 @@ public class StockSearch extends ScopedSearch {
 	private String locationId;
 	private String skuId;
 	private String productId;
-	private String supplierId;
+	private String vendorId;
 
 	/**
 	 * 창고유형 (코드그룹 WH_TYPE — GOOD/RETURN/DEFECT).

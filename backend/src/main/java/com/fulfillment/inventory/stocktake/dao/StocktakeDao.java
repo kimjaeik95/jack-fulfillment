@@ -91,7 +91,7 @@ public interface StocktakeDao {
 	void insertExtraLine(@Param("takeSeq") Long takeSeq,
 			@Param("locationSeq") Long locationSeq,
 			@Param("skuSeq") Long skuSeq,
-			@Param("supplierSeq") Long supplierSeq,
+			@Param("vendorSeq") Long vendorSeq,
 			@Param("stockSeq") Long stockSeq,
 			@Param("qtyBook") int qtyBook);
 

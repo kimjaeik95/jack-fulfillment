@@ -216,20 +216,12 @@
 
       qty_on_hand 는 그 자리 · 그 SKU 의 지금 보유수량이다. 놓은 수량과 다를
       수 있다 — 같은 자리의 같은 SKU 는 다른 입고로도 들어오고 조정 · 이동으로
-      움직이기 때문이다.
-
-      공급처까지 맞춰 찾는다 (V21). 입고완료가 만드는 재고 행이 그 입고의
-      공급처를 달고 있기 때문이다. 같은 자리 · 같은 SKU 라도 공급처가 다르면
-      다른 행이라, 공급처를 빼고 찾으면 남의 물량을 이 입고의 보유수량으로
-      보여 주게 된다.
-
-      IS NOT DISTINCT FROM 을 쓴다. 이동입고는 공급처가 없어 양쪽이 NULL 이
-      되는데, = 로 비교하면 NULL = NULL 이 참이 아니라 행을 놓친다.
+      움직이기 때문이다. 공급처가 없는 행만 본다. 입고완료가 만드는 재고가
+      그쪽이다.
     -->
     <sql id="putawayJoin">
           JOIN tb_inbound_putaway pw  ON pw.putaway_seq  = cl.putaway_seq
           JOIN tb_inbound_line    il  ON il.line_seq     = pw.line_seq
-          JOIN tb_inbound         ib  ON ib.inbound_seq  = il.inbound_seq
           JOIN tb_location        loc ON loc.location_seq = pw.location_seq
           JOIN tb_warehouse       w   ON w.warehouse_seq  = loc.warehouse_seq
           JOIN tb_plant           p   ON p.plant_seq      = w.plant_seq
@@ -237,7 +229,7 @@
           JOIN tb_product         pr  ON pr.product_seq   = k.product_seq
           LEFT JOIN tb_stock      s   ON s.location_seq = pw.location_seq
                                      AND s.sku_seq      = il.sku_seq
-                                     AND s.supplier_seq IS NOT DISTINCT FROM ib.supplier_seq
+                                     AND s.vendor_seq IS NULL
     </sql>
 
     <sql id="putawayColumns">
@@ -308,7 +300,6 @@
                    ) AS corrected_qty
           FROM tb_inbound_putaway pw
           JOIN tb_inbound_line    il  ON il.line_seq      = pw.line_seq
-          JOIN tb_inbound         ib  ON ib.inbound_seq   = il.inbound_seq
           JOIN tb_location        loc ON loc.location_seq = pw.location_seq
           JOIN tb_warehouse       w   ON w.warehouse_seq  = loc.warehouse_seq
           JOIN tb_plant           p   ON p.plant_seq      = w.plant_seq
@@ -316,7 +307,7 @@
           JOIN tb_product         pr  ON pr.product_seq   = k.product_seq
           LEFT JOIN tb_stock      s   ON s.location_seq = pw.location_seq
                                      AND s.sku_seq      = il.sku_seq
-                                     AND s.supplier_seq IS NOT DISTINCT FROM ib.supplier_seq
+                                     AND s.vendor_seq IS NULL
          WHERE il.inbound_seq = #{inboundSeq}
          ORDER BY il.line_no, pw.putaway_seq
     </select>

@@ -71,10 +71,7 @@ CREATE TABLE tb_warehouse (
     CONSTRAINT uk_warehouse_id      UNIQUE (plant_seq, warehouse_id),
     CONSTRAINT uk_warehouse_name    UNIQUE (plant_seq, warehouse_name),
     CONSTRAINT fk_warehouse_plant   FOREIGN KEY (plant_seq) REFERENCES tb_plant (plant_seq),
-    CONSTRAINT ck_warehouse_use_yn  CHECK (use_yn IN ('Y', 'N')),
-    -- 재고가 창고와 함께 플랜트를 들고 있어서(V22), 둘이 어긋나지 않는지 DB 가
-    -- 검사할 수 있도록 복합 FK 가 가리킬 유니크를 둔다. uk_location_self_wh 와 같은 이유다.
-    CONSTRAINT uk_warehouse_self_plant UNIQUE (warehouse_seq, plant_seq)
+    CONSTRAINT ck_warehouse_use_yn  CHECK (use_yn IN ('Y', 'N'))
 );
 
 CREATE INDEX ix_warehouse_plant ON tb_warehouse (plant_seq, sort_order);
@@ -122,14 +119,7 @@ CREATE TABLE tb_location (
     CONSTRAINT uk_location_wh_id   UNIQUE (warehouse_seq, location_id),
     CONSTRAINT fk_location_wh      FOREIGN KEY (warehouse_seq)
         REFERENCES tb_warehouse (warehouse_seq),
-    CONSTRAINT ck_location_use_yn  CHECK (use_yn IN ('Y', 'N')),
-    /*
-     * 재고가 빈과 함께 창고를 들고 있어서(V22 · 아래 tb_stock 참고), 그 둘이
-     * 어긋나지 않는지 DB 가 검사할 수 있어야 한다. 복합 FK 는 가리키는 쪽에
-     * 같은 모양의 유니크가 있어야 걸리므로 여기에 선언해 둔다.
-     * PK 를 앞에 둔 조합이라 이미 유일하지만, 제약으로 적어야 FK 가 붙는다.
-     */
-    CONSTRAINT uk_location_self_wh UNIQUE (location_seq, warehouse_seq)
+    CONSTRAINT ck_location_use_yn  CHECK (use_yn IN ('Y', 'N'))
 );
 
 CREATE INDEX ix_location_wh   ON tb_location (warehouse_seq, sort_order);

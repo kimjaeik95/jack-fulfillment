@@ -31,7 +31,7 @@ export async function list(params = {}) {
     locationId: params.locationId,
     skuId: params.skuId,
     productId: params.productId,
-    supplierId: params.supplierId,
+    vendorId: params.vendorId,
     onHandOnly: params.onHandOnly,
     lockedOnly: params.lockedOnly,
     unsellableOnly: params.unsellableOnly,
