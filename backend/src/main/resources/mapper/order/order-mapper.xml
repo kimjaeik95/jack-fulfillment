@@ -1,0 +1,317 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<!--
+  주문 (ORD-PG-009 ~ 011).
+
+  채널주문만 다룬다. 판매오더(B2B)는 11차다.
+-->
+<mapper namespace="com.fulfillment.order.dao.SalesOrderDao">
+
+    <resultMap id="orderMap" type="com.fulfillment.domain.Order">
+        <id     property="orderSeq"       column="order_seq"/>
+        <result property="orderNo"        column="order_no"/>
+        <result property="channelSeq"     column="channel_seq"/>
+        <result property="extOrderNo"     column="ext_order_no"/>
+        <result property="orderStatus"    column="order_status"/>
+        <result property="orderedAt"      column="ordered_at"/>
+        <result property="receiverName"   column="receiver_name"/>
+        <result property="receiverPhone"  column="receiver_phone"/>
+        <result property="zipCode"        column="zip_code"/>
+        <result property="address"        column="address"/>
+        <result property="addressDetail"  column="address_detail"/>
+        <result property="deliveryMemo"   column="delivery_memo"/>
+        <result property="remark"         column="remark"/>
+        <result property="canceledBy"     column="canceled_by"/>
+        <result property="canceledAt"     column="canceled_at"/>
+        <result property="cancelReason"   column="cancel_reason"/>
+        <result property="createdBy"      column="created_by"/>
+        <result property="createdAt"      column="created_at"/>
+        <result property="updatedBy"      column="updated_by"/>
+        <result property="updatedAt"      column="updated_at"/>
+        <result property="channelId"      column="channel_id"/>
+        <result property="channelName"    column="channel_name"/>
+        <result property="cancelReasonName" column="cancel_reason_name"/>
+        <result property="lineCount"      column="line_count"/>
+        <result property="totalQty"       column="total_qty"/>
+    </resultMap>
+
+    <resultMap id="lineMap" type="com.fulfillment.domain.OrderLine">
+        <id     property="lineSeq"        column="line_seq"/>
+        <result property="orderSeq"       column="order_seq"/>
+        <result property="lineNo"         column="line_no"/>
+        <result property="skuSeq"         column="sku_seq"/>
+        <result property="extProductCode" column="ext_product_code"/>
+        <result property="extOptionCode"  column="ext_option_code"/>
+        <result property="extProductName" column="ext_product_name"/>
+        <result property="extOptionName"  column="ext_option_name"/>
+        <result property="orderQty"       column="order_qty"/>
+        <result property="lineStatus"     column="line_status"/>
+        <result property="unitPrice"      column="unit_price"/>
+        <result property="lineAmount"     column="line_amount"/>
+        <result property="remark"         column="remark"/>
+        <result property="createdBy"      column="created_by"/>
+        <result property="createdAt"      column="created_at"/>
+        <result property="updatedBy"      column="updated_by"/>
+        <result property="updatedAt"      column="updated_at"/>
+        <result property="orderNo"        column="order_no"/>
+        <result property="skuId"          column="sku_id"/>
+        <result property="colorCode"      column="color_code"/>
+        <result property="sizeCode"       column="size_code"/>
+        <result property="productId"      column="product_id"/>
+        <result property="productName"    column="product_name"/>
+        <result property="qtyAvailable"   column="qty_available"/>
+        <result property="qtyAllocated"   column="qty_allocated"/>
+    </resultMap>
+
+
+    <!--
+      채널과 취소사유를 함께 읽는다.
+
+      채널은 NOT NULL 이라 INNER 로 걸어도 되지만, 채널이 지워지는 일이
+      생기면 주문이 목록에서 통째로 사라진다. LEFT 로 둬서 그때도 주문은
+      보이게 한다. 취소사유는 취소되지 않은 주문에 없으므로 당연히 LEFT 다.
+    -->
+    <sql id="orderFrom">
+        FROM tb_order o
+        LEFT JOIN tb_channel c ON c.channel_seq = o.channel_seq
+        LEFT JOIN tb_code_group rg ON rg.code_group_id = 'REASON_CANCEL'
+        LEFT JOIN tb_code       rc ON rc.code_group_seq = rg.code_group_seq
+                                  AND rc.code_id        = o.cancel_reason
+    </sql>
+
+    <sql id="orderColumns">
+        o.order_seq, o.order_no, o.channel_seq, o.ext_order_no,
+        o.order_status, o.ordered_at,
+        o.receiver_name, o.receiver_phone, o.zip_code, o.address, o.address_detail,
+        o.delivery_memo, o.remark,
+        o.canceled_by, o.canceled_at, o.cancel_reason,
+        o.created_by, o.created_at, o.updated_by, o.updated_at,
+        c.channel_id    AS channel_id,
+        c.channel_name  AS channel_name,
+        rc.code_name    AS cancel_reason_name,
+        <!--
+          라인 수와 총수량. 목록에서 주문마다 라인을 읽으면 주문 수만큼
+          질의가 늘어나 스칼라 서브쿼리로 한 번에 가져온다.
+        -->
+        (SELECT COUNT(*) FROM tb_order_line l WHERE l.order_seq = o.order_seq) AS line_count,
+        (SELECT COALESCE(SUM(l.order_qty), 0) FROM tb_order_line l
+          WHERE l.order_seq = o.order_seq) AS total_qty
+    </sql>
+
+    <sql id="orderWhere">
+        <where>
+            <if test="keyword != null and keyword != ''">
+                AND ( o.order_no      ILIKE '%' || #{keyword} || '%'
+                   OR o.ext_order_no  ILIKE '%' || #{keyword} || '%'
+                   OR o.receiver_name ILIKE '%' || #{keyword} || '%'
+                   OR o.remark        ILIKE '%' || #{keyword} || '%' )
+            </if>
+            <if test="orderStatus != null and orderStatus != ''">
+                AND o.order_status = #{orderStatus}
+            </if>
+            <if test="channelId != null and channelId != ''">
+                AND c.channel_id = #{channelId}
+            </if>
+            <if test='draftOnly == "Y"'>
+                AND o.order_status = 'RECEIVED'
+            </if>
+            <if test='allocatableOnly == "Y"'>
+                AND o.order_status = 'CONFIRMED'
+            </if>
+            <!--
+              SKU 가 안 붙은 줄이 있는 주문 (ORD-PG-003 오류대기).
+              취소된 줄은 세지 않는다 — 이미 처리가 끝난 것이다.
+            -->
+            <if test='unmappedOnly == "Y"'>
+                AND EXISTS (SELECT 1 FROM tb_order_line l
+                             WHERE l.order_seq = o.order_seq
+                               AND l.sku_seq IS NULL
+                               AND l.line_status &lt;&gt; 'CANCELED')
+            </if>
+            <if test="skuId != null and skuId != ''">
+                AND EXISTS (SELECT 1 FROM tb_order_line l
+                             JOIN tb_sku k ON k.sku_seq = l.sku_seq
+                             WHERE l.order_seq = o.order_seq AND k.sku_id = #{skuId})
+            </if>
+            <if test="fromDate != null">
+                AND o.ordered_at >= #{fromDate}
+            </if>
+            <!-- 끝날짜는 그날 전체를 포함해야 한다. 자정 이후를 잘라내지 않는다. -->
+            <if test="toDate != null">
+                AND o.ordered_at &lt; (#{toDate}::date + 1)
+            </if>
+        </where>
+    </sql>
+
+    <select id="selectList" resultMap="orderMap">
+        SELECT <include refid="orderColumns"/>
+        <include refid="orderFrom"/>
+        <include refid="orderWhere"/>
+         ORDER BY ${sortColumn} ${sortDirection}, o.order_seq DESC
+         LIMIT #{size} OFFSET #{offset}
+    </select>
+
+    <select id="countList" resultType="long">
+        SELECT COUNT(*)
+        <include refid="orderFrom"/>
+        <include refid="orderWhere"/>
+    </select>
+
+    <select id="selectBySeq" resultMap="orderMap">
+        SELECT <include refid="orderColumns"/>
+        <include refid="orderFrom"/>
+         WHERE o.order_seq = #{orderSeq}
+    </select>
+
+    <select id="selectByNo" resultMap="orderMap">
+        SELECT <include refid="orderColumns"/>
+        <include refid="orderFrom"/>
+         WHERE o.order_no = #{orderNo}
+    </select>
+
+    <select id="selectByExtNo" resultMap="orderMap">
+        SELECT <include refid="orderColumns"/>
+        <include refid="orderFrom"/>
+         WHERE o.channel_seq  = #{channelSeq}
+           AND o.ext_order_no = #{extOrderNo}
+    </select>
+
+    <!--
+      라인과 함께 SKU · 제품을 읽는다.
+
+      SKU 가 LEFT 인 이유는 미매핑 라인이 있기 때문이다 (ORD-005). INNER 로
+      걸면 오류대기 화면에서 고쳐야 할 줄이 보이지 않는다.
+
+      판매가능수량과 이미 할당된 수량도 함께 읽는다. 할당 화면이 '잡을 수
+      있나' 를 보여 주려면 필요하다. 재고는 빈마다 갈라져 있으므로 SKU 기준
+      합계다.
+    -->
+    <select id="selectLines" resultMap="lineMap">
+        SELECT l.line_seq, l.order_seq, l.line_no, l.sku_seq,
+               l.ext_product_code, l.ext_option_code,
+               l.ext_product_name, l.ext_option_name,
+               l.order_qty, l.line_status, l.unit_price, l.line_amount, l.remark,
+               l.created_by, l.created_at, l.updated_by, l.updated_at,
+               o.order_no      AS order_no,
+               k.sku_id        AS sku_id,
+               k.color_code    AS color_code,
+               k.size_code     AS size_code,
+               pr.product_id   AS product_id,
+               pr.product_name AS product_name,
+               (SELECT COALESCE(SUM(s.qty_available), 0) FROM tb_stock s
+                 WHERE s.sku_seq = l.sku_seq) AS qty_available,
+               (SELECT COALESCE(SUM(a.qty_allocated - a.qty_released), 0)
+                  FROM tb_stock_alloc a
+                 WHERE a.order_line_seq = l.line_seq) AS qty_allocated
+          FROM tb_order_line l
+          JOIN tb_order      o  ON o.order_seq    = l.order_seq
+          LEFT JOIN tb_sku     k  ON k.sku_seq     = l.sku_seq
+          LEFT JOIN tb_product pr ON pr.product_seq = k.product_seq
+         WHERE l.order_seq = #{orderSeq}
+         ORDER BY l.line_no
+    </select>
+
+
+    <!-- 저장 ============================================================ -->
+
+    <insert id="insert" parameterType="com.fulfillment.domain.Order"
+            useGeneratedKeys="true" keyProperty="orderSeq" keyColumn="order_seq">
+        INSERT INTO tb_order (
+            order_no, channel_seq, ext_order_no,
+            order_status, ordered_at,
+            receiver_name, receiver_phone, zip_code, address, address_detail,
+            delivery_memo, remark, created_by)
+        VALUES (
+            #{orderNo}, #{channelSeq}, #{extOrderNo},
+            #{orderStatus}, #{orderedAt},
+            #{receiverName}, #{receiverPhone}, #{zipCode}, #{address}, #{addressDetail},
+            #{deliveryMemo}, #{remark}, #{createdBy})
+    </insert>
+
+    <insert id="insertLine" parameterType="com.fulfillment.domain.OrderLine"
+            useGeneratedKeys="true" keyProperty="lineSeq" keyColumn="line_seq">
+        INSERT INTO tb_order_line (
+            order_seq, line_no, sku_seq,
+            ext_product_code, ext_option_code, ext_product_name, ext_option_name,
+            order_qty, line_status, unit_price, line_amount, remark, created_by)
+        VALUES (
+            #{orderSeq}, #{lineNo}, #{skuSeq},
+            #{extProductCode}, #{extOptionCode}, #{extProductName}, #{extOptionName},
+            #{orderQty}, #{lineStatus}, #{unitPrice}, #{lineAmount}, #{remark}, #{createdBy})
+    </insert>
+
+    <update id="updateHeader" parameterType="com.fulfillment.domain.Order">
+        UPDATE tb_order
+           SET receiver_name  = #{receiverName},
+               receiver_phone = #{receiverPhone},
+               zip_code       = #{zipCode},
+               address        = #{address},
+               address_detail = #{addressDetail},
+               delivery_memo  = #{deliveryMemo},
+               remark         = #{remark},
+               updated_by     = #{updatedBy},
+               updated_at     = CURRENT_TIMESTAMP
+         WHERE order_seq = #{orderSeq}
+    </update>
+
+    <!--
+      상태를 옮긴다. 현재 상태를 조건에 넣는 이유는 두 명이 동시에 같은
+      버튼을 눌렀을 때 한 쪽만 통과시키기 위해서다 — 나중 쪽은 0행이
+      바뀌고, 서비스가 그것을 보고 거절한다.
+    -->
+    <update id="updateStatus">
+        UPDATE tb_order
+           SET order_status = #{toStatus},
+               updated_by   = #{updatedBy},
+               updated_at   = CURRENT_TIMESTAMP
+         WHERE order_seq    = #{orderSeq}
+           AND order_status = #{fromStatus}
+    </update>
+
+    <update id="updateLineStatusAll">
+        UPDATE tb_order_line
+           SET line_status = #{toStatus},
+               updated_by  = #{updatedBy},
+               updated_at  = CURRENT_TIMESTAMP
+         WHERE order_seq   = #{orderSeq}
+           AND line_status = #{fromStatus}
+    </update>
+
+    <update id="updateLine" parameterType="com.fulfillment.domain.OrderLine">
+        UPDATE tb_order_line
+           SET sku_seq     = #{skuSeq},
+               line_status = #{lineStatus},
+               remark      = #{remark},
+               updated_by  = #{updatedBy},
+               updated_at  = CURRENT_TIMESTAMP
+         WHERE line_seq    = #{lineSeq}
+    </update>
+
+    <delete id="deleteLines">
+        DELETE FROM tb_order_line WHERE order_seq = #{orderSeq}
+    </delete>
+
+
+    <!--
+      외부코드 → 내부 SKU (ORD-004).
+
+      옵션코드는 없을 수 있다 (단일 옵션 상품). IS NOT DISTINCT FROM 을 쓰는
+      이유는 양쪽이 NULL 일 때 = 로는 안 맞기 때문이다.
+
+      MAPPED 인 것만 쓴다. PENDING(확인 전) · STOPPED(판매중단) 은 제외한다 —
+      그런 주문은 SKU 없이 적재되어 오류대기로 간다 (ORD-005).
+    -->
+    <select id="findSkuByExtCode" resultType="java.lang.Long">
+        SELECT m.sku_seq
+          FROM tb_channel_sku m
+         WHERE m.channel_seq      = #{channelSeq}
+           AND m.ext_product_code = #{extProductCode}
+           AND m.ext_option_code IS NOT DISTINCT FROM #{extOptionCode}
+           AND m.mapping_status   = 'MAPPED'
+           AND m.use_yn           = 'Y'
+         LIMIT 1
+    </select>
+
+</mapper>
