@@ -3,45 +3,65 @@ package com.fulfillment.order.controller;
 import com.fulfillment.common.security.CurrentUser;
 import com.fulfillment.common.web.ApiResponse;
 import com.fulfillment.common.web.PageResponse;
+import com.fulfillment.order.dto.LineSkuAssignRequest;
+import com.fulfillment.order.dto.ReprocessRequest;
 import com.fulfillment.order.dto.SalesOrderResponse;
 import com.fulfillment.order.dto.SalesOrderSaveRequest;
 import com.fulfillment.order.dto.SalesOrderSearch;
+import com.fulfillment.order.dto.UnmappedGroupResponse;
+import com.fulfillment.order.dto.UnmappedLineResponse;
+import com.fulfillment.order.dto.UnmappedSearch;
 import com.fulfillment.order.service.SalesOrderService;
+import com.fulfillment.order.service.UnmappedOrderService;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
+
 /**
- * 주문 (ORD-PG-001, 002, 009, 010, 011).
+ * 주문 (ORD-PG-001 ~ 004).
  *
- *   GET  /api/orders               목록 (오류대기 화면도 같은 경로)
- *   GET  /api/orders/{seq}         상세 + 라인
- *   POST /api/orders               등록 — 화면과 외부가 같이 쓴다
- *   POST /api/orders/{seq}/confirm 확정 — 할당 대상으로 넘긴다
+ *   GET  /api/orders                        목록
+ *   GET  /api/orders/{seq}                  상세 + 라인
+ *   POST /api/orders                        등록 — 화면과 외부가 같이 쓴다
+ *   POST /api/orders/{seq}/confirm          확정 — 할당 대상으로 넘긴다
+ *
+ *   GET  /api/orders/unmapped/groups        오류대기 — 외부코드별 묶음
+ *   GET  /api/orders/unmapped/lines         오류대기 — 줄 목록
+ *   POST /api/orders/unmapped/reprocess     재처리 — 매핑 등록 후 일괄 해소
+ *   PUT  /api/orders/{seq}/lines/{seq}/sku  줄 하나에 SKU 직접 지정
+ *
+ * 주문 목록에도 unmappedOnly=Y 가 있지만 그것과 /unmapped 는 다른 것이다.
+ * 목록은 '미매핑 줄이 있는 주문' 을 세고, 여기는 '막힌 줄' 자체를 센다 —
+ * 한 주문에 막힌 줄이 셋이면 목록에는 1 건, 여기는 3 건이다. 무엇을 고칠지
+ * 보려면 줄 단위여야 한다.
  *
  * 등록 입구를 하나로 둔다. 화면용을 따로 만들면 규칙이 갈라져, 화면에서는
  * 막히는데 API 로는 통과하는 상황이 생긴다. OMS 가 붙게 되면 그 연동도
  * 이 경로를 쓴다.
  *
- * 오류대기(ORD-PG-003)는 별도 경로를 내지 않는다. 같은 목록을
- * unmappedOnly=Y 로 거른 것이라, 경로를 둘 내면 한쪽만 고치는 일이 생긴다.
- *
- * 확정을 POST 로 둔다. 자원을 고치는 것이 아니라 '확정한다' 는 행위이고,
- * 두 번 부르면 두 번째는 거부되어야 한다.
+ * 확정과 재처리를 POST 로 둔다. 자원을 고치는 것이 아니라 '확정한다' ·
+ * '다시 돌린다' 는 행위다. SKU 지정만 PUT 인 이유는 그 줄의 SKU 라는
+ * 자리를 정해진 값으로 바꾸는 것이고, 두 번 보내도 결과가 같기 때문이다.
  */
 @RestController
 @RequestMapping("/orders")
 public class SalesOrderController {
 
 	private final SalesOrderService orderService;
+	private final UnmappedOrderService unmappedService;
 
-	public SalesOrderController(SalesOrderService orderService) {
+	public SalesOrderController(SalesOrderService orderService,
+			UnmappedOrderService unmappedService) {
 		this.orderService = orderService;
+		this.unmappedService = unmappedService;
 	}
 
 	@GetMapping
@@ -71,5 +91,46 @@ public class SalesOrderController {
 	public ApiResponse<SalesOrderResponse> confirm(@PathVariable Long orderSeq) {
 		SalesOrderService.Result result = orderService.confirm(CurrentUser.require(), orderSeq);
 		return ApiResponse.ok(result.order(), result.warning());
+	}
+
+	/* 오류대기 · 재처리 (ORD-PG-003, ORD-PG-004) --------------------------- */
+
+	/**
+	 * 외부코드별 묶음.
+	 *
+	 * 페이지가 없다. 막힌 코드 종류는 줄 수보다 훨씬 적고, 화면이 전체를
+	 * 놓고 무엇부터 손볼지 고르는 것이 목적이다.
+	 */
+	@GetMapping("/unmapped/groups")
+	public ApiResponse<List<UnmappedGroupResponse>> unmappedGroups(
+			@ModelAttribute UnmappedSearch search) {
+		return ApiResponse.ok(unmappedService.groups(CurrentUser.require(), search));
+	}
+
+	@GetMapping("/unmapped/lines")
+	public ApiResponse<PageResponse<UnmappedLineResponse>> unmappedLines(
+			@ModelAttribute UnmappedSearch search) {
+		return ApiResponse.ok(unmappedService.lines(CurrentUser.require(), search));
+	}
+
+	/**
+	 * 재처리.
+	 *
+	 * 0 건이 풀려도 실패가 아니다. 왜 안 풀렸는지는 message 로 온다 —
+	 * 매핑이 아직 확인 전이거나, 같은 주문에 같은 SKU 가 이미 있는 경우다.
+	 */
+	@PostMapping("/unmapped/reprocess")
+	public ApiResponse<UnmappedOrderService.ReprocessResult> reprocess(
+			@Valid @RequestBody ReprocessRequest request) {
+		UnmappedOrderService.ReprocessResult result =
+				unmappedService.reprocess(CurrentUser.require(), request);
+		return ApiResponse.ok(result, result.message());
+	}
+
+	@PutMapping("/{orderSeq}/lines/{lineSeq}/sku")
+	public ApiResponse<SalesOrderResponse> assignSku(@PathVariable Long orderSeq,
+			@PathVariable Long lineSeq, @Valid @RequestBody LineSkuAssignRequest request) {
+		return ApiResponse.ok(
+				unmappedService.assignSku(CurrentUser.require(), orderSeq, lineSeq, request));
 	}
 }

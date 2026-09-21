@@ -3,6 +3,8 @@ package com.fulfillment.order.dao;
 import com.fulfillment.domain.Order;
 import com.fulfillment.domain.OrderLine;
 import com.fulfillment.order.dto.SalesOrderSearch;
+import com.fulfillment.order.dto.UnmappedGroupResponse;
+import com.fulfillment.order.dto.UnmappedSearch;
 import org.apache.ibatis.annotations.Param;
 
 import java.util.List;
@@ -64,6 +66,31 @@ public interface SalesOrderDao {
 	void updateLine(OrderLine line);
 
 	void deleteLines(@Param("orderSeq") Long orderSeq);
+
+	/* 오류대기 · 재처리 (ORD-PG-003, ORD-PG-004) ---------------------------- */
+
+	/**
+	 * SKU 가 안 붙은 줄을 외부코드별로 묶어 센다.
+	 *
+	 * 줄 단위로만 보면 같은 상품코드가 수십 줄 늘어서서 '매핑 하나를
+	 * 등록하면 몇 건이 풀리나' 가 보이지 않는다.
+	 */
+	List<UnmappedGroupResponse> selectUnmappedGroups(UnmappedSearch search);
+
+	List<OrderLine> selectUnmappedLines(UnmappedSearch search);
+
+	long countUnmappedLines(UnmappedSearch search);
+
+	/**
+	 * 매핑이 생긴 외부코드의 미매핑 줄에 SKU 를 한꺼번에 붙인다.
+	 *
+	 * 돌려주는 값은 실제로 풀린 줄 수다. 0 이면 아직 매핑이 MAPPED 가
+	 * 아니거나, 같은 주문에 같은 SKU 가 이미 있어 건너뛴 것이다.
+	 */
+	int reprocessUnmapped(@Param("channelSeq") Long channelSeq,
+			@Param("extProductCode") String extProductCode,
+			@Param("extOptionCode") String extOptionCode,
+			@Param("updatedBy") String updatedBy);
 
 	/* 매핑 ---------------------------------------------------------------- */
 

@@ -294,6 +294,158 @@
     </delete>
 
 
+    <!-- 오류대기 · 재처리 (ORD-PG-003, ORD-PG-004) ====================== -->
+
+    <resultMap id="unmappedGroupMap" type="com.fulfillment.order.dto.UnmappedGroupResponse">
+        <result property="channelSeq"     column="channel_seq"/>
+        <result property="channelId"      column="channel_id"/>
+        <result property="channelName"    column="channel_name"/>
+        <result property="extProductCode" column="ext_product_code"/>
+        <result property="extOptionCode"  column="ext_option_code"/>
+        <result property="extProductName" column="ext_product_name"/>
+        <result property="extOptionName"  column="ext_option_name"/>
+        <result property="lineCount"      column="line_count"/>
+        <result property="orderCount"     column="order_count"/>
+        <result property="totalQty"       column="total_qty"/>
+        <result property="oldestOrderedAt" column="oldest_ordered_at"/>
+        <result property="mappingStatus"  column="mapping_status"/>
+        <result property="mappedSkuId"    column="mapped_sku_id"/>
+    </resultMap>
+
+    <!--
+      SKU 가 안 붙은 줄만 본다.
+
+      취소된 줄은 뺀다. 이미 처리가 끝난 것이라 고칠 것이 없고, 남겨 두면
+      오류대기 건수가 영원히 줄지 않는다.
+    -->
+    <sql id="unmappedWhere">
+        WHERE l.sku_seq IS NULL
+          AND l.line_status &lt;&gt; 'CANCELED'
+          AND o.order_status &lt;&gt; 'CANCELED'
+        <if test="channelId != null and channelId != ''">
+          AND c.channel_id = #{channelId}
+        </if>
+        <if test="keyword != null and keyword != ''">
+          AND ( l.ext_product_code ILIKE '%' || #{keyword} || '%'
+             OR l.ext_option_code  ILIKE '%' || #{keyword} || '%'
+             OR l.ext_product_name ILIKE '%' || #{keyword} || '%'
+             OR o.order_no         ILIKE '%' || #{keyword} || '%'
+             OR o.ext_order_no     ILIKE '%' || #{keyword} || '%' )
+        </if>
+    </sql>
+
+    <!--
+      외부코드별로 묶어 본다.
+
+      줄 단위로만 보면 같은 상품코드가 수십 줄 늘어서서 "매핑 하나를
+      등록하면 몇 건이 풀리나" 가 보이지 않는다. 묶어야 무엇부터 손볼지
+      정할 수 있다.
+
+      매핑 테이블을 LEFT 로 붙여 현재 상태를 함께 읽는다. 셋 중 하나다.
+        매핑 없음    등록하면 된다
+        PENDING      확인만 하면 풀린다 — 왜 안 풀렸는지 사람이 헷갈리는 자리
+        STOPPED      일부러 막아 둔 것. 풀면 안 되는 주문일 수 있다
+    -->
+    <select id="selectUnmappedGroups" resultMap="unmappedGroupMap">
+        SELECT o.channel_seq,
+               c.channel_id,
+               c.channel_name,
+               l.ext_product_code,
+               l.ext_option_code,
+               MIN(l.ext_product_name) AS ext_product_name,
+               MIN(l.ext_option_name)  AS ext_option_name,
+               COUNT(*)                        AS line_count,
+               COUNT(DISTINCT o.order_seq)     AS order_count,
+               COALESCE(SUM(l.order_qty), 0)   AS total_qty,
+               MIN(o.ordered_at)               AS oldest_ordered_at,
+               MIN(m.mapping_status)           AS mapping_status,
+               MIN(k.sku_id)                   AS mapped_sku_id
+          FROM tb_order_line l
+          JOIN tb_order   o ON o.order_seq   = l.order_seq
+          LEFT JOIN tb_channel c ON c.channel_seq = o.channel_seq
+          LEFT JOIN tb_channel_sku m ON m.channel_seq      = o.channel_seq
+                                    AND m.ext_product_code = l.ext_product_code
+                                    AND m.ext_option_code IS NOT DISTINCT FROM l.ext_option_code
+          LEFT JOIN tb_sku k ON k.sku_seq = m.sku_seq
+        <include refid="unmappedWhere"/>
+         GROUP BY o.channel_seq, c.channel_id, c.channel_name,
+                  l.ext_product_code, l.ext_option_code
+         ORDER BY MIN(o.ordered_at)
+    </select>
+
+    <!-- 묶음 안의 줄들. 어느 주문이 막혀 있는지 본다. -->
+    <select id="selectUnmappedLines" resultMap="lineMap">
+        SELECT l.line_seq, l.order_seq, l.line_no, l.sku_seq,
+               l.ext_product_code, l.ext_option_code,
+               l.ext_product_name, l.ext_option_name,
+               l.order_qty, l.line_status, l.unit_price, l.line_amount, l.remark,
+               l.created_by, l.created_at, l.updated_by, l.updated_at,
+               o.order_no AS order_no
+          FROM tb_order_line l
+          JOIN tb_order   o ON o.order_seq   = l.order_seq
+          LEFT JOIN tb_channel c ON c.channel_seq = o.channel_seq
+        <include refid="unmappedWhere"/>
+        <if test="extProductCode != null and extProductCode != ''">
+          AND l.ext_product_code = #{extProductCode}
+          AND l.ext_option_code IS NOT DISTINCT FROM #{extOptionCode}
+        </if>
+         ORDER BY o.ordered_at, l.line_no
+         LIMIT #{size} OFFSET #{offset}
+    </select>
+
+    <select id="countUnmappedLines" resultType="long">
+        SELECT COUNT(*)
+          FROM tb_order_line l
+          JOIN tb_order   o ON o.order_seq   = l.order_seq
+          LEFT JOIN tb_channel c ON c.channel_seq = o.channel_seq
+        <include refid="unmappedWhere"/>
+        <if test="extProductCode != null and extProductCode != ''">
+          AND l.ext_product_code = #{extProductCode}
+          AND l.ext_option_code IS NOT DISTINCT FROM #{extOptionCode}
+        </if>
+    </select>
+
+    <!--
+      재처리 (ORD-PG-004).
+
+      매핑이 등록된 뒤, 그 코드로 막혀 있던 줄에 SKU 를 한꺼번에 붙인다.
+      한 줄씩 읽어 고치지 않고 UPDATE ... FROM 한 문장으로 끝낸다 — 수십
+      줄이 걸려 있을 때 왕복이 그만큼 늘어날 이유가 없다.
+
+      같은 주문에 같은 SKU 가 이미 있으면 그 줄은 건너뛴다. 부분 유니크
+      (ux_ordl_sku) 가 막는데, 걸리면 재처리 전체가 실패해 나머지 멀쩡한
+      줄까지 안 풀린다. 그런 줄은 사람이 합쳐야 한다.
+    -->
+    <update id="reprocessUnmapped">
+        UPDATE tb_order_line l
+           SET sku_seq     = m.sku_seq,
+               line_status = 'MAPPED',
+               updated_by  = #{updatedBy},
+               updated_at  = CURRENT_TIMESTAMP
+          FROM tb_order o
+          JOIN tb_channel_sku m ON m.channel_seq = o.channel_seq
+         WHERE l.order_seq        = o.order_seq
+           AND l.sku_seq IS NULL
+           AND l.line_status &lt;&gt; 'CANCELED'
+           AND o.order_status &lt;&gt; 'CANCELED'
+           AND m.ext_product_code = l.ext_product_code
+           AND m.ext_option_code IS NOT DISTINCT FROM l.ext_option_code
+           AND m.mapping_status   = 'MAPPED'
+           AND m.use_yn           = 'Y'
+        <if test="channelSeq != null">
+           AND o.channel_seq = #{channelSeq}
+        </if>
+        <if test="extProductCode != null and extProductCode != ''">
+           AND l.ext_product_code = #{extProductCode}
+           AND l.ext_option_code IS NOT DISTINCT FROM #{extOptionCode}
+        </if>
+           AND NOT EXISTS (
+               SELECT 1 FROM tb_order_line x
+                WHERE x.order_seq = l.order_seq
+                  AND x.sku_seq   = m.sku_seq
+                  AND x.line_seq &lt;&gt; l.line_seq)
+    </update>
+
     <!--
       외부코드 → 내부 SKU (ORD-004).
 

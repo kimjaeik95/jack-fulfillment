@@ -12,7 +12,7 @@
  * 주문했는데 우리에게는 없는 상태가 되기 때문이다 — 대신 warning 이 오고,
  * 그 주문은 확정되지 않는다.
  */
-import { get, post } from './http.js'
+import { get, post, put } from './http.js'
 
 /** 화면 기본 페이지 크기. 서버 기본값과 같게 둔다. */
 export const PAGE_SIZE = 50
@@ -58,4 +58,56 @@ export async function create(payload) {
 export async function confirm(orderSeq) {
   const { data, warning } = await post(`/orders/${orderSeq}/confirm`)
   return { order: data, warning }
+}
+
+
+/* ── 오류대기 · 재처리 (ORD-PG-003, ORD-PG-004) ──────────────── */
+
+/**
+ * 외부코드별 묶음.
+ *
+ * 페이지가 없다. 막힌 코드 종류는 줄 수보다 훨씬 적고, 화면이 전체를 놓고
+ * 무엇부터 손볼지 고르는 것이 목적이라 서버도 배열을 그대로 준다.
+ */
+export async function unmappedGroups(params = {}) {
+  const { data } = await get('/orders/unmapped/groups', {
+    keyword: params.keyword,
+    channelId: params.channelId,
+  })
+  return data
+}
+
+/** 묶음 안의 줄. extProductCode 를 주면 그 묶음만 본다. */
+export async function unmappedLines(params = {}) {
+  const { data } = await get('/orders/unmapped/lines', {
+    keyword: params.keyword,
+    channelId: params.channelId,
+    extProductCode: params.extProductCode,
+    extOptionCode: params.extOptionCode,
+    page: params.page,
+    size: params.size,
+  })
+  return data
+}
+
+/**
+ * 재처리 — 매핑이 생긴 코드의 막힌 줄을 한꺼번에 푼다.
+ *
+ * 0 건이 풀려도 실패가 아니다. 왜 안 풀렸는지는 message 로 온다.
+ * 아무것도 주지 않으면 전부 다시 훑는다.
+ */
+export async function reprocess(payload = {}) {
+  const { data, warning } = await post('/orders/unmapped/reprocess', payload)
+  return { result: data, message: warning }
+}
+
+/**
+ * 줄 하나에 SKU 를 직접 붙인다.
+ *
+ * 매핑은 그대로라 같은 코드가 또 오면 또 막힌다 — 반복되는 코드면
+ * 채널 SKU 매핑을 등록하고 재처리하는 쪽이 맞다.
+ */
+export async function assignSku(orderSeq, lineSeq, payload) {
+  const { data } = await put(`/orders/${orderSeq}/lines/${lineSeq}/sku`, payload)
+  return data
 }
