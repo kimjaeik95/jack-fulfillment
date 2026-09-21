@@ -59,7 +59,7 @@ public class InboundSearch extends ScopedSearch {
 		return switch (sortBy == null ? "" : sortBy) {
 			case "inboundNo" -> "i.inbound_no";
 			case "inboundStatus" -> "i.inbound_status";
-			case "supplierName" -> "s.supplier_name";
+			case "supplierName" -> "s.partner_name";
 			case "arrivedAt" -> "i.arrived_at";
 			case "createdAt" -> "i.created_at";
 			// 기본. 가까운 날짜부터 — 오늘 받을 것이 맨 위에 와야 한다.

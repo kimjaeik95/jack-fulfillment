@@ -56,7 +56,7 @@ public class OrderSearch extends ScopedSearch {
 		return switch (sortBy == null ? "" : sortBy) {
 			case "orderNo" -> "o.order_no";
 			case "orderStatus" -> "o.order_status";
-			case "supplierName" -> "s.supplier_name";
+			case "supplierName" -> "s.partner_name";
 			case "orderDate" -> "o.order_date";
 			// 진행현황이 쓴다. 급한 납기부터.
 			case "dueDate" -> "o.due_date";
