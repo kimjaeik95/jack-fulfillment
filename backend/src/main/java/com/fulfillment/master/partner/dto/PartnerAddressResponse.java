@@ -5,7 +5,7 @@ import com.fulfillment.domain.PartnerAddress;
 import java.time.LocalDateTime;
 
 /**
- * 고객 배송지 응답.
+ * 거래처 주소 응답 — 배송지 · 반품지.
  *
  * fullAddress 는 주소 + 상세를 합친 한 줄이다. 송장과 목록이 같은 모양을
  * 쓰도록 서버가 합쳐서 내려보낸다.
@@ -17,6 +17,8 @@ public record PartnerAddressResponse(
 		Long addressSeq,
 		String partnerId,
 		String partnerName,
+		/** 코드그룹 ADDR_TYPE (SHIP/RETURN/ETC). 주문 화면이 배송지만 고르는 데 쓴다. */
+		String addrType,
 		String addressName,
 		String receiverName,
 		String phone,
@@ -37,7 +39,7 @@ public record PartnerAddressResponse(
 	public static PartnerAddressResponse of(PartnerAddress a) {
 		return new PartnerAddressResponse(
 				a.getAddressSeq(), a.getPartnerId(), a.getPartnerName(),
-				a.getAddressName(), a.getReceiverName(), a.getPhone(),
+				a.getAddrType(), a.getAddressName(), a.getReceiverName(), a.getPhone(),
 				a.getZipCode(), a.getAddress(), a.getAddressDetail(), a.fullAddress(),
 				a.getDeliveryMemo(), a.getDefaultYn(), a.getSortOrder(), a.getUseYn(),
 				a.getCreatedBy(), a.getCreatedAt(), a.getUpdatedBy(), a.getUpdatedAt());

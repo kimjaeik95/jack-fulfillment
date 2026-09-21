@@ -198,7 +198,7 @@
     <!-- ================================================================ -->
 
     <sql id="addressColumns">
-        a.address_seq, a.partner_seq, a.address_name, a.receiver_name, a.phone,
+        a.address_seq, a.partner_seq, a.addr_type, a.address_name, a.receiver_name, a.phone,
         a.zip_code, a.address, a.address_detail, a.delivery_memo,
         a.default_yn, a.sort_order, a.use_yn,
         a.created_by, a.created_at, a.updated_by, a.updated_at,
