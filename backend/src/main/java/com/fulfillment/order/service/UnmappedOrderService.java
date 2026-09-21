@@ -104,12 +104,13 @@ public class UnmappedOrderService {
 	 * 매핑이 생긴 외부코드의 미매핑 줄을 한꺼번에 푼다.
 	 *
 	 * 0 건이 풀리는 경우가 흔하고, 그때 왜 안 됐는지를 말해 주지 않으면
-	 * 사용자는 버튼만 다시 누른다. 이유는 대개 셋이다.
+	 * 사용자는 버튼만 다시 누른다. 이유는 넷이다.
 	 *   매핑이 아직 PENDING 이라 쓰이지 않는다
 	 *   매핑이 STOPPED 라 일부러 막혀 있다
-	 *   같은 주문에 같은 SKU 가 이미 있어 합쳐야 한다
+	 *   매핑이 미사용(use_yn='N') 이다
+	 *   같은 주문의 다른 줄이 그 SKU 를 가져가 수량을 합쳐야 한다
 	 *
-	 * 앞의 둘은 여기서 미리 보고 알려 준다. 셋째는 UPDATE 가 건너뛴 뒤에야
+	 * 앞의 셋은 여기서 미리 보고 알려 준다. 넷째는 UPDATE 가 건너뛴 뒤에야
 	 * 알 수 있어 남은 건수로 드러난다.
 	 */
 	@Transactional
@@ -244,6 +245,8 @@ public class UnmappedOrderService {
 					.formatted(extProductCode, group.getMappedSkuId());
 			case "STOPPED" -> ("%s 의 매핑은 '중지' 상태입니다. 일부러 막아 둔 것이라 풀기 전에 "
 					+ "왜 막았는지 먼저 확인하세요.").formatted(extProductCode);
+			case "DISABLED" -> ("%s 의 매핑이 '미사용' 입니다. 채널 SKU 매핑에서 사용으로 "
+					+ "바꿔야 주문에 붙습니다.").formatted(extProductCode);
 			default -> ("%s 에 등록된 매핑이 없습니다. 채널 SKU 매핑을 먼저 등록하세요.")
 					.formatted(extProductCode);
 		};
@@ -254,14 +257,24 @@ public class UnmappedOrderService {
 			return "재처리할 줄이 없습니다.";
 		}
 		if (resolved == 0) {
-			return ("%d 줄이 그대로 남았습니다. 매핑이 '확정' 이 아니거나, 같은 주문에 같은 "
-					+ "SKU 가 이미 있어 합쳐야 하는 줄입니다.").formatted(remaining);
+			return ("%d 줄이 그대로 남았습니다. %s").formatted(remaining, WHY_LEFT);
 		}
 		if (remaining == 0) {
 			return "%d 줄을 풀었습니다. 남은 오류대기가 없습니다.".formatted(resolved);
 		}
-		return "%d 줄을 풀었습니다. %d 줄이 남았습니다.".formatted(resolved, remaining);
+		return "%d 줄을 풀었습니다. %d 줄이 남았습니다. %s".formatted(resolved, remaining, WHY_LEFT);
 	}
+
+	/**
+	 * 남은 줄이 왜 남았는지.
+	 *
+	 * 둘째 이유가 눈에 잘 안 띈다. 채널이 같은 상품을 두 코드로 올리면 한
+	 * 주문에 같은 SKU 로 갈 줄이 둘 생기는데, 한 주문에 같은 SKU 를 두 줄
+	 * 담을 수 없어 앞선 줄만 붙는다. 수량을 합치는 것은 사람이 할 일이다.
+	 */
+	private static final String WHY_LEFT =
+			"매핑이 '확정 · 사용' 이 아니거나, 같은 주문의 다른 줄이 이미 그 SKU 를 "
+					+ "가져가 수량을 합쳐야 하는 줄입니다.";
 
 	/**
 	 * 손으로 붙인 사유를 비고에 덧붙인다.

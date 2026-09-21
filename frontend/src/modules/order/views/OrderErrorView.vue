@@ -136,6 +136,12 @@ function reason(g) {
   if (g.mappingStatus === 'STOPPED') {
     return { tone: 'stop', text: '매핑이 중지 상태 — 일부러 막아 둔 것인지 먼저 확인하세요' }
   }
+  if (g.mappingStatus === 'DISABLED') {
+    return {
+      tone: 'warn',
+      text: `매핑이 '미사용' (${g.mappedSkuId}) — 채널 SKU 매핑에서 사용으로 바꾸세요`,
+    }
+  }
   return { tone: 'none', text: '등록된 매핑 없음 — 채널 SKU 매핑을 먼저 등록하세요' }
 }
 
@@ -417,6 +423,11 @@ async function saveAssign() {
         </template>
       </DataTable>
 
+      <p v-if="detail.rows.length < detail.total" class="note warn-note">
+        막힌 줄 {{ num(detail.total) }} 개 중 {{ num(detail.rows.length) }} 개만 보고 있습니다.
+        재처리는 보이지 않는 줄까지 모두 처리합니다.
+      </p>
+
       <p class="note">
         이 줄들은 모두 같은 외부코드 때문에 막혀 있습니다. 채널 SKU 매핑을 등록하고
         <strong>재처리</strong>하면 한 번에 풀립니다. 줄마다 SKU 를 지정하는 것은
@@ -558,5 +569,8 @@ async function saveAssign() {
   font-size: 12px;
   line-height: 1.6;
   color: var(--text-2);
+}
+.warn-note {
+  color: var(--warn);
 }
 </style>

@@ -341,10 +341,15 @@
       등록하면 몇 건이 풀리나" 가 보이지 않는다. 묶어야 무엇부터 손볼지
       정할 수 있다.
 
-      매핑 테이블을 LEFT 로 붙여 현재 상태를 함께 읽는다. 셋 중 하나다.
+      매핑 테이블을 LEFT 로 붙여 현재 상태를 함께 읽는다. 넷 중 하나다.
         매핑 없음    등록하면 된다
         PENDING      확인만 하면 풀린다 — 왜 안 풀렸는지 사람이 헷갈리는 자리
         STOPPED      일부러 막아 둔 것. 풀면 안 되는 주문일 수 있다
+        DISABLED     매핑은 있는데 미사용(use_yn='N') 이다
+
+      DISABLED 를 따로 내보내는 이유는 재처리가 use_yn 도 보기 때문이다.
+      여기서 use_yn 을 무시하면 화면은 'MAPPED — 재처리하면 풀립니다' 라고
+      하는데 눌러도 0 건이 풀린다. 두 질의의 판정이 갈라지면 안 된다.
     -->
     <select id="selectUnmappedGroups" resultMap="unmappedGroupMap">
         SELECT o.channel_seq,
@@ -358,7 +363,8 @@
                COUNT(DISTINCT o.order_seq)     AS order_count,
                COALESCE(SUM(l.order_qty), 0)   AS total_qty,
                MIN(o.ordered_at)               AS oldest_ordered_at,
-               MIN(m.mapping_status)           AS mapping_status,
+               MIN(CASE WHEN m.use_yn = 'N' THEN 'DISABLED'
+                        ELSE m.mapping_status END) AS mapping_status,
                MIN(k.sku_id)                   AS mapped_sku_id
           FROM tb_order_line l
           JOIN tb_order   o ON o.order_seq   = l.order_seq
@@ -412,9 +418,17 @@
       한 줄씩 읽어 고치지 않고 UPDATE ... FROM 한 문장으로 끝낸다 — 수십
       줄이 걸려 있을 때 왕복이 그만큼 늘어날 이유가 없다.
 
-      같은 주문에 같은 SKU 가 이미 있으면 그 줄은 건너뛴다. 부분 유니크
-      (ux_ordl_sku) 가 막는데, 걸리면 재처리 전체가 실패해 나머지 멀쩡한
-      줄까지 안 풀린다. 그런 줄은 사람이 합쳐야 한다.
+      같은 주문에 같은 SKU 가 가면 안 된다 (ux_ordl_sku). 걸리면 UPDATE 한
+      문장이 통째로 실패해서, 주문 하나 때문에 그 채널의 멀쩡한 주문까지
+      전부 안 풀린다. 그래서 두 가지를 미리 걸러 낸다.
+
+        이미 그 SKU 가 붙은 줄이 있는 경우
+        아직 둘 다 비어 있지만 둘 다 같은 SKU 로 갈 경우
+
+      뒤쪽이 함정이다. 채널이 같은 상품을 두 코드로 올리면 한 주문에 그런
+      줄이 둘 생기는데, 둘 다 sku_seq 가 NULL 이라 '이미 있는지' 로는
+      걸리지 않는다. 줄번호가 앞선 것만 붙이고 나머지는 남긴다 — 수량을
+      합칠지는 사람이 정할 일이지 재처리가 정할 일이 아니다.
     -->
     <update id="reprocessUnmapped">
         UPDATE tb_order_line l
@@ -444,6 +458,19 @@
                 WHERE x.order_seq = l.order_seq
                   AND x.sku_seq   = m.sku_seq
                   AND x.line_seq &lt;&gt; l.line_seq)
+           AND NOT EXISTS (
+               SELECT 1
+                 FROM tb_order_line y
+                 JOIN tb_channel_sku m2 ON m2.channel_seq      = o.channel_seq
+                                       AND m2.ext_product_code = y.ext_product_code
+                                       AND m2.ext_option_code IS NOT DISTINCT FROM y.ext_option_code
+                                       AND m2.mapping_status   = 'MAPPED'
+                                       AND m2.use_yn           = 'Y'
+                WHERE y.order_seq   = l.order_seq
+                  AND y.sku_seq IS NULL
+                  AND y.line_status &lt;&gt; 'CANCELED'
+                  AND m2.sku_seq    = m.sku_seq
+                  AND y.line_no &lt; l.line_no)
     </update>
 
     <!--
