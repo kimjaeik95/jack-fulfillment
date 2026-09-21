@@ -309,6 +309,7 @@
         <result property="totalQty"       column="total_qty"/>
         <result property="oldestOrderedAt" column="oldest_ordered_at"/>
         <result property="mappingStatus"  column="mapping_status"/>
+        <result property="conflictCount"  column="conflict_count"/>
         <result property="mappedSkuId"    column="mapped_sku_id"/>
     </resultMap>
 
@@ -325,6 +326,18 @@
         <if test="channelId != null and channelId != ''">
           AND c.channel_id = #{channelId}
         </if>
+        <!--
+          코드 조건도 여기 둔다. 묶음 · 줄 · 건수가 같은 조건을 봐야 하기
+          때문이다 — 묶음만 이 조건을 빠뜨렸더니 '이 코드가 왜 막혔나' 를
+          물었을 때 엉뚱한 코드의 상태를 답했다.
+
+          옵션코드의 NULL 도 조건이다. 옵션 없는 상품과 있는 상품은 다른
+          묶음이라 IS NOT DISTINCT FROM 으로 비교한다.
+        -->
+        <if test="extProductCode != null and extProductCode != ''">
+          AND l.ext_product_code = #{extProductCode}
+          AND l.ext_option_code IS NOT DISTINCT FROM #{extOptionCode}
+        </if>
         <if test="keyword != null and keyword != ''">
           AND ( l.ext_product_code ILIKE '%' || #{keyword} || '%'
              OR l.ext_option_code  ILIKE '%' || #{keyword} || '%'
@@ -332,6 +345,34 @@
              OR o.order_no         ILIKE '%' || #{keyword} || '%'
              OR o.ext_order_no     ILIKE '%' || #{keyword} || '%' )
         </if>
+    </sql>
+
+    <!--
+      이 줄이 재처리에서 건너뛰어지는가 — 같은 주문의 다른 줄이 그 SKU 를
+      이미 가져갔거나 가져갈 예정인가.
+
+      reprocessUnmapped 의 두 NOT EXISTS 를 뒤집은 것이다. 같은 판정을 두
+      곳에서 따로 쓰면 화면과 실제가 갈라진다 — 한 조각으로 빼서 양쪽이
+      같은 것을 보게 한다.
+    -->
+    <sql id="lineConflicts">
+        m.mapping_status = 'MAPPED' AND m.use_yn = 'Y' AND (
+            EXISTS (SELECT 1 FROM tb_order_line x
+                     WHERE x.order_seq = l.order_seq
+                       AND x.sku_seq   = m.sku_seq
+                       AND x.line_seq &lt;&gt; l.line_seq)
+         OR EXISTS (SELECT 1
+                      FROM tb_order_line y
+                      JOIN tb_channel_sku m2 ON m2.channel_seq      = o.channel_seq
+                                            AND m2.ext_product_code = y.ext_product_code
+                                            AND m2.ext_option_code IS NOT DISTINCT FROM y.ext_option_code
+                                            AND m2.mapping_status   = 'MAPPED'
+                                            AND m2.use_yn           = 'Y'
+                     WHERE y.order_seq   = l.order_seq
+                       AND y.sku_seq IS NULL
+                       AND y.line_status &lt;&gt; 'CANCELED'
+                       AND m2.sku_seq    = m.sku_seq
+                       AND y.line_no &lt; l.line_no))
     </sql>
 
     <!--
@@ -346,6 +387,11 @@
         PENDING      확인만 하면 풀린다 — 왜 안 풀렸는지 사람이 헷갈리는 자리
         STOPPED      일부러 막아 둔 것. 풀면 안 되는 주문일 수 있다
         DISABLED     매핑은 있는데 미사용(use_yn='N') 이다
+
+      conflict_count 는 매핑이 멀쩡한데도 안 풀리는 줄 수다. 한 주문에 같은
+      SKU 를 두 줄 담을 수 없어 앞선 줄만 붙기 때문이다 — 채널이 같은 상품을
+      두 코드로 올렸을 때 생긴다. 이것을 세지 않으면 화면은 '재처리하면
+      풀립니다' 라고 하는데 눌러도 그 줄은 남는다.
 
       DISABLED 를 따로 내보내는 이유는 재처리가 use_yn 도 보기 때문이다.
       여기서 use_yn 을 무시하면 화면은 'MAPPED — 재처리하면 풀립니다' 라고
@@ -365,7 +411,8 @@
                MIN(o.ordered_at)               AS oldest_ordered_at,
                MIN(CASE WHEN m.use_yn = 'N' THEN 'DISABLED'
                         ELSE m.mapping_status END) AS mapping_status,
-               MIN(k.sku_id)                   AS mapped_sku_id
+               MIN(k.sku_id)                   AS mapped_sku_id,
+               COUNT(*) FILTER (WHERE <include refid="lineConflicts"/>) AS conflict_count
           FROM tb_order_line l
           JOIN tb_order   o ON o.order_seq   = l.order_seq
           LEFT JOIN tb_channel c ON c.channel_seq = o.channel_seq
@@ -391,10 +438,6 @@
           JOIN tb_order   o ON o.order_seq   = l.order_seq
           LEFT JOIN tb_channel c ON c.channel_seq = o.channel_seq
         <include refid="unmappedWhere"/>
-        <if test="extProductCode != null and extProductCode != ''">
-          AND l.ext_product_code = #{extProductCode}
-          AND l.ext_option_code IS NOT DISTINCT FROM #{extOptionCode}
-        </if>
          ORDER BY o.ordered_at, l.line_no
          LIMIT #{size} OFFSET #{offset}
     </select>
@@ -405,10 +448,6 @@
           JOIN tb_order   o ON o.order_seq   = l.order_seq
           LEFT JOIN tb_channel c ON c.channel_seq = o.channel_seq
         <include refid="unmappedWhere"/>
-        <if test="extProductCode != null and extProductCode != ''">
-          AND l.ext_product_code = #{extProductCode}
-          AND l.ext_option_code IS NOT DISTINCT FROM #{extOptionCode}
-        </if>
     </select>
 
     <!--
@@ -453,24 +492,7 @@
            AND l.ext_product_code = #{extProductCode}
            AND l.ext_option_code IS NOT DISTINCT FROM #{extOptionCode}
         </if>
-           AND NOT EXISTS (
-               SELECT 1 FROM tb_order_line x
-                WHERE x.order_seq = l.order_seq
-                  AND x.sku_seq   = m.sku_seq
-                  AND x.line_seq &lt;&gt; l.line_seq)
-           AND NOT EXISTS (
-               SELECT 1
-                 FROM tb_order_line y
-                 JOIN tb_channel_sku m2 ON m2.channel_seq      = o.channel_seq
-                                       AND m2.ext_product_code = y.ext_product_code
-                                       AND m2.ext_option_code IS NOT DISTINCT FROM y.ext_option_code
-                                       AND m2.mapping_status   = 'MAPPED'
-                                       AND m2.use_yn           = 'Y'
-                WHERE y.order_seq   = l.order_seq
-                  AND y.sku_seq IS NULL
-                  AND y.line_status &lt;&gt; 'CANCELED'
-                  AND m2.sku_seq    = m.sku_seq
-                  AND y.line_no &lt; l.line_no)
+           AND NOT (<include refid="lineConflicts"/>)
     </update>
 
     <!--

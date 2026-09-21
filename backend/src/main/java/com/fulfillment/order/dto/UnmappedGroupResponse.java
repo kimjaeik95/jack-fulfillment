@@ -43,18 +43,33 @@ public class UnmappedGroupResponse {
 
 	/** MAPPED · PENDING · STOPPED · DISABLED, 또는 매핑이 없으면 null */
 	private String mappingStatus;
+
+	/**
+	 * 매핑은 멀쩡한데도 재처리로 안 풀리는 줄 수.
+	 *
+	 * 한 주문에 같은 SKU 를 두 줄 담을 수 없어 앞선 줄만 붙는다. 채널이 같은
+	 * 상품을 두 코드로 올렸을 때 생기고, 수량을 합치는 것은 사람이 할 일이다.
+	 */
+	private Integer conflictCount;
 	/** 매핑이 가리키는 SKU. 매핑은 있는데 MAPPED 가 아닐 때 무엇으로 붙을지 미리 보여 준다. */
 	private String mappedSkuId;
+
+	/** 재처리로 실제로 풀릴 줄 수. 충돌로 남을 줄은 뺀다. */
+	public int getResolvableCount() {
+		int total = lineCount == null ? 0 : lineCount;
+		int stuck = conflictCount == null ? 0 : conflictCount;
+		return Math.max(total - stuck, 0);
+	}
 
 	/**
 	 * 재처리 버튼을 눌러 풀리는가.
 	 *
-	 * 매핑이 MAPPED 이고 사용 중이어야 재처리가 줄에 SKU 를 붙인다 — 질의가
-	 * 미사용 매핑을 DISABLED 로 내보내므로 여기서는 MAPPED 만 보면 된다.
-	 * 아니면 눌러도 0 건이
-	 * 풀리고, 사용자는 왜 안 되는지 모른 채 다시 누르게 된다.
+	 * 매핑이 MAPPED 이고 사용 중이어야 한다 — 질의가 미사용 매핑을 DISABLED 로
+	 * 내보내므로 여기서는 MAPPED 만 보면 된다. 거기에 실제로 풀릴 줄이 하나는
+	 * 있어야 한다. 전부 충돌이면 눌러도 0 건이 풀리고, 사용자는 왜 안 되는지
+	 * 모른 채 다시 누르게 된다.
 	 */
 	public boolean isReprocessable() {
-		return "MAPPED".equals(mappingStatus);
+		return "MAPPED".equals(mappingStatus) && getResolvableCount() > 0;
 	}
 }

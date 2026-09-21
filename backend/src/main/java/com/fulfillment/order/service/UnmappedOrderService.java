@@ -132,7 +132,8 @@ public class UnmappedOrderService {
 		// 코드 하나를 지목했으면 매핑 상태를 미리 본다. 전체 재처리는 확인하지
 		// 않는다 — 수백 코드의 상태를 한 줄 메시지로 설명할 수 없다.
 		String blocked = code == null ? null
-				: mappingBlockReason(channelSeq, code, blankToNull(request.extOptionCode()));
+				: mappingBlockReason(request.channelId(), channelSeq, code,
+						blankToNull(request.extOptionCode()));
 		if (blocked != null) {
 			throw new BusinessException(ErrorCode.INVALID_INPUT, blocked);
 		}
@@ -227,8 +228,10 @@ public class UnmappedOrderService {
 	 * 테이블을 따로 읽지 않는 이유는 조건이 하나라도 어긋나면 (use_yn 등)
 	 * 두 곳의 판정이 갈라지기 때문이다 — 같은 질의를 본다.
 	 */
-	private String mappingBlockReason(Long channelSeq, String extProductCode, String extOptionCode) {
+	private String mappingBlockReason(String channelId, Long channelSeq, String extProductCode,
+			String extOptionCode) {
 		UnmappedSearch probe = new UnmappedSearch();
+		probe.setChannelId(channelId);
 		probe.setExtProductCode(extProductCode);
 		probe.setExtOptionCode(extOptionCode);
 		UnmappedGroupResponse group = orderDao.selectUnmappedGroups(probe).stream()
@@ -247,6 +250,11 @@ public class UnmappedOrderService {
 					+ "왜 막았는지 먼저 확인하세요.").formatted(extProductCode);
 			case "DISABLED" -> ("%s 의 매핑이 '미사용' 입니다. 채널 SKU 매핑에서 사용으로 "
 					+ "바꿔야 주문에 붙습니다.").formatted(extProductCode);
+			// 매핑은 멀쩡한데 전부 충돌인 경우. 재처리로는 손쓸 수 없다.
+			case "MAPPED" -> ("%s 의 %d 줄은 모두 같은 주문의 다른 줄이 이미 %s 를 "
+					+ "가져간 줄입니다. 한 주문에 같은 SKU 를 두 줄 담을 수 없으니 수량을 "
+					+ "합치거나 한 줄을 취소하세요.")
+					.formatted(extProductCode, group.getLineCount(), group.getMappedSkuId());
 			default -> ("%s 에 등록된 매핑이 없습니다. 채널 SKU 매핑을 먼저 등록하세요.")
 					.formatted(extProductCode);
 		};

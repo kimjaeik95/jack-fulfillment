@@ -125,7 +125,22 @@ const columns = [
  */
 function reason(g) {
   if (g.reprocessable) {
+    const stuck = g.conflictCount ?? 0
+    if (stuck > 0) {
+      return {
+        tone: 'warn',
+        text:
+          `재처리하면 ${g.resolvableCount}줄 풀립니다. 나머지 ${stuck}줄은 같은 주문의 ` +
+          `다른 줄이 ${g.mappedSkuId} 를 이미 가져가 수량을 합쳐야 합니다`,
+      }
+    }
     return { tone: 'ok', text: `매핑 확정됨 (${g.mappedSkuId}) — 재처리하면 풀립니다` }
+  }
+  if (g.mappingStatus === 'MAPPED') {
+    return {
+      tone: 'stop',
+      text: `${g.lineCount}줄 모두 같은 주문의 다른 줄이 ${g.mappedSkuId} 를 가져갔습니다 — 수량을 합치거나 한 줄을 취소하세요`,
+    }
   }
   if (g.mappingStatus === 'PENDING') {
     return {

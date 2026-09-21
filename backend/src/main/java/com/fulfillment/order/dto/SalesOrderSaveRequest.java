@@ -114,6 +114,17 @@ public record SalesOrderSaveRequest(
 	 */
 	public static OrderLine toNewLine(Line v, Long orderSeq, int lineNo, Long skuSeq,
 			String actorId) {
+		return toNewLine(v, orderSeq, lineNo, skuSeq, actorId, null);
+	}
+
+	/**
+	 * note 는 서비스가 붙이는 보류 사유다.
+	 *
+	 * 부르는 쪽이 준 비고를 덮지 않고 뒤에 잇는다 — 채널이 보낸 메모를
+	 * 지우면 나중에 경위를 알 수 없다.
+	 */
+	public static OrderLine toNewLine(Line v, Long orderSeq, int lineNo, Long skuSeq,
+			String actorId, String note) {
 		BigDecimal amount = v.unitPrice() == null
 				? null
 				: v.unitPrice().multiply(BigDecimal.valueOf(v.orderQty()));
@@ -129,9 +140,17 @@ public record SalesOrderSaveRequest(
 				.lineStatus(skuSeq == null ? OrderLine.RECEIVED : OrderLine.MAPPED)
 				.unitPrice(v.unitPrice())
 				.lineAmount(amount)
-				.remark(blankToNull(v.remark()))
+				.remark(joinRemark(blankToNull(v.remark()), note))
 				.createdBy(actorId)
 				.build();
+	}
+
+	private static String joinRemark(String base, String note) {
+		if (note == null || note.isBlank()) {
+			return base;
+		}
+		String merged = base == null || base.isBlank() ? note : base + " / " + note;
+		return merged.length() > 300 ? merged.substring(0, 300) : merged;
 	}
 
 	private static String blankToNull(String s) {

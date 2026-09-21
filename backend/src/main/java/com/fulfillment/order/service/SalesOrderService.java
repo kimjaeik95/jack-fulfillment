@@ -155,22 +155,28 @@ public class SalesOrderService {
 			}
 
 			Long skuSeq = resolveSku(v, channel);
+			String note = null;
+
+			if (skuSeq != null && seenSku.contains(String.valueOf(skuSeq))) {
+				// 앞 줄이 이미 그 SKU 를 가져갔다. 한 주문에 같은 SKU 를 두 줄
+				// 담을 수 없으므로 (ux_ordl_sku) 이 줄은 SKU 없이 적재한다.
+				//
+				// 주문 전체를 거부하지 않는다. 채널이 같은 상품을 두 코드로
+				// 노출해 고객이 둘 다 담은 것뿐이고, 그것을 한 SKU 로 묶은 것은
+				// 우리 매핑이다 — 우리 사정으로 플랫폼 주문을 잃을 수는 없다
+				// (ORD-004, ORD-005). 수량을 합칠지는 사람이 오류대기에서 정한다.
+				note = "같은 주문의 앞 줄과 SKU 가 겹쳐 보류 — 수량을 합칠지 확인 필요";
+				skuSeq = null;
+			}
+
 			if (skuSeq == null) {
 				unmapped++;
 			} else {
-				// 한 주문에 같은 SKU 를 두 줄 담지 않는다. DB 유니크가 막지만
-				// 그 전에 어느 줄이 겹쳤는지 알려 준다.
-				String key = String.valueOf(skuSeq);
-				if (seenSku.contains(key)) {
-					throw new BusinessException(ErrorCode.INVALID_INPUT,
-							("같은 SKU 가 두 줄에 있습니다 (%d 번째 줄). 수량을 합쳐 한 줄로 "
-									+ "넣으세요 — 두 줄이면 몇 개를 보낼지 정할 수 없습니다.")
-									.formatted(lineNo));
-				}
-				seenSku.add(key);
+				seenSku.add(String.valueOf(skuSeq));
 			}
 
-			orderDao.insertLine(SalesOrderSaveRequest.toNewLine(v, orderSeq, lineNo, skuSeq, actorId));
+			orderDao.insertLine(
+					SalesOrderSaveRequest.toNewLine(v, orderSeq, lineNo, skuSeq, actorId, note));
 			lineNo++;
 		}
 		return unmapped;
