@@ -234,6 +234,61 @@ public class SalesOrderService {
 				v.extProductCode(), v.extOptionCode());
 	}
 
+	/**
+	 * 이미 받은 주문에 줄 하나를 붙인다 (ORD-PG-012).
+	 *
+	 * 대량 업로드가 쓴다. 파일에서는 한 주문이 여러 행으로 오는데 행마다
+	 * 따로 처리되므로, 첫 행이 주문을 만들고 뒷 행은 여기로 들어온다.
+	 *
+	 * 확정 전에만 된다. 확정한 주문에 줄을 더하면 이미 잡아 둔 재고와
+	 * 보낼 물건이 어긋난다 — 그 줄만 조용히 안 나가고, 나중에 '왜 하나가
+	 * 빠졌지' 를 찾게 된다.
+	 */
+	@Transactional
+	public Result addLine(LoginUser actor, Long orderSeq, SalesOrderSaveRequest.Line request) {
+		permissionChecker.require(actor, PERM, "C");
+
+		Order order = mustFind(orderSeq);
+		if (!order.isEditable()) {
+			throw new BusinessException(ErrorCode.IN_USE,
+					("%s 은(는) 접수 상태가 아니어서 줄을 더할 수 없습니다. (현재 %s) "
+							+ "확정한 주문에 줄을 더하면 잡아 둔 재고와 보낼 물건이 어긋납니다.")
+							.formatted(order.getOrderNo(), statusLabel(order.getOrderStatus())));
+		}
+
+		Channel channel = channelDao.selectByChannelId(order.getChannelId());
+		List<OrderLine> lines = orderDao.selectLines(orderSeq);
+		int nextNo = lines.stream().mapToInt(OrderLine::getLineNo).max().orElse(0) + 1;
+
+		Long skuSeq = resolveSku(request, channel);
+		if (skuSeq != null) {
+			// 한 주문에 같은 SKU 를 두 줄 담지 않는다. 부분 유니크가 막지만
+			// 그 전에 어느 줄과 겹쳤는지 알려 준다 — 같은 파일을 두 번 올리면
+			// 여기로 들어오고, 그 행만 오류로 떨어져야 나머지가 산다.
+			Long dup = skuSeq;
+			lines.stream()
+					.filter(l -> dup.equals(l.getSkuSeq()))
+					.findFirst()
+					.ifPresent(l -> {
+						throw new BusinessException(ErrorCode.DUPLICATE,
+								("%s 는 이미 %d 번째 줄에 있습니다. 수량을 합쳐 한 줄로 "
+										+ "넣으세요.").formatted(l.getSkuId(), l.getLineNo()));
+					});
+		}
+
+		orderDao.insertLine(SalesOrderSaveRequest.toNewLine(
+				request, orderSeq, nextNo, skuSeq, actorId(actor)));
+
+		Order after = mustFind(orderSeq);
+		List<OrderLine> all = orderDao.selectLines(orderSeq);
+		auditRecorder.recordAction(actor, "UPDATE", TABLE, after.getOrderNo(),
+				"주문 줄 추가 — %d 번째 (%s)".formatted(nextNo,
+						skuSeq == null ? "미매핑" : "SKU 확정"));
+
+		return new Result(SalesOrderResponse.of(after, all),
+				skuSeq == null ? warnOnUnmapped(1) : null);
+	}
+
 	/* ------------------------------------------------------------------ */
 	/* 확정 (ORD-PG-011)                                                   */
 	/* ------------------------------------------------------------------ */

@@ -42,6 +42,35 @@ public final class UploadValues {
 	}
 
 	/** 비어 있으면 null — 서비스가 기본값을 정한다 */
+	/**
+	 * 날짜 · 시각. 비어 있으면 null.
+	 *
+	 * 채널이 내려주는 파일마다 모양이 다르다. 'T' 로 붙인 것도 있고 빈칸으로
+	 * 띄운 것도 있으며, 시각 없이 날짜만 오기도 한다 — 그때는 그날 0 시로 본다.
+	 * 파일을 손으로 고쳐 형식을 맞추라고 할 수는 없다.
+	 */
+	public static java.time.LocalDateTime dateTimeOrNull(String raw, String columnName) {
+		if (raw == null || raw.isBlank()) {
+			return null;
+		}
+		String v = raw.trim().replace('T', ' ');
+		try {
+			if (v.length() <= 10) {
+				return java.time.LocalDate.parse(v).atStartOfDay();
+			}
+			// 초가 없으면 붙여 준다. '2026-09-22 10:00' 이 흔한 모양이다.
+			if (v.length() == 16) {
+				v = v + ":00";
+			}
+			return java.time.LocalDateTime.parse(v.replace(' ', 'T'));
+		} catch (java.time.format.DateTimeParseException e) {
+			throw new com.fulfillment.common.exception.BusinessException(
+					com.fulfillment.common.exception.ErrorCode.INVALID_INPUT,
+					("%s 를 날짜로 읽을 수 없습니다. (%s) 2026-09-22 또는 "
+							+ "2026-09-22 10:00 처럼 적으세요.").formatted(columnName, raw));
+		}
+	}
+
 	public static Integer intOrNull(String raw, String columnName) {
 		if (raw == null) {
 			return null;

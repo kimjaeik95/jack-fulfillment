@@ -16,6 +16,7 @@
  * 할당에 넘길 수 없기 때문이다.
  */
 import { computed, onMounted, reactive, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import * as orderApi from '@/api/order.js'
 import * as channelApi from '@/api/channel.js'
 import { codeOptions } from '@/api/codes.js'
@@ -28,6 +29,7 @@ import CodeBadge from '@/components/CodeBadge.vue'
 import SkuPicker from '@/components/SkuPicker.vue'
 
 const session = useSessionStore()
+const router = useRouter()
 const toast = useToastStore()
 
 const size = orderApi.PAGE_SIZE
@@ -143,6 +145,21 @@ const num = (v) => (v === null || v === undefined ? '-' : nf.format(v))
 const dt = (v) => (v ? String(v).slice(0, 16).replace('T', ' ') : '-')
 
 const canCreate = computed(() => session.can('ORD_ORDER', 'C'))
+
+/**
+ * 일괄 업로드로 보낸다 (ORD-PG-012).
+ *
+ * 올리는 화면은 공용이다(COM-PG-010) — 파일 파싱 · 행별 검증 · 부분성공 ·
+ * 오류 파일을 대상마다 다시 만들지 않는다. 다만 주문을 여럿 받으려는
+ * 사람이 시스템 메뉴를 뒤져 대상을 고르게 둘 이유는 없어서, 여기서
+ * 대상을 지정해 보낸다.
+ *
+ * 등록 권한이 있어야 의미가 있다. 권한이 없으면 서버가 대상 목록에서
+ * 주문을 빼므로 가 봐야 올릴 수 없다.
+ */
+function goBulkUpload() {
+  router.push({ name: 'uploads', query: { type: 'ORDER' } })
+}
 const canUpdate = computed(() => session.can('ORD_ORDER', 'U'))
 const createDenyReason = computed(() => session.denyReason('ORD_ORDER', 'C'))
 const updateDenyReason = computed(() => session.denyReason('ORD_ORDER', 'U'))
@@ -416,6 +433,18 @@ async function submit() {
         </p>
       </div>
       <div class="page-head-actions">
+        <!--
+          채널이 준 파일로 한꺼번에 받는 길. 한 건씩 치는 것이 기본이지만
+          채널 주문은 원래 여러 건이 묶여 온다.
+        -->
+        <button
+          class="btn"
+          :disabled="!canCreate"
+          :title="createDenyReason ?? '엑셀 · CSV 로 한꺼번에 받습니다'"
+          @click="goBulkUpload()"
+        >
+          일괄 업로드
+        </button>
         <button
           class="btn btn-primary"
           :disabled="!canCreate"

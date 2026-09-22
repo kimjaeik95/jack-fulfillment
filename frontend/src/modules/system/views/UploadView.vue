@@ -10,6 +10,7 @@
  * 받아서 채우거나 고친 뒤 그대로 다시 올리면 된다.
  */
 import { computed, onMounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import * as uploadApi from '@/api/upload.js'
 import { loadCodes } from '@/api/codes.js'
 import { useOrgStore } from '@/stores/org.js'
@@ -21,6 +22,7 @@ import ModalDialog from '@/components/ModalDialog.vue'
 import FormField from '@/components/FormField.vue'
 import CodeBadge from '@/components/CodeBadge.vue'
 
+const route = useRoute()
 const toast = useToastStore()
 const orgStore = useOrgStore()
 const permStore = usePermissionStore()
@@ -65,7 +67,16 @@ onMounted(async () => {
   try {
     // 권한이 없는 대상은 서버가 아예 내려주지 않는다
     targets.value = await uploadApi.targets()
-    selectedType.value = targets.value[0]?.type ?? ''
+
+    // 다른 화면이 '?type=ORDER' 로 보내면 그 대상을 골라 둔다. 주문 화면에서
+    // 일괄 업로드를 누른 사람에게 목록을 다시 뒤지게 할 이유가 없다.
+    // 없는 대상이면(권한이 없어 안 내려온 경우) 첫 번째로 둔다.
+    const wanted = String(route.query.type ?? '')
+    const found = targets.value.some((t) => t.type === wanted)
+    selectedType.value = found ? wanted : (targets.value[0]?.type ?? '')
+    if (found) {
+      openDialog()
+    }
   } catch {
     // 올릴 대상이 없어도 이력은 볼 수 있어야 한다
     targets.value = []
