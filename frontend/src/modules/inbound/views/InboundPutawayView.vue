@@ -116,6 +116,24 @@ const selectedLine = computed(
   () => (target.value?.lines ?? []).find((l) => l.lineSeq === scan.lineSeq) ?? null,
 )
 
+/**
+ * 지금 '놓기' 를 못 누르는 이유.
+ *
+ * 줄을 고르면 수량은 실제로 채워지는데 SKU · 로케이션 칸은 placeholder 만
+ * 바뀐다. 회색 글씨가 값처럼 보여서 다 찬 줄 알고 버튼을 누르게 되고,
+ * 버튼은 아무 말 없이 잠겨 있다 — 왜 안 되는지 화면 어디에도 없었다.
+ */
+const missing = computed(() => {
+  if (!scan.lineSeq) return '먼저 위에서 놓을 줄을 고르세요.'
+  if (!scan.skuScan.trim()) return `① SKU 를 스캔하세요 (${selectedLine.value?.skuId ?? ''}).`
+  if (!scan.locationScan.trim()) return '② 놓을 자리의 빈 라벨을 스캔하세요.'
+  const q = Number(scan.qty)
+  const pending = selectedLine.value?.pendingPutawayQty ?? 0
+  if (!(q >= 1)) return '수량은 1 이상이어야 합니다.'
+  if (q > pending) return `남은 ${pending} 개보다 많이 놓을 수 없습니다.`
+  return ''
+})
+
 const scanValid = computed(
   () =>
     scan.lineSeq &&
@@ -403,7 +421,8 @@ const closeDenyReason = computed(
       <!-- 스캔 -->
       <div class="lines-head">
         <strong>스캔</strong>
-        <span class="small dim">
+        <span v-if="missing" class="small warn">{{ missing }}</span>
+        <span v-else class="small dim">
           바코드가 안 읽히면 SKU 코드 · 빈 코드를 직접 넣어도 됩니다.
         </span>
       </div>
@@ -413,7 +432,7 @@ const closeDenyReason = computed(
           v-model="scan.skuScan"
           label="① SKU 스캔"
           mono
-          :placeholder="selectedLine ? selectedLine.skuId : '줄을 먼저 고르세요'"
+          :placeholder="selectedLine ? `${selectedLine.skuId} 를 스캔` : '줄을 먼저 고르세요'"
           :disabled="!scan.lineSeq"
           help="지시한 줄과 다르면 막습니다."
           @enter="onSkuScanned()"
@@ -423,7 +442,7 @@ const closeDenyReason = computed(
           v-model="scan.locationScan"
           label="② 로케이션 스캔"
           mono
-          placeholder="1A-01-01"
+          placeholder="빈 라벨을 스캔 (예: 1A-01-01)"
           :disabled="!scan.lineSeq"
           help="이 입고의 창고 안이어야 합니다."
           @enter="scanValid && submitPutaway()"
@@ -482,7 +501,13 @@ const closeDenyReason = computed(
           }}
         </span>
         <button class="btn" :disabled="busy" @click="target = null">닫기</button>
-        <button class="btn" :disabled="!scanValid || !canPutaway" @click="submitPutaway()">
+        <span v-if="missing && canPutaway" class="small warn need">{{ missing }}</span>
+        <button
+          class="btn"
+          :disabled="!scanValid || !canPutaway"
+          :title="missing || '이 자리에 놓습니다'"
+          @click="submitPutaway()"
+        >
           <span v-if="busy" class="spinner"></span>
           놓기
         </button>
@@ -579,6 +604,15 @@ const closeDenyReason = computed(
 .danger {
   color: var(--c-red, #dc2626);
 }
+/* 버튼 옆에 왜 못 누르는지 — 바닥 줄이 좁아 넘치지 않게 둔다 */
+.need {
+  margin-right: 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 340px;
+}
+
 .warn {
   color: var(--c-amber, #b45309);
 }
