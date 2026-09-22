@@ -2,6 +2,8 @@ package com.fulfillment.order.dao;
 
 import com.fulfillment.domain.StockAlloc;
 import com.fulfillment.order.dto.AllocCandidate;
+import com.fulfillment.order.dto.ShortageResponse;
+import com.fulfillment.order.dto.ShortageSearch;
 import org.apache.ibatis.annotations.Param;
 
 import java.util.List;
@@ -35,6 +37,23 @@ public interface AllocationDao {
 	List<StockAlloc> selectLiveByOrder(@Param("orderSeq") Long orderSeq);
 
 	List<StockAlloc> selectLiveByLine(@Param("lineSeq") Long lineSeq);
+
+	/* 결품 · 배치 (ORD-PG-006, ORD-BT-001, ORD-BT-002) --------------------- */
+
+	List<ShortageResponse> selectShortages(ShortageSearch search);
+
+	long countShortages(ShortageSearch search);
+
+	/**
+	 * 재고가 생겨 다시 잡아 볼 만한 주문 (ORD-BT-002).
+	 *
+	 * 줄이 아니라 주문 순번을 준다. 할당은 주문 단위로 도는데 — 센터를
+	 * 고르려면 그 주문의 모든 줄을 봐야 한다 — 줄만 주면 그 규칙을 못 쓴다.
+	 */
+	List<Long> selectRetryTargets(@Param("limit") int limit);
+
+	/** 확정됐는데 아직 한 줄도 안 잡은 주문 (ORD-BT-001) */
+	List<Long> selectPendingTargets(@Param("limit") int limit);
 
 	/**
 	 * 할당을 푼다. 행은 지우지 않고 qty_released 를 채운다.

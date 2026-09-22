@@ -101,6 +101,161 @@
     </select>
 
 
+    <resultMap id="shortageMap" type="com.fulfillment.order.dto.ShortageResponse">
+        <result property="lineSeq"       column="line_seq"/>
+        <result property="lineNo"        column="line_no"/>
+        <result property="orderSeq"      column="order_seq"/>
+        <result property="orderNo"       column="order_no"/>
+        <result property="orderedAt"     column="ordered_at"/>
+        <result property="channelId"     column="channel_id"/>
+        <result property="channelName"   column="channel_name"/>
+        <result property="receiverName"  column="receiver_name"/>
+        <result property="skuId"         column="sku_id"/>
+        <result property="productName"   column="product_name"/>
+        <result property="colorCode"     column="color_code"/>
+        <result property="sizeCode"      column="size_code"/>
+        <result property="orderQty"      column="order_qty"/>
+        <result property="allocatedQty"  column="allocated_qty"/>
+        <result property="shortQty"      column="short_qty"/>
+        <result property="qtyAvailable"  column="qty_available"/>
+    </resultMap>
+
+    <!--
+      결품 줄 (ORD-PG-006).
+
+      '주문한 만큼 못 잡은 줄' 이다. 전부 못 잡은 것과 일부만 잡은 것을
+      가르지 않는다 — 둘 다 그대로 두면 물건이 덜 나가고, 할 일도 같다
+      (재고를 기다리거나 그 줄을 취소하거나).
+
+      qty_available 을 함께 읽는다. 이 화면의 첫 질문이 '지금은 잡을 수
+      있나' 이기 때문이다 — 입고가 들어와 재고가 생겼는데 아무도 모르고
+      있는 줄을 찾아내는 것이 이 화면의 쓸모다.
+
+      양품창고의 정상 로케이션만 센다. 할당이 거기서만 잡으므로, 반품창고
+      재고를 세면 '있다는데 왜 안 잡히지' 가 된다.
+    -->
+    <sql id="shortageFrom">
+        FROM tb_order_line l
+        JOIN tb_order   o  ON o.order_seq    = l.order_seq
+        JOIN tb_sku     k  ON k.sku_seq      = l.sku_seq
+        JOIN tb_product pr ON pr.product_seq = k.product_seq
+        LEFT JOIN tb_channel c ON c.channel_seq = o.channel_seq
+    </sql>
+
+    <sql id="sellableQty">
+        (SELECT COALESCE(SUM(s.qty_available), 0) FROM tb_stock s
+           JOIN tb_location  lo ON lo.location_seq  = s.location_seq
+                               AND lo.location_type = 'NORMAL'
+                               AND lo.use_yn        = 'Y'
+           JOIN tb_warehouse w  ON w.warehouse_seq  = lo.warehouse_seq
+                               AND w.warehouse_type = 'GOOD'
+                               AND w.use_yn         = 'Y'
+          WHERE s.sku_seq = l.sku_seq)
+    </sql>
+
+    <sql id="heldQty">
+        COALESCE((SELECT SUM(a.qty_allocated - a.qty_released)
+                    FROM tb_stock_alloc a
+                   WHERE a.order_line_seq = l.line_seq), 0)
+    </sql>
+
+    <sql id="shortageWhere">
+        WHERE l.line_status = 'SHORTAGE'
+          AND o.order_status NOT IN ('CANCELED', 'SHIPPED')
+        <if test="channelId != null and channelId != ''">
+          AND c.channel_id = #{channelId}
+        </if>
+        <if test="skuId != null and skuId != ''">
+          AND k.sku_id = #{skuId}
+        </if>
+        <if test="keyword != null and keyword != ''">
+          AND ( o.order_no      ILIKE '%' || #{keyword} || '%'
+             OR o.ext_order_no  ILIKE '%' || #{keyword} || '%'
+             OR o.receiver_name ILIKE '%' || #{keyword} || '%'
+             OR k.sku_id        ILIKE '%' || #{keyword} || '%'
+             OR pr.product_name ILIKE '%' || #{keyword} || '%' )
+        </if>
+        <!--
+          지금 재고가 생긴 줄만. 배치가 쓸어 담을 대상이고, 화면에서도
+          '바로 잡히는 것' 을 먼저 보고 싶을 때 쓴다.
+        -->
+        <if test='resolvableOnly == "Y"'>
+          AND <include refid="sellableQty"/> &gt; 0
+        </if>
+    </sql>
+
+    <sql id="shortageColumns">
+        l.line_seq, l.line_no, l.order_qty,
+        o.order_seq, o.order_no, o.ordered_at, o.receiver_name,
+        c.channel_id, c.channel_name,
+        k.sku_id, k.color_code, k.size_code,
+        pr.product_name,
+        <include refid="heldQty"/> AS allocated_qty,
+        l.order_qty - <include refid="heldQty"/> AS short_qty,
+        <include refid="sellableQty"/> AS qty_available
+    </sql>
+
+    <select id="selectShortages" resultMap="shortageMap">
+        SELECT <include refid="shortageColumns"/>
+        <include refid="shortageFrom"/>
+        <include refid="shortageWhere"/>
+        <!-- 오래 묶여 있는 것부터. 기다린 고객이 먼저다. -->
+         ORDER BY o.ordered_at, l.line_no
+         LIMIT #{size} OFFSET #{offset}
+    </select>
+
+    <select id="countShortages" resultType="long">
+        SELECT COUNT(*)
+        <include refid="shortageFrom"/>
+        <include refid="shortageWhere"/>
+    </select>
+
+    <!--
+      재고가 생겨 다시 잡아 볼 만한 주문 (ORD-BT-002).
+
+      줄이 아니라 주문 순번을 준다. 할당은 주문 단위로 도는데 — 센터를
+      고르려면 그 주문의 모든 줄을 봐야 하기 때문이다 — 줄만 주면 그 규칙을
+      쓸 수 없다.
+
+      오래된 주문부터다. 재고가 모자랄 때 누가 먼저 가져갈지를 정해야 하고,
+      그 기준은 '먼저 시킨 사람' 이 설명하기 쉽다 (ALC-004 의 기본값).
+    -->
+    <select id="selectRetryTargets" resultType="java.lang.Long">
+        SELECT o.order_seq
+          FROM tb_order o
+         WHERE o.order_status = 'CONFIRMED'
+           AND EXISTS (
+               SELECT 1
+                 FROM tb_order_line l
+                WHERE l.order_seq   = o.order_seq
+                  AND l.line_status = 'SHORTAGE'
+                  AND <include refid="sellableQty"/> &gt; 0)
+         ORDER BY o.ordered_at
+         LIMIT #{limit}
+    </select>
+
+    <!--
+      아직 할당을 시작도 안 한 주문 (ORD-BT-001).
+
+      확정됐는데 잡아 둔 것이 한 줄도 없는 주문이다. 결품과 나눠 두는
+      이유는 사람이 보는 눈이 다르기 때문이다 — 이쪽은 '아직 안 돌았다'
+      이고 저쪽은 '돌았는데 모자랐다' 다.
+    -->
+    <select id="selectPendingTargets" resultType="java.lang.Long">
+        SELECT o.order_seq
+          FROM tb_order o
+         WHERE o.order_status = 'CONFIRMED'
+           AND NOT EXISTS (
+               SELECT 1
+                 FROM tb_order_line l
+                 JOIN tb_stock_alloc a ON a.order_line_seq = l.line_seq
+                WHERE l.order_seq = o.order_seq
+                  AND a.qty_allocated &lt;&gt; a.qty_released)
+         ORDER BY o.ordered_at
+         LIMIT #{limit}
+    </select>
+
+
     <insert id="insertAlloc" parameterType="com.fulfillment.domain.StockAlloc"
             useGeneratedKeys="true" keyProperty="allocSeq" keyColumn="alloc_seq">
         INSERT INTO tb_stock_alloc (

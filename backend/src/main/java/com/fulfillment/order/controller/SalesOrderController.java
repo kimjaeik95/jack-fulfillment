@@ -12,6 +12,9 @@ import com.fulfillment.order.dto.UnmappedGroupResponse;
 import com.fulfillment.order.dto.UnmappedLineResponse;
 import com.fulfillment.order.dto.UnmappedSearch;
 import com.fulfillment.order.dto.AllocationResponse;
+import com.fulfillment.order.dto.ShortageResponse;
+import com.fulfillment.order.dto.ShortageSearch;
+import com.fulfillment.order.service.AllocationBatch;
 import com.fulfillment.order.service.AllocationService;
 import com.fulfillment.order.service.SalesOrderService;
 import com.fulfillment.order.service.UnmappedOrderService;
@@ -47,6 +50,11 @@ import java.util.List;
  *   POST   /api/orders/{seq}/allocate      재고할당 — 모자라면 부분할당
  *   DELETE /api/orders/{seq}/allocations   할당해제
  *
+ *   GET  /api/orders/shortages          결품 줄 — 지금 재고까지 함께
+ *   POST /api/orders/allocate-many      고른 주문을 한 번에 할당
+ *   POST /api/orders/allocate-pending   아직 안 돌린 주문을 쓸어 담아 할당
+ *   POST /api/orders/allocate-retry     재고가 생긴 결품 주문을 다시 할당
+ *
  * 주문 목록에도 unmappedOnly=Y 가 있지만 그것과 /unmapped 는 다른 것이다.
  * 목록은 '미매핑 줄이 있는 주문' 을 세고, 여기는 '막힌 줄' 자체를 센다 —
  * 한 주문에 막힌 줄이 셋이면 목록에는 1 건, 여기는 3 건이다. 무엇을 고칠지
@@ -67,12 +75,15 @@ public class SalesOrderController {
 	private final SalesOrderService orderService;
 	private final UnmappedOrderService unmappedService;
 	private final AllocationService allocationService;
+	private final AllocationBatch allocationBatch;
 
 	public SalesOrderController(SalesOrderService orderService,
-			UnmappedOrderService unmappedService, AllocationService allocationService) {
+			UnmappedOrderService unmappedService, AllocationService allocationService,
+			AllocationBatch allocationBatch) {
 		this.orderService = orderService;
 		this.unmappedService = unmappedService;
 		this.allocationService = allocationService;
+		this.allocationBatch = allocationBatch;
 	}
 
 	@GetMapping
@@ -201,5 +212,57 @@ public class SalesOrderController {
 		AllocationService.Result result =
 				allocationService.release(CurrentUser.require(), orderSeq, reasonCode);
 		return ApiResponse.ok(result, result.message());
+	}
+
+	/* 결품 · 일괄 할당 (ORD-PG-006, ORD-BT-001/002) ----------------------- */
+
+	/**
+	 * 결품 줄.
+	 *
+	 * 주문이 아니라 줄이 한 행이다. 한 주문에 결품이 셋이면 세 행이고,
+	 * 고치는 단위도 줄이라서 그 편이 맞다. 지금 재고가 얼마인지도 함께
+	 * 오므로 '이제 잡을 수 있는 것' 을 바로 가릴 수 있다.
+	 */
+	@GetMapping("/shortages")
+	public ApiResponse<PageResponse<ShortageResponse>> shortages(
+			@ModelAttribute ShortageSearch search) {
+		return ApiResponse.ok(allocationService.shortages(CurrentUser.require(), search));
+	}
+
+	/**
+	 * 고른 주문을 한 번에 할당.
+	 *
+	 * 주문마다 트랜잭션이 따로라 한 건이 실패해도 나머지는 돈다. 결과는
+	 * '몇 건 중 몇 건' 으로 온다.
+	 */
+	@PostMapping("/allocate-many")
+	public ApiResponse<AllocationBatch.BulkResult> allocateMany(
+			@RequestBody List<Long> orderSeqs) {
+		AllocationBatch.BulkResult r =
+				allocationBatch.allocateMany(CurrentUser.require(), orderSeqs);
+		return ApiResponse.ok(r, r.message());
+	}
+
+	/**
+	 * 아직 한 줄도 안 잡은 주문을 쓸어 담아 할당 (ORD-BT-001 을 손으로).
+	 *
+	 * 배치가 꺼져 있어도 화면에서 같은 일을 할 수 있어야 한다 — 시연에서
+	 * 보는 결과와 밤에 배치가 내는 결과가 같은 코드에서 나온다.
+	 */
+	@PostMapping("/allocate-pending")
+	public ApiResponse<AllocationBatch.BulkResult> allocatePending(
+			@RequestParam(defaultValue = "200") int limit) {
+		AllocationBatch.BulkResult r = allocationBatch.allocateMany(
+				CurrentUser.require(), allocationService.pendingTargets(limit));
+		return ApiResponse.ok(r, r.message());
+	}
+
+	/** 재고가 생긴 결품 주문을 다시 할당 (ORD-BT-002 를 손으로) */
+	@PostMapping("/allocate-retry")
+	public ApiResponse<AllocationBatch.BulkResult> allocateRetry(
+			@RequestParam(defaultValue = "200") int limit) {
+		AllocationBatch.BulkResult r = allocationBatch.allocateMany(
+				CurrentUser.require(), allocationService.retryTargets(limit));
+		return ApiResponse.ok(r, r.message());
 	}
 }

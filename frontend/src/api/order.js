@@ -152,3 +152,50 @@ export async function releaseAllocation(orderSeq, reasonCode) {
   )
   return { result: data, message: warning }
 }
+
+/* ── 결품 · 일괄 할당 (ORD-PG-006, ORD-BT-001/002) ───────────── */
+
+/**
+ * 결품 줄.
+ *
+ * 주문이 아니라 줄이 한 행이다. 지금 재고가 얼마인지도 함께 오므로
+ * '이제 잡을 수 있는 것' 을 바로 가릴 수 있다.
+ */
+export async function shortages(params = {}) {
+  const { data } = await get('/orders/shortages', {
+    keyword: params.keyword,
+    channelId: params.channelId,
+    skuId: params.skuId,
+    resolvableOnly: params.resolvableOnly,
+    page: params.page,
+    size: params.size,
+  })
+  return data
+}
+
+/**
+ * 재고가 생긴 결품 주문을 모두 다시 할당 (ORD-BT-002 를 손으로).
+ *
+ * 화면에 보이는 것만이 아니라 조건에 맞는 전부를 돈다 — 페이지에 보이는
+ * 것만 돌면 다음 페이지의 줄은 영원히 안 돌아간다.
+ */
+export async function allocateRetry(limit) {
+  const { data, warning } = await post(
+    `/orders/allocate-retry${limit ? '?limit=' + limit : ''}`,
+  )
+  return { result: data, message: warning }
+}
+
+/** 아직 한 줄도 안 잡은 주문을 쓸어 담아 할당 (ORD-BT-001 을 손으로) */
+export async function allocatePending(limit) {
+  const { data, warning } = await post(
+    `/orders/allocate-pending${limit ? '?limit=' + limit : ''}`,
+  )
+  return { result: data, message: warning }
+}
+
+/** 고른 주문을 한 번에 할당 */
+export async function allocateMany(orderSeqs) {
+  const { data, warning } = await post('/orders/allocate-many', orderSeqs)
+  return { result: data, message: warning }
+}

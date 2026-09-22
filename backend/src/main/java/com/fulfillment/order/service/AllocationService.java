@@ -6,6 +6,7 @@ import com.fulfillment.common.exception.BusinessException;
 import com.fulfillment.common.exception.ErrorCode;
 import com.fulfillment.common.security.LoginUser;
 import com.fulfillment.common.security.PermissionChecker;
+import com.fulfillment.common.web.PageResponse;
 import com.fulfillment.domain.Order;
 import com.fulfillment.domain.OrderLine;
 import com.fulfillment.domain.StockAlloc;
@@ -15,6 +16,8 @@ import com.fulfillment.order.dao.SalesOrderDao;
 import com.fulfillment.order.dto.AllocCandidate;
 import com.fulfillment.order.dto.AllocationResponse;
 import com.fulfillment.order.dto.SalesOrderResponse;
+import com.fulfillment.order.dto.ShortageResponse;
+import com.fulfillment.order.dto.ShortageSearch;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -92,11 +95,55 @@ public class AllocationService {
 	/* 조회                                                                */
 	/* ------------------------------------------------------------------ */
 
+	/**
+	 * 결품 줄 (ORD-PG-006).
+	 *
+	 * 지금 재고가 얼마인지도 함께 온다 — 이 화면의 첫 질문이 '지금은 잡을
+	 * 수 있나' 이기 때문이다.
+	 */
+	@Transactional(readOnly = true)
+	public PageResponse<ShortageResponse> shortages(LoginUser actor, ShortageSearch search) {
+		permissionChecker.require(actor, PERM, "R");
+		return PageResponse.of(allocDao.selectShortages(search),
+				allocDao.countShortages(search), search.getPage(), search.getSize());
+	}
+
+
 	/** 주문의 할당 내역. 푼 것도 함께 온다 — 경위를 보여야 한다. */
 	@Transactional(readOnly = true)
 	public List<AllocationResponse> byOrder(LoginUser actor, Long orderSeq) {
 		permissionChecker.require(actor, PERM, "R");
+		return allocationsOf(orderSeq);
+	}
+
+	/**
+	 * 권한을 보지 않고 읽는다.
+	 *
+	 * 할당 · 해제가 결과에 싣는 내역이다. 방금 자기가 만든 것을 돌려받는
+	 * 것이라 조회 권한을 다시 물을 일이 아니고, 무엇보다 배치에는 로그인
+	 * 사용자가 없다 — byOrder 를 부르면 actor 가 null 이라 거부되고, 할당은
+	 * 다 끝났는데 마지막 줄에서 '로그인이 필요합니다' 로 뒤집힌다.
+	 */
+	private List<AllocationResponse> allocationsOf(Long orderSeq) {
 		return allocDao.selectByOrder(orderSeq).stream().map(AllocationResponse::of).toList();
+	}
+
+	/**
+	 * 확정됐는데 아직 한 줄도 안 잡은 주문 (ORD-BT-001 이 쓴다).
+	 *
+	 * 권한을 보지 않는다. 배치에는 로그인 사용자가 없고, 이 목록은 순번만
+	 * 담긴 작업거리라 그 자체로 내보내는 정보가 없다 — 실제 할당은 건마다
+	 * allocate 가 다시 권한을 본다.
+	 */
+	@Transactional(readOnly = true)
+	public List<Long> pendingTargets(int limit) {
+		return allocDao.selectPendingTargets(limit);
+	}
+
+	/** 재고가 생겨 다시 잡아 볼 만한 결품 주문 (ORD-BT-002 가 쓴다) */
+	@Transactional(readOnly = true)
+	public List<Long> retryTargets(int limit) {
+		return allocDao.selectRetryTargets(limit);
 	}
 
 	/* ------------------------------------------------------------------ */
@@ -113,7 +160,27 @@ public class AllocationService {
 	@Transactional
 	public Result allocate(LoginUser actor, Long orderSeq) {
 		permissionChecker.require(actor, PERM, "C");
+		return allocateOne(actor, orderSeq);
+	}
 
+	/**
+	 * 권한을 보지 않는 알맹이.
+	 *
+	 * <b>부르는 쪽이 이미 권한을 확인했어야 한다.</b> 이렇게 나눈 이유는 둘이다.
+	 *
+	 *   배치에는 로그인 사용자가 없다. actor 가 null 이면 PermissionChecker 는
+	 *   무조건 거부하므로, 배치가 allocate 를 부르면 모든 건이 실패한다.
+	 *
+	 *   일괄 실행이 건마다 권한을 물으면 같은 답을 수백 번 받는다.
+	 *
+	 * public 인 것은 스프링 프록시 때문이다. 일괄 실행이 빈을 통해 건마다
+	 * 불러야 트랜잭션이 건별로 열리고, 한 건이 실패해도 그 건만 되돌아간다.
+	 * private 로 두고 자기 자신을 부르면 프록시를 안 지나 한 트랜잭션이 된다.
+	 *
+	 * @param actor 배치면 null. 감사로그의 행위자는 그때 system 이 된다.
+	 */
+	@Transactional
+	public Result allocateOne(LoginUser actor, Long orderSeq) {
 		Order order = mustFind(orderSeq);
 		if (!order.isAllocatable() && !Order.ALLOCATED.equals(order.getOrderStatus())) {
 			throw new BusinessException(ErrorCode.IN_USE,
@@ -165,7 +232,7 @@ public class AllocationService {
 
 		return new Result(
 				SalesOrderResponse.of(after, orderDao.selectLines(orderSeq)),
-				byOrder(actor, orderSeq),
+				allocationsOf(orderSeq),
 				filled, shortLines, allocatedQty, shortQty,
 				message(filled, shortLines, allocatedQty, shortQty));
 	}
@@ -243,7 +310,7 @@ public class AllocationService {
 
 		return new Result(
 				SalesOrderResponse.of(after, orderDao.selectLines(orderSeq)),
-				byOrder(actor, orderSeq), 0, 0, 0, 0,
+				allocationsOf(orderSeq), 0, 0, 0, 0,
 				"%d 개를 풀었습니다. 그만큼 판매가능수량이 돌아왔습니다.".formatted(released));
 	}
 
