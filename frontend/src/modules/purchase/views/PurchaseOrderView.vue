@@ -28,6 +28,7 @@ import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import FormField from '@/components/FormField.vue'
 import CodeBadge from '@/components/CodeBadge.vue'
 import SkuPicker from '@/components/SkuPicker.vue'
+import RequestPicker from '../components/RequestPicker.vue'
 
 const hierarchy = useHierarchyStore()
 const session = useSessionStore()
@@ -235,6 +236,24 @@ const loadingRequest = ref(false)
  * 요청 없이도 발주할 수 있다 (PUR-005). 신상품 초도물량처럼 센터의
  * 요청 없이 본사가 바로 내는 경우가 있다.
  */
+/**
+ * 구매요청 고르기.
+ *
+ * 요청번호를 손으로 적게 하면 다른 화면에서 찾아 옮겨 적어야 하고, 한
+ * 글자만 틀려도 막힌다. 목록에서 고르면 그 일이 없고, 발주할 수 있는
+ * 것만(승인 · 부분승인) 보여 주므로 고른 것에는 반드시 담을 것이 있다.
+ */
+const pickingRequest = ref(false)
+
+async function pickRequest(row) {
+  pickingRequest.value = false
+  form.requestNo = row.requestNo
+  // 센터는 요청의 것으로 맞춘다. 요청이 근거인데 센터가 다르면 엉뚱한
+  // 곳으로 들어올 발주가 되고, 그 어긋남은 저장할 때야 드러난다.
+  if (row.plantId) form.plantId = row.plantId
+  await pullFromRequest()
+}
+
 async function pullFromRequest() {
   const no = form.requestNo.trim()
   if (!no) {
@@ -655,10 +674,22 @@ const createDenyReason = computed(() => session.denyReason('PUR_PO_ISSUE', 'C'))
         <FormField
           v-model="form.requestNo"
           label="근거 구매요청"
-          placeholder="REQ-20260915-0001 (없으면 비워 둡니다)"
-          help="승인된 요청번호를 넣고 불러오면 승인수량대로 담습니다."
+          mono
+          placeholder="고르거나 번호를 직접 입력 (없으면 비워 둡니다)"
+          help="고르면 그 요청의 센터를 맞추고 승인수량대로 담습니다."
           @enter="pullFromRequest()"
         />
+        <!--
+          고르는 것이 기본이다. 번호를 치는 길도 남긴다 — 아는 번호는
+          치는 편이 빠르고, 요청 없이 내는 발주도 있다 (PUR-005).
+        -->
+        <button
+          class="btn btn-primary"
+          :disabled="loadingRequest"
+          @click="pickingRequest = true"
+        >
+          요청 고르기
+        </button>
         <button class="btn" :disabled="!form.requestNo || loadingRequest" @click="pullFromRequest()">
           <span v-if="loadingRequest" class="spinner"></span>
           불러오기
@@ -738,6 +769,17 @@ const createDenyReason = computed(() => session.denyReason('PUR_PO_ISSUE', 'C'))
         </button>
       </template>
     </ModalDialog>
+
+    <!--
+      결재가 끝난 요청만 보여 준다. 위에서 센터를 골랐으면 그 센터로
+      좁힌다 — 고를 때마다 눈으로 대조하게 두지 않는다.
+    -->
+    <RequestPicker
+      v-if="pickingRequest"
+      :plant-id="form.plantId"
+      @pick="pickRequest"
+      @close="pickingRequest = false"
+    />
 
     <SkuPicker
       v-if="picking"
