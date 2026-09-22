@@ -258,6 +258,28 @@ public class AllocationService {
 		// 들어가면 사유별로 세어 볼 수 없고 화면에도 코드가 그대로 보인다.
 		codeValues.require(REASON_GROUP, reasonCode, "할당해제 사유");
 
+		List<StockAlloc> live = allocDao.selectLiveByOrder(orderSeq);
+		if (live.isEmpty()) {
+			throw new BusinessException(ErrorCode.INVALID_INPUT,
+					"%s 에 풀 할당이 없습니다.".formatted(mustFind(orderSeq).getOrderNo()));
+		}
+		return releaseAll(actor, orderSeq, reasonCode);
+	}
+
+	/**
+	 * 잡아 둔 것을 전부 푼다. 권한을 보지 않고, 풀 것이 없어도 조용히 넘어간다.
+	 *
+	 * <b>부르는 쪽이 이미 권한을 확인했어야 한다.</b> 주문취소(ORD-PG-007)가
+	 * 이것을 쓴다 — 취소는 주문 권한(ORD_ORDER/D)으로 하는 일인데, 잡아 둔
+	 * 재고를 안 풀면 팔 수 있는 물건이 없는 주문 몫으로 묶여 있게 된다.
+	 * 할당 권한(ORD_ALLOC/D)까지 있어야 취소할 수 있다고 하면, 취소는 CS 가
+	 * 하는 일인데 창고 권한을 줘야 한다.
+	 *
+	 * 풀 것이 없어도 예외를 던지지 않는다. 확정 전에 취소하는 주문은 애초에
+	 * 잡은 것이 없고, 그것이 정상이다.
+	 */
+	@Transactional
+	public Result releaseAll(LoginUser actor, Long orderSeq, String reasonCode) {
 		Order order = mustFind(orderSeq);
 		if (Order.PICKING.equals(order.getOrderStatus())
 				|| Order.SHIPPED.equals(order.getOrderStatus())) {
@@ -268,11 +290,6 @@ public class AllocationService {
 		}
 
 		List<StockAlloc> live = allocDao.selectLiveByOrder(orderSeq);
-		if (live.isEmpty()) {
-			throw new BusinessException(ErrorCode.INVALID_INPUT,
-					"%s 에 풀 할당이 없습니다.".formatted(order.getOrderNo()));
-		}
-
 		int released = 0;
 		for (StockAlloc alloc : live) {
 			int qty = alloc.getQtyAllocated() - alloc.getQtyReleased();
@@ -311,7 +328,39 @@ public class AllocationService {
 		return new Result(
 				SalesOrderResponse.of(after, orderDao.selectLines(orderSeq)),
 				allocationsOf(orderSeq), 0, 0, 0, 0,
-				"%d 개를 풀었습니다. 그만큼 판매가능수량이 돌아왔습니다.".formatted(released));
+				released == 0
+						? "풀 할당이 없었습니다."
+						: "%d 개를 풀었습니다. 그만큼 판매가능수량이 돌아왔습니다."
+								.formatted(released));
+	}
+
+	/**
+	 * 줄 하나가 잡아 둔 것만 푼다.
+	 *
+	 * 결품 줄을 접을 때 쓴다 (ORD-PG-006 → ORD-PG-007). 세 개 시켰는데 두
+	 * 개만 잡힌 줄을 취소하면, 그 두 개는 다른 주문이 가져갈 수 있어야 한다.
+	 *
+	 * 권한을 보지 않는다 — 부르는 쪽(주문 줄 취소)이 이미 확인했다.
+	 *
+	 * @return 푼 수량
+	 */
+	@Transactional
+	public int releaseLine(LoginUser actor, Order order, Long lineSeq, String reasonCode) {
+		int released = 0;
+		for (StockAlloc alloc : allocDao.selectLiveByLine(lineSeq)) {
+			int qty = alloc.getQtyAllocated() - alloc.getQtyReleased();
+			int rows = allocDao.releaseAlloc(alloc.getAllocSeq(), qty, reasonCode, actorId(actor));
+			if (rows == 0) {
+				throw new BusinessException(ErrorCode.IN_USE,
+						("할당이 방금 다른 곳에서 바뀌었습니다. 화면을 새로 고친 뒤 다시 "
+								+ "시도하세요. (할당 %s)").formatted(alloc.getAllocSeq()));
+			}
+			stockLedger.apply(actor, alloc.getStockSeq(),
+					StockLedger.Movement.of(MOVE_RELEASE, StockLedger.ALLOCATED, -qty,
+							REF_ORDER, order.getOrderNo()));
+			released += qty;
+		}
+		return released;
 	}
 
 	/* ------------------------------------------------------------------ */

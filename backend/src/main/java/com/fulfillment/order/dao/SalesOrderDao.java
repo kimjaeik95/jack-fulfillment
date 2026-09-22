@@ -53,6 +53,21 @@ public interface SalesOrderDao {
 			@Param("updatedBy") String updatedBy);
 
 	/**
+	 * 취소로 옮긴다 (ORD-008).
+	 *
+	 * 상태만 옮기는 updateStatus 와 나눈 이유는 취소에는 '누가 · 언제 · 왜'
+	 * 가 함께 들어가야 하기 때문이다 — tb_order 의 ck_order_canceled 가
+	 * 그것을 강제한다. 두 번에 나눠 쓰면 그 사이에 제약이 걸린다.
+	 *
+	 * 0 이 돌아오면 그 사이에 상태가 바뀐 것이다 (이미 취소됐거나 출고로
+	 * 넘어갔거나). 두 사람이 같은 버튼을 눌렀을 때 한 쪽만 통과시킨다.
+	 */
+	int updateCanceled(@Param("orderSeq") Long orderSeq,
+			@Param("fromStatuses") java.util.List<String> fromStatuses,
+			@Param("reasonCode") String reasonCode,
+			@Param("canceledBy") String canceledBy);
+
+	/**
 	 * 라인 상태를 한꺼번에 옮긴다.
 	 *
 	 * 확정 시 RECEIVED → MAPPED 로 전부 넘기는 데 쓴다. 줄마다 부르면

@@ -199,3 +199,40 @@ export async function allocateMany(orderSeqs) {
   const { data, warning } = await post('/orders/allocate-many', orderSeqs)
   return { result: data, message: warning }
 }
+
+/* ── 취소 · 변경 (ORD-PG-007, ORD-PG-008) ────────────────────── */
+
+/**
+ * 주문취소.
+ *
+ * 잡아 둔 재고를 함께 푼다. 출고가 시작된 뒤에는 거절된다 — 이미 나간
+ * 물건은 반품으로 받아야 한다.
+ */
+export async function cancel(orderSeq, payload) {
+  const { data, warning } = await post(`/orders/${orderSeq}/cancel`, payload)
+  return { order: data, warning }
+}
+
+/**
+ * 줄 하나만 접는다 (결품 줄).
+ *
+ * 마지막 살아 있는 줄을 접으면 주문도 함께 취소된다.
+ */
+export async function cancelLine(orderSeq, lineSeq, payload) {
+  const { data, warning } = await post(
+    `/orders/${orderSeq}/lines/${lineSeq}/cancel`,
+    payload,
+  )
+  return { order: data, warning }
+}
+
+/**
+ * 수령인 · 배송지 · 요청사항 변경.
+ *
+ * 무엇을 몇 개 보내는지는 못 바꾼다 — 그건 이미 재고를 잡아 둔 값이라
+ * 취소하고 다시 받는 것이 맞다.
+ */
+export async function updateAddress(orderSeq, payload) {
+  const { data, warning } = await put(`/orders/${orderSeq}/address`, payload)
+  return { order: data, warning }
+}

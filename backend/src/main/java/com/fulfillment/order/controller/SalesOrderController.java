@@ -5,6 +5,8 @@ import com.fulfillment.common.web.ApiResponse;
 import com.fulfillment.common.web.PageResponse;
 import com.fulfillment.order.dto.LineSkuAssignRequest;
 import com.fulfillment.order.dto.ReprocessRequest;
+import com.fulfillment.order.dto.SalesOrderAddressRequest;
+import com.fulfillment.order.dto.SalesOrderCancelRequest;
 import com.fulfillment.order.dto.SalesOrderResponse;
 import com.fulfillment.order.dto.SalesOrderSaveRequest;
 import com.fulfillment.order.dto.SalesOrderSearch;
@@ -39,6 +41,9 @@ import java.util.List;
  *   GET  /api/orders/{seq}                  상세 + 라인
  *   POST /api/orders                        등록 — 화면과 외부가 같이 쓴다
  *   POST /api/orders/{seq}/confirm          확정 — 할당 대상으로 넘긴다
+ *   POST /api/orders/{seq}/cancel           주문취소 — 잡아 둔 재고를 풀고 접는다
+ *   POST /api/orders/{seq}/lines/{seq}/cancel  줄 하나만 접는다 (결품 줄)
+ *   PUT  /api/orders/{seq}/address          수령인 · 배송지 · 요청사항 변경
  *
  *   GET  /api/orders/unmapped/groups        오류대기 — 외부코드별 묶음
  *   GET  /api/orders/unmapped/lines         오류대기 — 줄 목록
@@ -112,6 +117,51 @@ public class SalesOrderController {
 	@PostMapping("/{orderSeq}/confirm")
 	public ApiResponse<SalesOrderResponse> confirm(@PathVariable Long orderSeq) {
 		SalesOrderService.Result result = orderService.confirm(CurrentUser.require(), orderSeq);
+		return ApiResponse.ok(result.order(), result.warning());
+	}
+
+	/* 취소 · 변경 (ORD-PG-007, ORD-PG-008) -------------------------------- */
+
+	/**
+	 * 주문취소.
+	 *
+	 * 잡아 둔 재고를 먼저 푼다. 할당 권한은 묻지 않는다 — 취소는 CS 가 하는
+	 * 일인데 거기에 창고 권한을 요구할 수 없다.
+	 *
+	 * 출고가 시작된 뒤에는 거절한다. 이미 나간 물건은 반품으로 받아야 한다.
+	 */
+	@PostMapping("/{orderSeq}/cancel")
+	public ApiResponse<SalesOrderResponse> cancel(@PathVariable Long orderSeq,
+			@Valid @RequestBody SalesOrderCancelRequest request) {
+		SalesOrderService.Result result = orderService.cancel(CurrentUser.require(), orderSeq, request);
+		return ApiResponse.ok(result.order(), result.warning());
+	}
+
+	/**
+	 * 줄 하나만 접는다 (결품 줄).
+	 *
+	 * 세 개 시켰는데 하나도 못 잡은 줄 때문에 나머지 줄까지 묶어 둘 수는
+	 * 없다. 마지막 살아 있는 줄을 접으면 주문도 함께 취소된다.
+	 */
+	@PostMapping("/{orderSeq}/lines/{lineSeq}/cancel")
+	public ApiResponse<SalesOrderResponse> cancelLine(@PathVariable Long orderSeq,
+			@PathVariable Long lineSeq, @Valid @RequestBody SalesOrderCancelRequest request) {
+		SalesOrderService.Result result =
+				orderService.cancelLine(CurrentUser.require(), orderSeq, lineSeq, request);
+		return ApiResponse.ok(result.order(), result.warning());
+	}
+
+	/**
+	 * 주문정보 변경 — 수령인 · 배송지 · 요청사항.
+	 *
+	 * PUT 인 이유는 그 칸들을 통째로 정해진 값으로 바꾸는 것이고, 두 번
+	 * 보내도 결과가 같기 때문이다. 무엇을 몇 개 보내는지는 여기서 못 바꾼다.
+	 */
+	@PutMapping("/{orderSeq}/address")
+	public ApiResponse<SalesOrderResponse> updateAddress(@PathVariable Long orderSeq,
+			@Valid @RequestBody SalesOrderAddressRequest request) {
+		SalesOrderService.Result result =
+				orderService.updateAddress(CurrentUser.require(), orderSeq, request);
 		return ApiResponse.ok(result.order(), result.warning());
 	}
 

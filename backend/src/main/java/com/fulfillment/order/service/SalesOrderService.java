@@ -14,6 +14,9 @@ import com.fulfillment.domain.Sku;
 import com.fulfillment.master.channel.dao.ChannelDao;
 import com.fulfillment.master.sku.dao.SkuDao;
 import com.fulfillment.order.dao.SalesOrderDao;
+import com.fulfillment.common.code.CodeValues;
+import com.fulfillment.order.dto.SalesOrderAddressRequest;
+import com.fulfillment.order.dto.SalesOrderCancelRequest;
 import com.fulfillment.order.dto.SalesOrderResponse;
 import com.fulfillment.order.dto.SalesOrderSaveRequest;
 import com.fulfillment.order.dto.SalesOrderSearch;
@@ -52,19 +55,49 @@ public class SalesOrderService {
 	private static final String PERM = "ORD_ORDER";
 	private static final String TABLE = "tb_order";
 
+	/** 취소 사유 코드그룹 (ORD-008) */
+	private static final String REASON_CANCEL = "REASON_CANCEL";
+
+	/**
+	 * 취소로 할당을 풀 때 남기는 사유 (코드그룹 REASON_SHORT).
+	 *
+	 * 주문의 취소사유를 여기 그대로 넣지 않는다. 그 사유는 주문에 이미 적혀
+	 * 있고, 할당이 알아야 하는 것은 '주문이 취소돼서 풀렸다' 는 사실 하나다.
+	 */
+	private static final String RELEASE_BY_CANCEL = "ORDER_CANCEL";
+
+	/** 취소 · 배송지 변경이 되는 상태. 출고가 시작되면 둘 다 막는다. */
+	private static final List<String> CANCELABLE =
+			List.of(Order.RECEIVED, Order.CONFIRMED, Order.ALLOCATED);
+
+	/** 감사로그에 전 · 후를 남길 칸 (COM-PG-009) */
+	private static final List<AuditRecorder.Field<Order>> ADDRESS_FIELDS = List.of(
+			new AuditRecorder.Field<>("receiver_name", Order::getReceiverName),
+			new AuditRecorder.Field<>("receiver_phone", Order::getReceiverPhone),
+			new AuditRecorder.Field<>("zip_code", Order::getZipCode),
+			new AuditRecorder.Field<>("address", Order::getAddress),
+			new AuditRecorder.Field<>("address_detail", Order::getAddressDetail),
+			new AuditRecorder.Field<>("delivery_memo", Order::getDeliveryMemo),
+			new AuditRecorder.Field<>("remark", Order::getRemark));
+
 	private final SalesOrderDao orderDao;
 	private final ChannelDao channelDao;
 	private final SkuDao skuDao;
+	private final CodeValues codeValues;
+	private final AllocationService allocationService;
 	private final DocNumbers docNumbers;
 	private final PermissionChecker permissionChecker;
 	private final AuditRecorder auditRecorder;
 
 	public SalesOrderService(SalesOrderDao orderDao, ChannelDao channelDao,
-			SkuDao skuDao, DocNumbers docNumbers,
+			SkuDao skuDao, CodeValues codeValues, AllocationService allocationService,
+			DocNumbers docNumbers,
 			PermissionChecker permissionChecker, AuditRecorder auditRecorder) {
 		this.orderDao = orderDao;
 		this.channelDao = channelDao;
 		this.skuDao = skuDao;
+		this.codeValues = codeValues;
+		this.allocationService = allocationService;
 		this.docNumbers = docNumbers;
 		this.permissionChecker = permissionChecker;
 		this.auditRecorder = auditRecorder;
@@ -242,6 +275,190 @@ public class SalesOrderService {
 	}
 
 	/* ------------------------------------------------------------------ */
+	/* 취소 (ORD-PG-007, ORD-008)                                          */
+	/* ------------------------------------------------------------------ */
+
+	/**
+	 * 주문을 취소한다.
+	 *
+	 * 잡아 둔 재고를 먼저 푼다. 안 풀면 팔 수 있는 물건이 취소된 주문 몫으로
+	 * 묶여 있게 되고, 그 사실은 아무 화면에도 안 보인다 — 재고는 있는데
+	 * 판매가능이 모자란 상태가 된다.
+	 *
+	 * 할당 권한(ORD_ALLOC/D)은 묻지 않는다. 취소는 CS 가 하는 일인데 거기에
+	 * 창고 권한을 요구하면, 취소 하나 하려고 창고를 만질 수 있는 권한을 줘야
+	 * 한다. 주문을 취소할 수 있는 사람이면 그 주문이 잡은 것을 풀 수 있다.
+	 *
+	 * 출고가 시작된 뒤에는 막는다 (ORD-008). 물건이 이미 집혀 상자에
+	 * 들어갔는데 전산만 되돌리면 재고와 실물이 어긋난다 — 그때는 취소가
+	 * 아니라 반품이다.
+	 */
+	@Transactional
+	public Result cancel(LoginUser actor, Long orderSeq, SalesOrderCancelRequest request) {
+		permissionChecker.require(actor, PERM, "D");
+
+		Order before = mustFind(orderSeq);
+		if (Order.CANCELED.equals(before.getOrderStatus())) {
+			throw new BusinessException(ErrorCode.IN_USE,
+					"%s 은(는) 이미 취소된 주문입니다.".formatted(before.getOrderNo()));
+		}
+		if (!before.isCancelable()) {
+			throw new BusinessException(ErrorCode.IN_USE,
+					("%s 은(는) 출고가 시작되어 취소할 수 없습니다. (현재 %s) 이미 나간 "
+							+ "물건은 반품으로 받아야 합니다 — 전산만 되돌리면 재고와 실물이 "
+							+ "어긋납니다.")
+							.formatted(before.getOrderNo(), statusLabel(before.getOrderStatus())));
+		}
+		codeValues.require(REASON_CANCEL, request.reasonCode(), "취소 사유");
+
+		// 잡아 둔 것을 푼다. 확정 전 주문은 잡은 것이 없고, 그때는 아무 일도
+		// 일어나지 않는다.
+		allocationService.releaseAll(actor, orderSeq, RELEASE_BY_CANCEL);
+
+		int changed = orderDao.updateCanceled(orderSeq, CANCELABLE,
+				request.reasonCode(), actorId(actor));
+		if (changed == 0) {
+			throw new BusinessException(ErrorCode.IN_USE,
+					("%s 의 상태가 방금 바뀌었습니다. 화면을 새로 고친 뒤 다시 확인하세요.")
+							.formatted(before.getOrderNo()));
+		}
+
+		// 남아 있는 줄을 모두 접는다. 취소된 주문에 '할당완료' 줄이 남으면
+		// 할당 화면이 그것을 아직 살아 있는 것으로 센다.
+		for (OrderLine line : orderDao.selectLines(orderSeq)) {
+			if (!OrderLine.CANCELED.equals(line.getLineStatus())) {
+				orderDao.updateLineStatus(line.getLineSeq(), OrderLine.CANCELED, actorId(actor));
+			}
+		}
+
+		Order after = mustFind(orderSeq);
+		auditRecorder.recordAction(actor, "DELETE", TABLE, after.getOrderNo(),
+				"주문취소 (%s) %s".formatted(request.reasonCode(),
+						request.remark() == null ? "" : request.remark()));
+
+		return new Result(SalesOrderResponse.of(after, orderDao.selectLines(orderSeq)),
+				"%s 을(를) 취소했습니다. 잡아 둔 재고는 판매가능으로 돌아갔습니다."
+						.formatted(after.getOrderNo()));
+	}
+
+	/**
+	 * 줄 하나만 취소한다.
+	 *
+	 * 결품 줄을 접을 때 쓴다 (ORD-PG-006 → ORD-PG-007). 세 개 시켰는데 하나도
+	 * 못 잡은 줄 때문에 나머지 줄까지 묶어 둘 수는 없다 — 나갈 수 있는 것은
+	 * 내보내고 못 채운 줄만 접는다.
+	 *
+	 * 그 줄이 잡아 둔 것은 푼다. 부분할당된 줄을 접으면 잡혀 있던 수량은
+	 * 다른 주문이 가져갈 수 있어야 한다.
+	 *
+	 * 마지막 살아 있는 줄을 접으면 주문 자체가 취소된다. 줄이 하나도 안 남은
+	 * 주문을 '확정' 으로 두면 할당 화면에 계속 뜨는데 할 일이 없다.
+	 */
+	@Transactional
+	public Result cancelLine(LoginUser actor, Long orderSeq, Long lineSeq,
+			SalesOrderCancelRequest request) {
+		permissionChecker.require(actor, PERM, "U");
+
+		Order order = mustFind(orderSeq);
+		requireOpen(order, "줄을 접을");
+		codeValues.require(REASON_CANCEL, request.reasonCode(), "취소 사유");
+
+		List<OrderLine> lines = orderDao.selectLines(orderSeq);
+		OrderLine line = lines.stream()
+				.filter(l -> l.getLineSeq().equals(lineSeq))
+				.findFirst()
+				.orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND,
+						"주문 줄을 찾을 수 없습니다. (%s)".formatted(lineSeq)));
+		if (OrderLine.CANCELED.equals(line.getLineStatus())) {
+			throw new BusinessException(ErrorCode.IN_USE,
+					"%d 번째 줄은 이미 취소되어 있습니다.".formatted(line.getLineNo()));
+		}
+
+		int released = allocationService.releaseLine(actor, order, lineSeq, RELEASE_BY_CANCEL);
+		orderDao.updateLineStatus(lineSeq, OrderLine.CANCELED, actorId(actor));
+
+		// 살아 있는 줄이 하나도 안 남으면 주문도 접는다.
+		boolean allCanceled = lines.stream()
+				.filter(l -> !l.getLineSeq().equals(lineSeq))
+				.allMatch(l -> OrderLine.CANCELED.equals(l.getLineStatus()));
+		if (allCanceled) {
+			orderDao.updateCanceled(orderSeq, CANCELABLE, request.reasonCode(), actorId(actor));
+		}
+
+		Order after = mustFind(orderSeq);
+		auditRecorder.recordAction(actor, "UPDATE", TABLE, after.getOrderNo(),
+				"%d 번째 줄 취소 (%s) 할당 %d 개 해제%s".formatted(
+						line.getLineNo(), request.reasonCode(), released,
+						allCanceled ? " — 남은 줄이 없어 주문도 취소" : ""));
+
+		String message = allCanceled
+				? "마지막 줄이라 주문도 함께 취소했습니다."
+				: (released > 0
+						? "%d 번째 줄을 접고 잡아 둔 %d 개를 풀었습니다."
+								.formatted(line.getLineNo(), released)
+						: "%d 번째 줄을 접었습니다.".formatted(line.getLineNo()));
+		return new Result(SalesOrderResponse.of(after, orderDao.selectLines(orderSeq)), message);
+	}
+
+	/* ------------------------------------------------------------------ */
+	/* 주문정보 변경 (ORD-PG-008)                                           */
+	/* ------------------------------------------------------------------ */
+
+	/**
+	 * 수령인 · 배송지 · 요청사항을 고친다.
+	 *
+	 * 출고지시 전까지만 된다. 송장이 찍히고 나면 주소를 고쳐도 물건은 이미
+	 * 적힌 곳으로 간다 — 전산만 바꾸면 '보낸 곳' 과 '보냈다고 적힌 곳' 이
+	 * 달라져 배송사고를 추적할 수 없다.
+	 *
+	 * 무엇을 몇 개 보내는지는 여기서 못 바꾼다. 그건 이미 재고를 잡아 둔
+	 * 값이라, 바꾸려면 잡은 것을 풀고 다시 잡아야 한다 — 줄을 고치는 일은
+	 * 취소하고 다시 받는 것이 맞다.
+	 *
+	 * 고치는 것은 이 주문의 스냅샷이지 거래처 주소가 아니다 (ORD-002).
+	 * 지난 주문의 배송지는 그대로 남는다.
+	 */
+	@Transactional
+	public Result updateAddress(LoginUser actor, Long orderSeq,
+			SalesOrderAddressRequest request) {
+		permissionChecker.require(actor, PERM, "U");
+
+		Order before = mustFind(orderSeq);
+		requireOpen(before, "배송지를 바꿀");
+
+		Order target = Order.builder()
+				.orderSeq(orderSeq)
+				.receiverName(request.receiverName())
+				.receiverPhone(blankToNull(request.receiverPhone()))
+				.zipCode(blankToNull(request.zipCode()))
+				.address(request.address())
+				.addressDetail(blankToNull(request.addressDetail()))
+				.deliveryMemo(blankToNull(request.deliveryMemo()))
+				.remark(blankToNull(request.remark()))
+				.updatedBy(actorId(actor))
+				.build();
+		orderDao.updateHeader(target);
+
+		Order after = mustFind(orderSeq);
+		auditRecorder.recordUpdate(actor, TABLE, after.getOrderNo(), before, after,
+				ADDRESS_FIELDS,
+				request.reason() == null || request.reason().isBlank()
+						? "주문정보 변경" : request.reason());
+
+		return new Result(SalesOrderResponse.of(after, orderDao.selectLines(orderSeq)),
+				changedAddress(before, after)
+						? "배송지를 바꿨습니다. 아직 출고 전이라 이 주소로 나갑니다."
+						: null);
+	}
+
+	/** 주소가 실제로 바뀌었나 — 안 바뀌었으면 굳이 알릴 것이 없다 */
+	private boolean changedAddress(Order before, Order after) {
+		return !java.util.Objects.equals(before.getAddress(), after.getAddress())
+				|| !java.util.Objects.equals(before.getAddressDetail(), after.getAddressDetail())
+				|| !java.util.Objects.equals(before.getZipCode(), after.getZipCode());
+	}
+
+	/* ------------------------------------------------------------------ */
 	/* 검증 · 헬퍼                                                          */
 	/* ------------------------------------------------------------------ */
 
@@ -311,6 +528,35 @@ public class SalesOrderService {
 			case Order.CANCELED -> "취소";
 			default -> status;
 		};
+	}
+
+	/**
+	 * 아직 손댈 수 있는 주문인가.
+	 *
+	 * 안 되는 이유가 둘인데 답이 달라야 한다. 취소된 주문은 이미 끝난 것이고,
+	 * 출고가 시작된 주문은 반품으로 가야 한다 — 한 메시지로 뭉뚱그리면
+	 * '취소된 주문인데 출고가 시작되어 바꿀 수 없다' 는 말이 나온다.
+	 *
+	 * @param action '배송지를 바꿀' 처럼 무엇을 하려 했는지
+	 */
+	private void requireOpen(Order order, String action) {
+		if (Order.CANCELED.equals(order.getOrderStatus())) {
+			throw new BusinessException(ErrorCode.IN_USE,
+					"%s 은(는) 취소된 주문이라 %s 수 없습니다."
+							.formatted(order.getOrderNo(), action));
+		}
+		if (!order.isCancelable()) {
+			throw new BusinessException(ErrorCode.IN_USE,
+					("%s 은(는) 출고가 시작되어 %s 수 없습니다. (현재 %s) 이미 집어 둔 "
+							+ "물건은 전산만 되돌린다고 창고로 돌아오지 않습니다.")
+							.formatted(order.getOrderNo(), action,
+									statusLabel(order.getOrderStatus())));
+		}
+	}
+
+	/** 빈 문자열은 NULL 로. 화면이 안 지운 칸을 빈 문자열로 보내기 때문이다. */
+	private static String blankToNull(String s) {
+		return s == null || s.isBlank() ? null : s;
 	}
 
 	private static boolean isBlank(String s) {

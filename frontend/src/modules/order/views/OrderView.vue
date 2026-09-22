@@ -180,6 +180,123 @@ async function doConfirm(order) {
   }
 }
 
+/* ── 취소 · 변경 (ORD-PG-007, ORD-PG-008) ───────────────────── */
+
+const canDelete = computed(() => session.can('ORD_ORDER', 'D'))
+const deleteDenyReason = computed(() => session.denyReason('ORD_ORDER', 'D'))
+
+/** 아직 손댈 수 있는 주문인가 — 취소됐거나 출고가 시작되면 끝이다 */
+const OPEN = ['RECEIVED', 'CONFIRMED', 'ALLOCATED']
+const isOpen = (o) => o && OPEN.includes(o.orderStatus)
+
+/* 주문취소 */
+const canceling = ref(null)
+const cancelForm = reactive({ reasonCode: '', remark: '' })
+
+function openCancel(order) {
+  if (!canDelete.value) return toast.error(deleteDenyReason.value)
+  canceling.value = order
+  cancelForm.reasonCode = ''
+  cancelForm.remark = ''
+}
+
+async function doCancel() {
+  if (!cancelForm.reasonCode) return toast.warn('취소 사유를 고르세요.')
+  busy.value = true
+  try {
+    const { order, warning } = await orderApi.cancel(canceling.value.orderSeq, {
+      reasonCode: cancelForm.reasonCode,
+      remark: cancelForm.remark || null,
+    })
+    toast.success(warning ?? `${order.orderNo} 을(를) 취소했습니다.`)
+    canceling.value = null
+    if (picked.value?.orderSeq === order.orderSeq) picked.value = order
+    await fetchPage()
+  } catch (e) {
+    toast.error(e.message)
+  } finally {
+    busy.value = false
+  }
+}
+
+/* 줄 취소 — 결품 줄을 접는다 */
+const cancelingLine = ref(null)
+
+function openCancelLine(line) {
+  if (!canUpdate.value) return toast.error(updateDenyReason.value)
+  cancelingLine.value = line
+  cancelForm.reasonCode = ''
+  cancelForm.remark = ''
+}
+
+async function doCancelLine() {
+  if (!cancelForm.reasonCode) return toast.warn('취소 사유를 고르세요.')
+  busy.value = true
+  try {
+    const { order, warning } = await orderApi.cancelLine(
+      picked.value.orderSeq,
+      cancelingLine.value.lineSeq,
+      { reasonCode: cancelForm.reasonCode, remark: cancelForm.remark || null },
+    )
+    toast.success(warning)
+    cancelingLine.value = null
+    picked.value = order
+    await fetchPage()
+  } catch (e) {
+    toast.error(e.message)
+  } finally {
+    busy.value = false
+  }
+}
+
+/* 배송지 변경 */
+const editingAddress = ref(null)
+const addressForm = reactive({
+  receiverName: '',
+  receiverPhone: '',
+  zipCode: '',
+  address: '',
+  addressDetail: '',
+  deliveryMemo: '',
+  remark: '',
+  reason: '',
+})
+
+function openAddress(order) {
+  if (!canUpdate.value) return toast.error(updateDenyReason.value)
+  editingAddress.value = order
+  Object.assign(addressForm, {
+    receiverName: order.receiverName ?? '',
+    receiverPhone: order.receiverPhone ?? '',
+    zipCode: order.zipCode ?? '',
+    address: order.address ?? '',
+    addressDetail: order.addressDetail ?? '',
+    deliveryMemo: order.deliveryMemo ?? '',
+    remark: order.remark ?? '',
+    reason: '',
+  })
+}
+
+async function doUpdateAddress() {
+  if (!addressForm.receiverName?.trim()) return toast.warn('수령인은 필수입니다.')
+  if (!addressForm.address?.trim()) return toast.warn('주소는 필수입니다.')
+  busy.value = true
+  try {
+    const { order, warning } = await orderApi.updateAddress(
+      editingAddress.value.orderSeq,
+      { ...addressForm },
+    )
+    toast.success(warning ?? '주문정보를 바꿨습니다.')
+    editingAddress.value = null
+    if (picked.value?.orderSeq === order.orderSeq) picked.value = order
+    await fetchPage()
+  } catch (e) {
+    toast.error(e.message)
+  } finally {
+    busy.value = false
+  }
+}
+
 /* ── 등록 (ORD-PG-009, 010) ─────────────────────────────────── */
 
 const dlg = ref(false)
@@ -482,6 +599,7 @@ async function submit() {
             <th class="right" style="width: 80px">수량</th>
             <th class="right" style="width: 90px">판매가능</th>
             <th style="width: 96px">상태</th>
+            <th style="width: 60px"></th>
           </tr>
         </thead>
         <tbody>
@@ -500,11 +618,45 @@ async function submit() {
             <td class="num">{{ num(l.orderQty) }}</td>
             <td class="num">{{ num(l.qtyAvailable) }}</td>
             <td><CodeBadge group="SALES_LINE_STATUS" :code="l.lineStatus" /></td>
+            <td>
+              <!--
+                줄 하나만 접는다. 결품 줄 때문에 나머지 줄까지 묶어 둘 수는
+                없다 — 나갈 수 있는 것은 내보내고 못 채운 줄만 접는다.
+              -->
+              <button
+                v-if="isOpen(picked) && l.lineStatus !== 'CANCELED'"
+                class="btn btn-sm"
+                :disabled="!canUpdate || busy"
+                title="이 줄만 접습니다. 잡아 둔 재고는 풀립니다."
+                @click="openCancelLine(l)"
+              >
+                접기
+              </button>
+            </td>
           </tr>
         </tbody>
       </table>
 
       <template #footer>
+        <button class="btn" @click="picked = null">닫기</button>
+        <button
+          v-if="isOpen(picked)"
+          class="btn"
+          :disabled="!canUpdate || busy"
+          title="출고 전까지 수령인 · 배송지 · 요청사항을 바꿀 수 있습니다"
+          @click="openAddress(picked)"
+        >
+          배송지 변경
+        </button>
+        <button
+          v-if="isOpen(picked)"
+          class="btn btn-danger"
+          :disabled="!canDelete || busy"
+          :title="deleteDenyReason ?? '잡아 둔 재고를 풀고 주문을 접습니다'"
+          @click="openCancel(picked)"
+        >
+          주문취소
+        </button>
         <button
           v-if="picked.orderStatus === 'RECEIVED'"
           class="btn btn-primary"
@@ -514,7 +666,6 @@ async function submit() {
         >
           확정
         </button>
-        <button class="btn" @click="picked = null">닫기</button>
       </template>
     </ModalDialog>
 
@@ -628,6 +779,126 @@ async function submit() {
           저장
         </button>
         <button class="btn" :disabled="busy" @click="dlg = false">취소</button>
+      </template>
+    </ModalDialog>
+
+    <!-- ── 주문취소 (ORD-PG-007) ────────────────────────────── -->
+    <ModalDialog
+      v-if="canceling"
+      :title="`${canceling.orderNo} 취소`"
+      :subtitle="canceling.receiverName"
+      @close="canceling = null"
+    >
+      <div class="alert alert-warn mb-2">
+        <span class="alert-icon">⚠️</span>
+        <span>
+          <strong>되돌릴 수 없습니다.</strong>
+          잡아 둔 재고가 있으면 함께 풀려 <strong>판매가능수량으로 돌아갑니다</strong> —
+          다른 주문이 먼저 가져갈 수 있습니다. 줄 하나만 접으려면 상세에서
+          그 줄의 '접기' 를 쓰세요.
+        </span>
+      </div>
+
+      <div class="form-grid">
+        <FormField
+          v-model="cancelForm.reasonCode"
+          label="취소 사유"
+          type="select"
+          required
+          placeholder="고르세요"
+          :options="codeOptions('REASON_CANCEL')"
+          hint="주문에 남고 감사로그에도 기록됩니다. 고객이 물으면 이것으로 답합니다."
+        />
+        <FormField v-model="cancelForm.remark" label="비고" class="span-2" />
+      </div>
+
+      <template #footer>
+        <button class="btn" @click="canceling = null">닫기</button>
+        <button
+          class="btn btn-danger"
+          :disabled="busy || !cancelForm.reasonCode"
+          @click="doCancel()"
+        >
+          <span v-if="busy" class="spinner"></span>
+          취소하기
+        </button>
+      </template>
+    </ModalDialog>
+
+    <!-- ── 줄 접기 ──────────────────────────────────────────── -->
+    <ModalDialog
+      v-if="cancelingLine"
+      :title="`${cancelingLine.lineNo} 번째 줄 접기`"
+      :subtitle="cancelingLine.skuId ?? cancelingLine.displayName"
+      @close="cancelingLine = null"
+    >
+      <p class="small">
+        이 줄만 접습니다. 잡아 둔 재고가 있으면 풀립니다.
+        <strong>남은 줄이 하나도 없으면 주문도 함께 취소됩니다.</strong>
+      </p>
+
+      <div class="form-grid mt-2">
+        <FormField
+          v-model="cancelForm.reasonCode"
+          label="사유"
+          type="select"
+          required
+          placeholder="고르세요"
+          :options="codeOptions('REASON_CANCEL')"
+        />
+        <FormField v-model="cancelForm.remark" label="비고" class="span-2" />
+      </div>
+
+      <template #footer>
+        <button class="btn" @click="cancelingLine = null">닫기</button>
+        <button
+          class="btn btn-danger"
+          :disabled="busy || !cancelForm.reasonCode"
+          @click="doCancelLine()"
+        >
+          <span v-if="busy" class="spinner"></span>
+          접기
+        </button>
+      </template>
+    </ModalDialog>
+
+    <!-- ── 주문정보 변경 (ORD-PG-008) ───────────────────────── -->
+    <ModalDialog
+      v-if="editingAddress"
+      :title="`${editingAddress.orderNo} 배송지 변경`"
+      subtitle="출고 전까지만 바꿀 수 있습니다"
+      size="wide"
+      @close="editingAddress = null"
+    >
+      <p class="small dim">
+        무엇을 몇 개 보내는지는 여기서 못 바꿉니다 — 그건 이미 재고를 잡아 둔 값이라
+        취소하고 다시 받아야 합니다. 여기서 고치는 것은
+        <strong>이 주문의 배송지</strong>이고, 거래처 주소는 그대로입니다.
+      </p>
+
+      <div class="form-grid mt-2">
+        <FormField v-model="addressForm.receiverName" label="수령인" required />
+        <FormField v-model="addressForm.receiverPhone" label="연락처" />
+        <FormField v-model="addressForm.zipCode" label="우편번호" mono />
+        <FormField v-model="addressForm.address" label="주소" required class="span-2" />
+        <FormField v-model="addressForm.addressDetail" label="상세주소" class="span-2" />
+        <FormField v-model="addressForm.deliveryMemo" label="배송 요청사항" class="span-2" />
+        <FormField v-model="addressForm.remark" label="비고" class="span-2" />
+        <FormField
+          v-model="addressForm.reason"
+          label="변경 사유"
+          class="span-2"
+          placeholder="예) 고객이 이사 — 전화로 변경 요청"
+          hint="감사로그에 바뀐 칸의 전·후와 함께 남습니다. 배송지가 바뀐 주문은 설명이 필요합니다."
+        />
+      </div>
+
+      <template #footer>
+        <button class="btn" @click="editingAddress = null">취소</button>
+        <button class="btn btn-primary" :disabled="busy" @click="doUpdateAddress()">
+          <span v-if="busy" class="spinner"></span>
+          저장
+        </button>
       </template>
     </ModalDialog>
 
