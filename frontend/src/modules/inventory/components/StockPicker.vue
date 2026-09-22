@@ -29,9 +29,25 @@ const props = defineProps({
   lockWarehouse: { type: Boolean, default: false },
   /** 이미 담은 재고 순번 — 목록에서 흐리게 표시한다 */
   pickedSeqs: { type: Array, default: () => [] },
+  /**
+   * 여러 건을 골라 한 번에 넘길지.
+   *
+   * 기본은 한 건이다. 조정 · 이동 · 판매불가는 한 줄씩 사유와 수량을 적어야
+   * 하므로 여러 건을 받아도 쓸 데가 없다 — 실사 대상 담기만 다르다.
+   * 거기서는 수백 건을 한 줄씩 누르는 것이 실제 작업이 안 된다.
+   */
+  multi: { type: Boolean, default: false },
 })
 
 const emit = defineEmits(['pick', 'close'])
+
+/**
+ * multi 일 때 고른 것들.
+ *
+ * 창을 닫지 않고 쌓는다. 한 건 담을 때마다 창이 닫히면 검색 조건을 매번
+ * 다시 넣어야 하고, 그게 지금 실사 대상을 담을 때 벌어지는 일이다.
+ */
+const checked = ref([])
 
 const hierarchy = useHierarchyStore()
 
@@ -84,9 +100,24 @@ const nf = new Intl.NumberFormat('ko-KR')
 const num = (v) => (v === null || v === undefined ? '-' : nf.format(v))
 const already = (row) => props.pickedSeqs.includes(row.stockSeq)
 
+const isChecked = (row) => checked.value.some((r) => r.stockSeq === row.stockSeq)
+
 function pick(row) {
   if (already(row)) return
-  emit('pick', row)
+  if (!props.multi) {
+    emit('pick', row)
+    return
+  }
+  // 누를 때마다 뒤집는다. 잘못 누른 것을 빼려고 창을 닫을 일은 없어야 한다.
+  checked.value = isChecked(row)
+    ? checked.value.filter((r) => r.stockSeq !== row.stockSeq)
+    : [...checked.value, row]
+}
+
+function confirmMulti() {
+  if (!checked.value.length) return
+  emit('pick', checked.value)
+  checked.value = []
 }
 </script>
 
@@ -148,6 +179,7 @@ function pick(row) {
       @row-click="pick"
     >
       <template #cell-locationFullCode="{ row, value }">
+        <span v-if="multi" class="mark">{{ isChecked(row) ? '☑' : '☐' }}</span>
         <span class="code">{{ value }}</span>
         <span v-if="already(row)" class="small dim"> · 담음</span>
       </template>
@@ -170,13 +202,28 @@ function pick(row) {
     <template #footer>
       <span class="left small dim">
         총 {{ num(total) }}건 중 앞의 50건입니다. 검색어로 좁히세요.
+        <template v-if="multi"> 줄을 눌러 고르고 한 번에 담으세요.</template>
       </span>
       <button class="btn" @click="emit('close')">닫기</button>
+      <button
+        v-if="multi"
+        class="btn btn-primary"
+        :disabled="!checked.length"
+        @click="confirmMulti()"
+      >
+        {{ checked.length ? `${checked.length} 건 담기` : '담기' }}
+      </button>
     </template>
   </ModalDialog>
 </template>
 
 <style scoped>
+/* 고른 표시 — 체크박스를 따로 두면 줄 전체를 누르는 지금 동작과 어긋난다 */
+.mark {
+  margin-right: 6px;
+  color: var(--text-3);
+}
+
 .ok {
   color: var(--c-green, #16a34a);
 }

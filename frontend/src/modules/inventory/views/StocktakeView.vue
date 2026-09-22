@@ -346,11 +346,24 @@ const pickedStockSeqs = computed(() =>
   (detail.value?.lines ?? []).map((l) => l.stockSeq).filter(Boolean),
 )
 
-function pickTarget(stock) {
-  picking.value = false
+/**
+ * 고른 재고를 대상에 담는다.
+ *
+ * 여러 건을 한 번에 받는다. 서버(POST /targets/pick)는 진작부터 배열을
+ * 받고 있었는데 화면이 한 건씩 보내고 창까지 닫아서, 수십 건을 담으려면
+ * 검색 조건을 매번 다시 넣어야 했다.
+ *
+ * 창은 닫지 않는다. 담은 뒤에도 같은 조건으로 더 고를 수 있어야 한다 —
+ * 지정실사는 몇 번에 나눠 담는 것이 실제 작업이다.
+ */
+function pickTarget(picked) {
+  const list = Array.isArray(picked) ? picked : [picked]
+  if (!list.length) return
   act(
-    () => opsApi.pickTargets(detail.value.takeSeq, [stock.stockSeq]),
-    `${stock.skuId} 을(를) 대상에 담았습니다.`,
+    () => opsApi.pickTargets(detail.value.takeSeq, list.map((s) => s.stockSeq)),
+    list.length === 1
+      ? `${list[0].skuId} 을(를) 대상에 담았습니다.`
+      : `${list.length} 건을 대상에 담았습니다.`,
   )
 }
 
@@ -678,11 +691,19 @@ const progressPct = (t) =>
                 : '이 창고는 구역을 나누지 않았습니다. 창고 전체로 돕니다.'
           "
         />
+        <!--
+          정확한 SKU 코드를 적는 칸이 아니다. SKU코드와 제품명에 부분일치로
+          걸어 대상을 좁히는 검색어이고, 비우면 창고 전체다. 라벨이 'SKU'
+          로 시작하면 PRD-24001-BK-M 을 적고 싶어지는데 그럴 필요가 없다.
+
+          아래 미리보기가 치는 대로 몇 건이 잡히는지 보여 주므로 오타는
+          0 건으로 바로 드러난다.
+        -->
         <FormField
           v-model="form.targetSkuKeyword"
-          label="SKU · 제품명"
-          placeholder="예: 티셔츠, 24001"
-          help="일부만 넣어도 됩니다. 특정 품목만 세려면 저장 후 '재고에서 담기' 를 쓰세요."
+          label="품목 검색어"
+          placeholder="예: 티셔츠, 24001, BK"
+          help="정확한 코드가 아니어도 됩니다. 제품명·SKU코드에 이 글자가 들어간 것만 셉니다. 비우면 창고 전체입니다."
         />
         <FormField
           v-model="form.blindYn"
@@ -1064,12 +1085,18 @@ const progressPct = (t) =>
 
     <!-- 창고의 재고에서 직접 고른다. 목록에서 고르므로 없는 제품을 넣을
          방법이 없고, 제품명을 외울 필요도 없다. -->
+    <!--
+      multi 를 켠다. 실사 대상은 수십~수백 건을 담는 일이라 한 건씩 창이
+      닫히면 검색 조건을 매번 다시 넣어야 한다. 조정 · 이동 · 판매불가는
+      줄마다 사유와 수량을 적어야 해서 지금처럼 한 건씩이 맞다.
+    -->
     <StockPicker
       v-if="picking && detail"
       title="실사 대상에 담을 재고"
       :plant-id="detail.plantId"
       :warehouse-id="detail.warehouseId"
       lock-warehouse
+      multi
       :picked-seqs="pickedStockSeqs"
       @pick="pickTarget"
       @close="picking = false"
