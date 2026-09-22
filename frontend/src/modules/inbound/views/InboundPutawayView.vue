@@ -23,6 +23,7 @@ import DataTable from '@/components/DataTable.vue'
 import ModalDialog from '@/components/ModalDialog.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import FormField from '@/components/FormField.vue'
+import BinPicker from '../components/BinPicker.vue'
 import CodeBadge from '@/components/CodeBadge.vue'
 
 const hierarchy = useHierarchyStore()
@@ -143,6 +144,19 @@ const scanValid = computed(
     Number(scan.qty) <= (selectedLine.value?.pendingPutawayQty ?? 0) &&
     !busy.value,
 )
+
+/**
+ * 빈 고르기.
+ *
+ * 라벨을 찍는 것이 정상 흐름이지만, 라벨이 지워졌거나 손으로 넣을 때
+ * 사람이 빈코드를 외우고 있을 수는 없다 — 창고 하나에 빈이 수십 개다.
+ */
+const pickingBin = ref(false)
+
+function pickBin(location) {
+  pickingBin.value = false
+  scan.locationScan = location.locationId
+}
 
 /** SKU 를 찍으면 로케이션 칸으로 넘어간다 — 스캐너는 손을 안 뗀다 */
 async function onSkuScanned() {
@@ -437,16 +451,30 @@ const closeDenyReason = computed(
           help="지시한 줄과 다르면 막습니다."
           @enter="onSkuScanned()"
         />
-        <FormField
-          ref="locInput"
-          v-model="scan.locationScan"
-          label="② 로케이션 스캔"
-          mono
-          placeholder="빈 라벨을 스캔 (예: 1A-01-01)"
-          :disabled="!scan.lineSeq"
-          help="이 입고의 창고 안이어야 합니다."
-          @enter="scanValid && submitPutaway()"
-        />
+        <div class="loc-field">
+          <FormField
+            ref="locInput"
+            v-model="scan.locationScan"
+            label="② 로케이션 스캔"
+            mono
+            placeholder="빈 라벨을 스캔 (예: 1A-01-01)"
+            :disabled="!scan.lineSeq"
+            help="이 입고의 창고 안이어야 합니다."
+            @enter="scanValid && submitPutaway()"
+          />
+          <!--
+            라벨이 안 읽히거나 손으로 넣을 때. 빈코드를 외우고 있을 수는
+            없고, 같은 물건이 이미 있는 자리를 알려면 목록을 봐야 한다.
+          -->
+          <button
+            class="btn btn-sm"
+            :disabled="!scan.lineSeq"
+            title="이 창고의 빈을 목록에서 고릅니다"
+            @click="pickingBin = true"
+          >
+            빈 고르기
+          </button>
+        </div>
         <FormField
           v-model.number="scan.qty"
           label="수량"
@@ -533,6 +561,15 @@ const closeDenyReason = computed(
       @cancel="askClose = null"
       @confirm="doClose()"
     />
+
+    <BinPicker
+      v-if="pickingBin && target"
+      :plant-id="target.plantId"
+      :warehouse-id="target.warehouseId"
+      :sku-id="selectedLine?.skuId ?? ''"
+      @pick="pickBin"
+      @close="pickingBin = false"
+    />
   </div>
 </template>
 
@@ -611,6 +648,21 @@ const closeDenyReason = computed(
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 340px;
+}
+
+/* 로케이션 칸 + 고르기 버튼 — 버튼을 라벨 높이에 맞춰 내린다 */
+.loc-field {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+.loc-field > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+.loc-field > .btn {
+  margin-bottom: 20px;
+  white-space: nowrap;
 }
 
 .warn {
