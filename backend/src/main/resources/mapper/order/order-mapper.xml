@@ -279,6 +279,21 @@
            AND line_status = #{fromStatus}
     </update>
 
+    <!--
+      줄 상태만 옮긴다.
+
+      updateLine 과 나눠 두는 이유는 건드리는 칸이 다르기 때문이다. 할당은
+      상태만 바꾸는데 updateLine 을 쓰면 sku_seq · remark 까지 같이 쓰게 되고,
+      부르는 쪽이 한 칸을 안 채우면 그 칸이 조용히 비워진다.
+    -->
+    <update id="updateLineStatus">
+        UPDATE tb_order_line
+           SET line_status = #{lineStatus},
+               updated_by  = #{updatedBy},
+               updated_at  = CURRENT_TIMESTAMP
+         WHERE line_seq    = #{lineSeq}
+    </update>
+
     <update id="updateLine" parameterType="com.fulfillment.domain.OrderLine">
         UPDATE tb_order_line
            SET sku_seq     = #{skuSeq},

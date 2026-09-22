@@ -1,0 +1,199 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<!--
+  재고할당 (ORD-PG-005).
+
+  수량을 실제로 움직이는 것은 이 매퍼가 아니라 StockLedger 다. 여기는
+  '어디서 잡을 수 있나' 를 찾아 주고 (selectCandidates) 잡은 결과를 적는다
+  (insertAlloc · releaseAlloc). tb_stock 의 qty_allocated 는 손대지 않는다 —
+  재고 수량은 StockLedger 한 문으로만 바뀐다 (P-02).
+-->
+<mapper namespace="com.fulfillment.order.dao.AllocationDao">
+
+    <resultMap id="candidateMap" type="com.fulfillment.order.dto.AllocCandidate">
+        <result property="lineSeq"      column="line_seq"/>
+        <result property="lineNo"       column="line_no"/>
+        <result property="skuSeq"       column="sku_seq"/>
+        <result property="skuId"        column="sku_id"/>
+        <result property="productName"  column="product_name"/>
+        <result property="orderQty"     column="order_qty"/>
+        <result property="alreadyAllocated" column="already_allocated"/>
+        <result property="stockSeq"     column="stock_seq"/>
+        <result property="qtyAvailable" column="qty_available"/>
+        <result property="plantSeq"     column="plant_seq"/>
+        <result property="plantId"      column="plant_id"/>
+        <result property="plantName"    column="plant_name"/>
+        <result property="warehouseId"  column="warehouse_id"/>
+        <result property="locationId"   column="location_id"/>
+    </resultMap>
+
+    <resultMap id="allocMap" type="com.fulfillment.domain.StockAlloc">
+        <id     property="allocSeq"      column="alloc_seq"/>
+        <result property="stockSeq"      column="stock_seq"/>
+        <result property="orderLineSeq"  column="order_line_seq"/>
+        <result property="orderNo"       column="order_no"/>
+        <result property="orderLineNo"   column="order_line_no"/>
+        <result property="qtyAllocated"  column="qty_allocated"/>
+        <result property="allocStatus"   column="alloc_status"/>
+        <result property="allocatedAt"   column="allocated_at"/>
+        <result property="qtyReleased"   column="qty_released"/>
+        <result property="releaseReason" column="release_reason"/>
+        <result property="releasedAt"    column="released_at"/>
+        <result property="createdBy"     column="created_by"/>
+        <result property="createdAt"     column="created_at"/>
+        <result property="locationId"    column="location_id"/>
+        <result property="warehouseId"   column="warehouse_id"/>
+        <result property="plantId"       column="plant_id"/>
+        <result property="plantName"     column="plant_name"/>
+        <result property="skuId"         column="sku_id"/>
+        <result property="productName"   column="product_name"/>
+        <result property="colorCode"     column="color_code"/>
+        <result property="sizeCode"      column="size_code"/>
+        <result property="releaseReasonName" column="release_reason_name"/>
+    </resultMap>
+
+
+    <!--
+      한 주문이 잡을 수 있는 재고를 전부 펼쳐 온다 — 줄 × 빈.
+
+      질의를 한 번만 던지는 이유는 센터를 고르려면 전체를 봐야 하기 때문이다.
+      줄마다 따로 물으면 '이 센터가 이 주문을 통째로 채울 수 있나' 를 알 수
+      없고, 그러면 줄마다 다른 센터를 골라 한 주문이 세 군데로 쪼개진다.
+
+      양품창고의 정상 로케이션만 본다. 반품 · 불량은 팔 물건이 아니고,
+      TRANSIT 는 지금 옮겨지는 중이라 집으러 가면 없다.
+
+      qty_available 은 생성열이다 (보유 − 할당 − 판매불가). 여기 보이는 값은
+      읽은 순간의 것이고, 실제로 잡을 때 StockLedger 가 행을 잠그고 다시
+      본다 — 그 사이에 남이 가져갔으면 거기서 걸린다.
+
+      already_allocated 는 이 줄이 이미 잡아 둔 수량이다. 부분할당된 주문을
+      다시 할당할 때 남은 만큼만 잡아야 한다.
+    -->
+    <select id="selectCandidates" resultMap="candidateMap">
+        SELECT l.line_seq, l.line_no, l.sku_seq, l.order_qty,
+               k.sku_id, pr.product_name,
+               COALESCE((SELECT SUM(a.qty_allocated - a.qty_released)
+                           FROM tb_stock_alloc a
+                          WHERE a.order_line_seq = l.line_seq), 0) AS already_allocated,
+               s.stock_seq, s.qty_available,
+               p.plant_seq, p.plant_id, p.plant_name,
+               w.warehouse_id, lo.location_id
+          FROM tb_order_line l
+          JOIN tb_sku     k  ON k.sku_seq      = l.sku_seq
+          JOIN tb_product pr ON pr.product_seq = k.product_seq
+          LEFT JOIN tb_stock s ON s.sku_seq = l.sku_seq
+                              AND s.qty_available > 0
+          LEFT JOIN tb_location  lo ON lo.location_seq  = s.location_seq
+                                   AND lo.location_type = 'NORMAL'
+                                   AND lo.use_yn        = 'Y'
+          LEFT JOIN tb_warehouse w  ON w.warehouse_seq  = lo.warehouse_seq
+                                   AND w.warehouse_type = 'GOOD'
+                                   AND w.use_yn         = 'Y'
+          LEFT JOIN tb_plant     p  ON p.plant_seq      = w.plant_seq
+                                   AND p.use_yn         = 'Y'
+         WHERE l.order_seq   = #{orderSeq}
+           AND l.sku_seq IS NOT NULL
+           AND l.line_status &lt;&gt; 'CANCELED'
+         ORDER BY l.line_no, s.qty_available DESC, lo.location_id
+    </select>
+
+
+    <insert id="insertAlloc" parameterType="com.fulfillment.domain.StockAlloc"
+            useGeneratedKeys="true" keyProperty="allocSeq" keyColumn="alloc_seq">
+        INSERT INTO tb_stock_alloc (
+            stock_seq, order_line_seq, order_no, order_line_no,
+            qty_allocated, alloc_status, allocated_at, qty_released, created_by)
+        VALUES (
+            #{stockSeq}, #{orderLineSeq}, #{orderNo}, #{orderLineNo},
+            #{qtyAllocated}, 'ALLOCATED', CURRENT_TIMESTAMP, 0, #{createdBy})
+    </insert>
+
+
+    <sql id="allocFrom">
+        FROM tb_stock_alloc a
+        JOIN tb_stock     s  ON s.stock_seq     = a.stock_seq
+        JOIN tb_location  lo ON lo.location_seq = s.location_seq
+        JOIN tb_warehouse w  ON w.warehouse_seq = lo.warehouse_seq
+        JOIN tb_plant     p  ON p.plant_seq     = w.plant_seq
+        JOIN tb_sku       k  ON k.sku_seq       = s.sku_seq
+        JOIN tb_product   pr ON pr.product_seq  = k.product_seq
+        LEFT JOIN tb_code_group rg ON rg.code_group_id = 'REASON_SHORT'
+        LEFT JOIN tb_code       rc ON rc.code_group_seq = rg.code_group_seq
+                                  AND rc.code_id        = a.release_reason
+    </sql>
+
+    <sql id="allocColumns">
+        a.alloc_seq, a.stock_seq, a.order_line_seq, a.order_no, a.order_line_no,
+        a.qty_allocated, a.alloc_status, a.allocated_at,
+        a.qty_released, a.release_reason, a.released_at,
+        a.created_by, a.created_at,
+        lo.location_id AS location_id,
+        w.warehouse_id AS warehouse_id,
+        p.plant_id     AS plant_id,
+        p.plant_name   AS plant_name,
+        k.sku_id       AS sku_id,
+        k.color_code   AS color_code,
+        k.size_code    AS size_code,
+        pr.product_name AS product_name,
+        rc.code_name   AS release_reason_name
+    </sql>
+
+    <!--
+      주문의 할당 내역.
+
+      푼 것도 함께 보여 준다. '왜 이 주문이 두 번 할당됐지' 를 설명하려면
+      푼 기록이 남아 있어야 한다 — 지우면 남는 것은 결과뿐이고 경위가 없다.
+    -->
+    <select id="selectByOrder" resultMap="allocMap">
+        SELECT <include refid="allocColumns"/>
+        <include refid="allocFrom"/>
+         WHERE a.order_line_seq IN (
+               SELECT l.line_seq FROM tb_order_line l WHERE l.order_seq = #{orderSeq})
+         ORDER BY a.order_line_no, a.alloc_seq
+    </select>
+
+    <!-- 아직 살아 있는 할당만 — 해제 대상이다 -->
+    <select id="selectLiveByOrder" resultMap="allocMap">
+        SELECT <include refid="allocColumns"/>
+        <include refid="allocFrom"/>
+         WHERE a.order_line_seq IN (
+               SELECT l.line_seq FROM tb_order_line l WHERE l.order_seq = #{orderSeq})
+           AND a.qty_allocated > a.qty_released
+         ORDER BY a.alloc_seq
+    </select>
+
+    <select id="selectLiveByLine" resultMap="allocMap">
+        SELECT <include refid="allocColumns"/>
+        <include refid="allocFrom"/>
+         WHERE a.order_line_seq = #{lineSeq}
+           AND a.qty_allocated > a.qty_released
+         ORDER BY a.alloc_seq
+    </select>
+
+    <!--
+      할당을 푼다.
+
+      행을 지우지 않고 qty_released 를 채운다. 지우면 '잡았다가 풀었다' 는
+      사실이 사라져, 재고이력에는 두 번 움직인 자국이 있는데 할당에는
+      아무것도 없는 상태가 된다.
+
+      전부 푼 것만 상태를 RELEASED 로 바꾼다. 일부만 풀었으면 아직 살아
+      있는 할당이다.
+    -->
+    <update id="releaseAlloc">
+        UPDATE tb_stock_alloc
+           SET qty_released   = qty_released + #{qty},
+               release_reason = #{reasonCode},
+               released_at    = CURRENT_TIMESTAMP,
+               alloc_status   = CASE WHEN qty_released + #{qty} >= qty_allocated
+                                     THEN 'RELEASED' ELSE alloc_status END,
+               updated_by     = #{updatedBy},
+               updated_at     = CURRENT_TIMESTAMP
+         WHERE alloc_seq      = #{allocSeq}
+           AND qty_allocated - qty_released >= #{qty}
+    </update>
+
+</mapper>

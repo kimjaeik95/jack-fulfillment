@@ -12,7 +12,7 @@
  * 주문했는데 우리에게는 없는 상태가 되기 때문이다 — 대신 warning 이 오고,
  * 그 주문은 확정되지 않는다.
  */
-import { get, post, put } from './http.js'
+import { del, get, post, put } from './http.js'
 
 /** 화면 기본 페이지 크기. 서버 기본값과 같게 둔다. */
 export const PAGE_SIZE = 50
@@ -122,4 +122,32 @@ export async function skuCheck(orderSeq, lineSeq, skuId) {
 export async function assignSku(orderSeq, lineSeq, payload) {
   const { data, warning } = await put(`/orders/${orderSeq}/lines/${lineSeq}/sku`, payload)
   return { order: data, warning }
+}
+
+
+/* ── 재고할당 (ORD-PG-005) ───────────────────────────────────── */
+
+/** 주문의 할당 내역. 푼 것도 함께 온다 — 경위를 보여야 한다. */
+export async function allocations(orderSeq) {
+  const { data } = await get(`/orders/${orderSeq}/allocations`)
+  return data
+}
+
+/**
+ * 재고할당.
+ *
+ * 모자라면 잡을 수 있는 만큼만 잡고 그 줄이 결품이 된다 — 한 줄 때문에
+ * 나머지를 묶어 두지 않는다. 두 번 눌러도 안전하다.
+ */
+export async function allocate(orderSeq) {
+  const { data, warning } = await post(`/orders/${orderSeq}/allocate`)
+  return { result: data, message: warning }
+}
+
+/** 할당해제. 사유는 코드그룹 REASON_SHORT 에서 고른다. */
+export async function releaseAllocation(orderSeq, reasonCode) {
+  const { data, warning } = await del(
+    `/orders/${orderSeq}/allocations?reasonCode=${encodeURIComponent(reasonCode ?? '')}`,
+  )
+  return { result: data, message: warning }
 }

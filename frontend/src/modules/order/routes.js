@@ -3,8 +3,8 @@
  *
  * 채널에서 들어온 주문을 다룬다. 판매오더(B2B)는 11차(판매관리)다.
  *
- * 지금은 주문(등록 · 확정)과 오류대기(재처리)까지다. 할당(ORD-PG-005) ·
- * 결품 · 취소는 이어지는 섹터에서 붙는다.
+ * 지금은 주문(등록 · 확정) · 오류대기(재처리) · 재고할당까지다.
+ * 결품(ORD-PG-006) · 취소 · 주문변경은 이어지는 섹터에서 붙는다.
  *
  * meta.title  브라우저 탭 / 헤더에 표시되는 화면명
  * meta.perm   화면 진입에 필요한 권한코드
@@ -21,6 +21,12 @@ export const routes = [
     name: 'order-errors',
     component: () => import('./views/OrderErrorView.vue'),
     meta: { title: '주문 오류대기', perm: 'ORD_ORDER' },
+  },
+  {
+    path: '/orders/allocations',
+    name: 'order-allocations',
+    component: () => import('./views/AllocationView.vue'),
+    meta: { title: '재고할당', perm: 'ORD_ALLOC' },
   },
 ]
 

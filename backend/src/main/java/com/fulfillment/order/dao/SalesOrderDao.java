@@ -65,6 +65,17 @@ public interface SalesOrderDao {
 
 	void updateLine(OrderLine line);
 
+	/**
+	 * 줄 하나의 상태만 옮긴다.
+	 *
+	 * updateLine 은 sku_seq · remark 까지 함께 쓴다. 할당은 상태만 바꾸는데
+	 * 그것을 쓰면 줄 전체를 읽어 되돌려 넣어야 하고, 그러다 한 칸을 빠뜨리면
+	 * 조용히 값이 지워진다.
+	 */
+	void updateLineStatus(@Param("lineSeq") Long lineSeq,
+			@Param("lineStatus") String lineStatus,
+			@Param("updatedBy") String updatedBy);
+
 	void deleteLines(@Param("orderSeq") Long orderSeq);
 
 	/* 오류대기 · 재처리 (ORD-PG-003, ORD-PG-004) ---------------------------- */

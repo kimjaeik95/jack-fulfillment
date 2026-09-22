@@ -11,9 +11,12 @@ import com.fulfillment.order.dto.SalesOrderSearch;
 import com.fulfillment.order.dto.UnmappedGroupResponse;
 import com.fulfillment.order.dto.UnmappedLineResponse;
 import com.fulfillment.order.dto.UnmappedSearch;
+import com.fulfillment.order.dto.AllocationResponse;
+import com.fulfillment.order.service.AllocationService;
 import com.fulfillment.order.service.SalesOrderService;
 import com.fulfillment.order.service.UnmappedOrderService;
 import jakarta.validation.Valid;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -40,6 +43,10 @@ import java.util.List;
  *   GET  /api/orders/{seq}/lines/{seq}/sku-check  붙이기 전 대조 (바꾸지 않음)
  *   PUT  /api/orders/{seq}/lines/{seq}/sku        줄 하나에 SKU 직접 지정
  *
+ *   GET    /api/orders/{seq}/allocations   할당 내역 (푼 것 포함)
+ *   POST   /api/orders/{seq}/allocate      재고할당 — 모자라면 부분할당
+ *   DELETE /api/orders/{seq}/allocations   할당해제
+ *
  * 주문 목록에도 unmappedOnly=Y 가 있지만 그것과 /unmapped 는 다른 것이다.
  * 목록은 '미매핑 줄이 있는 주문' 을 세고, 여기는 '막힌 줄' 자체를 센다 —
  * 한 주문에 막힌 줄이 셋이면 목록에는 1 건, 여기는 3 건이다. 무엇을 고칠지
@@ -59,11 +66,13 @@ public class SalesOrderController {
 
 	private final SalesOrderService orderService;
 	private final UnmappedOrderService unmappedService;
+	private final AllocationService allocationService;
 
 	public SalesOrderController(SalesOrderService orderService,
-			UnmappedOrderService unmappedService) {
+			UnmappedOrderService unmappedService, AllocationService allocationService) {
 		this.orderService = orderService;
 		this.unmappedService = unmappedService;
+		this.allocationService = allocationService;
 	}
 
 	@GetMapping
@@ -154,5 +163,43 @@ public class SalesOrderController {
 		UnmappedOrderService.AssignResult result =
 				unmappedService.assignSku(CurrentUser.require(), orderSeq, lineSeq, request);
 		return ApiResponse.ok(result.order(), result.warning());
+	}
+
+	/* 재고할당 (ORD-PG-005) --------------------------------------------- */
+
+	@GetMapping("/{orderSeq}/allocations")
+	public ApiResponse<List<AllocationResponse>> allocations(@PathVariable Long orderSeq) {
+		return ApiResponse.ok(allocationService.byOrder(CurrentUser.require(), orderSeq));
+	}
+
+	/**
+	 * 재고할당.
+	 *
+	 * 모자라면 잡을 수 있는 만큼만 잡고 그 줄을 결품으로 표시한다 — 한 줄이
+	 * 모자란다고 나머지를 묶어 두면 나갈 수 있는 물건이 안 나간다. 그 사실은
+	 * warning 으로 온다.
+	 *
+	 * 두 번 눌러도 안전하다. 이미 잡은 만큼은 빼고 남은 것만 잡는다.
+	 */
+	@PostMapping("/{orderSeq}/allocate")
+	public ApiResponse<AllocationService.Result> allocate(@PathVariable Long orderSeq) {
+		AllocationService.Result result =
+				allocationService.allocate(CurrentUser.require(), orderSeq);
+		return ApiResponse.ok(result, result.message());
+	}
+
+	/**
+	 * 할당해제.
+	 *
+	 * DELETE 인 이유는 잡아 둔 것을 거둬들이는 일이기 때문이다. 사유는
+	 * 코드그룹 REASON_SHORT 에서 고른다 — 왜 풀었는지 없으면 나중에
+	 * 재고가 왜 돌아왔는지 설명할 수 없다.
+	 */
+	@DeleteMapping("/{orderSeq}/allocations")
+	public ApiResponse<AllocationService.Result> release(@PathVariable Long orderSeq,
+			@RequestParam(required = false) String reasonCode) {
+		AllocationService.Result result =
+				allocationService.release(CurrentUser.require(), orderSeq, reasonCode);
+		return ApiResponse.ok(result, result.message());
 	}
 }

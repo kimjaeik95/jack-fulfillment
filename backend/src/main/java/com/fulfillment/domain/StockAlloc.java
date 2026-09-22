@@ -32,7 +32,14 @@ public class StockAlloc {
 	private Long allocSeq;
 	private Long stockSeq;
 
-	/** 주문상세 참조 (7차). 지금은 번호만. */
+	/**
+	 * 주문 줄.
+	 *
+	 * orderNo · orderLineNo 는 주문 테이블이 없던 시절의 문자열 자리다.
+	 * V13 에서 orderLineSeq 가 생겨 FK 로 제대로 가리키므로 할당은 이쪽을
+	 * 쓴다. 문자열도 함께 채운다 — 사람이 읽고 검색하는 것은 번호다.
+	 */
+	private Long orderLineSeq;
 	private String orderNo;
 	private Integer orderLineNo;
 
@@ -59,6 +66,8 @@ public class StockAlloc {
 	private Long orgSeq;
 	private String skuId;
 	private String productName;
+	private String colorCode;
+	private String sizeCode;
 	private String releaseReasonName;
 
 	/** 아직 잡혀 있는 수량 — 할당분에서 푼 것을 뺀 나머지 */
