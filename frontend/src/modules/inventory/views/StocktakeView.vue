@@ -29,6 +29,7 @@ import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import FormField from '@/components/FormField.vue'
 import CodeBadge from '@/components/CodeBadge.vue'
 import StockPicker from '../components/StockPicker.vue'
+import SkuPicker from '@/components/SkuPicker.vue'
 
 const hierarchy = useHierarchyStore()
 const session = useSessionStore()
@@ -401,10 +402,58 @@ async function doCancel() {
 const addingLine = ref(false)
 const extra = reactive({ locationId: '', skuId: '', qty: 1, reasonCode: '', remark: '' })
 
+/**
+ * 고른 SKU 의 전체 정보.
+ *
+ * extra.skuId 만 두면 화면에 코드밖에 안 남아, 고른 뒤에 그것이 맞는 물건인지
+ * 확인할 길이 없다. 현장에서 바코드를 보고 고르는 화면이라 제품명이 보여야 한다.
+ */
+const extraSku = ref(null)
+const pickingExtraSku = ref(false)
+
+/**
+ * 이 실사가 세는 창고의 빈 목록.
+ *
+ * 다른 창고 빈을 고를 일이 없다 — 실사는 창고 하나를 세는 일이다. 전체를
+ * 보여 주면 옆 창고의 같은 이름 빈(1A-01-01 은 창고마다 있다)을 고를 수 있고,
+ * 그러면 없던 재고가 엉뚱한 창고에 생긴다.
+ */
+const extraLocations = ref([])
+
+async function loadExtraLocations() {
+  try {
+    const data = await locationApi.list({
+      plantId: detail.value.plantId,
+      warehouseId: detail.value.warehouseId,
+      useYn: 'Y',
+      size: 0,
+    })
+    extraLocations.value = data.rows ?? data
+  } catch {
+    // 목록을 못 받아도 창을 열어 둔다. 고를 것이 없으면 기록 버튼이 잠긴다.
+    extraLocations.value = []
+  }
+}
+
+const extraLocationOptions = computed(() =>
+  extraLocations.value.map((l) => ({
+    value: l.locationId,
+    label: l.locationType === 'NORMAL' ? l.locationId : `${l.locationId} (${l.locationType})`,
+  })),
+)
+
 function openAddLine() {
   Object.assign(extra, { locationId: '', skuId: '', qty: 1, reasonCode: '', remark: '' })
+  extraSku.value = null
   detailError.value = ''
   addingLine.value = true
+  loadExtraLocations()
+}
+
+function pickExtraSku(sku) {
+  extraSku.value = sku
+  extra.skuId = sku.skuId
+  pickingExtraSku.value = false
 }
 
 async function submitExtra() {
@@ -907,6 +956,18 @@ const progressPct = (t) =>
       </template>
     </ModalDialog>
 
+    <!--
+      장부에 없는 물건이라 재고에서 고를 수 없다. SkuPicker 는 재고가 없어도
+      고를 수 있어서 이 경우에 맞다 — StockPicker 는 재고 행을 고르는 것이라
+      여기서는 아무것도 안 나온다.
+    -->
+    <SkuPicker
+      v-if="pickingExtraSku"
+      title="장부에 없던 물건의 SKU"
+      @pick="pickExtraSku"
+      @close="pickingExtraSku = false"
+    />
+
     <!-- ── 계획에 없던 물건 ─────────────────────────────────── -->
     <ModalDialog v-if="addingLine" title="계획에 없던 물건" @close="addingLine = false">
       <p class="small">
@@ -919,8 +980,41 @@ const progressPct = (t) =>
         <span class="alert-icon">⛔</span><span>{{ detailError }}</span>
       </div>
       <div class="form-grid mt-2">
-        <FormField v-model="extra.locationId" label="빈코드" required mono placeholder="1A-01-01" />
-        <FormField v-model="extra.skuId" label="SKU 코드" required mono placeholder="PRD-24001-BK-M" />
+        <!--
+          빈은 이 실사가 세는 창고의 것만 고른다. 손으로 적게 두면 옆 창고의
+          같은 이름 빈을 적어도 통과하고, 없던 재고가 엉뚱한 창고에 생긴다.
+        -->
+        <FormField
+          v-model="extra.locationId"
+          label="빈"
+          type="select"
+          required
+          empty-option="고르세요"
+          :options="extraLocationOptions"
+          :hint="
+            extraLocations.length
+              ? `${detail.warehouseName} 의 빈 ${extraLocations.length} 곳`
+              : '빈 목록을 받지 못했습니다.'
+          "
+        />
+
+        <!--
+          SKU 는 목록에서 고른다. PRD-24001-BK-M 같은 코드를 현장에서 손으로
+          적게 하면 한 글자 틀린 코드가 그대로 들어가고, 마감할 때 '없는 SKU'
+          로 막힌다 — 그때는 이미 현품을 내려놓고 자리를 떠난 뒤다.
+        -->
+        <div class="picked-sku">
+          <span class="ps-label">SKU<span class="req">*</span></span>
+          <span v-if="extraSku" class="ps-value">
+            <span class="code">{{ extraSku.skuId }}</span>
+            <span class="small dim"> {{ extraSku.productName }}</span>
+          </span>
+          <span v-else class="ps-value dim">아직 고르지 않았습니다</span>
+          <button class="btn btn-sm" @click="pickingExtraSku = true">
+            {{ extraSku ? '다시 고르기' : 'SKU 고르기' }}
+          </button>
+        </div>
+
         <FormField v-model.number="extra.qty" label="실사수량" type="number" required />
         <FormField
           v-model="extra.reasonCode"
@@ -984,6 +1078,27 @@ const progressPct = (t) =>
 </template>
 
 <style scoped>
+/* SKU 고르기 한 줄 — FormField 가 아니라서 라벨 모양을 맞춰 준다 */
+.picked-sku {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.picked-sku .ps-label {
+  font-size: 12px;
+  color: var(--text-2);
+  min-width: 58px;
+}
+.picked-sku .req {
+  color: var(--danger);
+  margin-left: 2px;
+}
+.picked-sku .ps-value {
+  flex: 1;
+  min-width: 150px;
+}
+
 /* 대상 미리보기 — 저장 전에 몇 건이 잡히는지 */
 .preview {
   display: flex;
