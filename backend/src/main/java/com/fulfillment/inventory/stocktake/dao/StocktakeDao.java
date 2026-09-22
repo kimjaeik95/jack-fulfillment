@@ -100,6 +100,10 @@ public interface StocktakeDao {
 			@Param("locationSeq") Long locationSeq,
 			@Param("skuSeq") Long skuSeq);
 
+	/** 이 빈에 걸린 대상 줄 수 — 스캔으로 빈을 찍었을 때 셀 것이 있는지 본다 */
+	int countLinesByLocation(@Param("takeSeq") Long takeSeq,
+			@Param("locationSeq") Long locationSeq);
+
 	/** 방금 넣은 줄의 순번 — 넣자마자 수량을 기록해야 한다 */
 	Long selectLineSeqByKey(@Param("takeSeq") Long takeSeq,
 			@Param("locationSeq") Long locationSeq,

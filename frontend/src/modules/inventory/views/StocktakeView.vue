@@ -15,7 +15,7 @@
  * 보이면 블라인드가 아니다. 그래서 여기서 할 일은 '가리는' 것이 아니라
  * '없는 값을 없는 대로 그리는' 것이다.
  */
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { codeOptions } from '@/api/codes.js'
 import * as opsApi from '@/api/stockOps.js'
 import * as stockApi from '@/api/stock.js'
@@ -376,6 +376,114 @@ const start = () =>
   act(async () => {
     await opsApi.startTake(detail.value.takeSeq)
   }, '실사를 시작했습니다. 이제 대상은 바뀌지 않습니다.')
+
+/* ── 바코드 스캔 (INV-PG-009) ───────────────────────────────── */
+
+/**
+ * 스캔은 입력 방법일 뿐이다.
+ *
+ * 찍을 때마다 서버에 저장하지 않는다. 기존 수량칸(draft)에 +1 씩 쌓고,
+ * 다 세면 지금까지와 같은 '수량 기록' 버튼으로 한 번에 넣는다.
+ *
+ * 저장을 스캔마다 하면 안 되는 이유가 있다. 수량입력은 '같은 줄에 두 번째로
+ * 들어온 수량은 재계수' 로 해석하는데 — 한 줄을 정하는 판단이라 옳다 —
+ * 물건 다섯 개를 찍으면 저장이 다섯 번이라 1 차 1 개 · 재계수 1 개가 되어
+ * 실제로 센 다섯이 사라진다.
+ */
+const scanning = ref(false)
+const scanValue = ref('')
+const scanBox = ref(null)
+const scanBusy = ref(false)
+
+/** 지금 서 있는 빈. 빈을 찍으면 바뀌고, 물건은 이 빈의 줄로 들어간다. */
+const scanLocation = ref(null)
+
+/** 이번 스캔으로 찍은 것들 — 방금 무엇을 찍었는지 눈으로 확인한다 */
+const scanLog = ref([])
+
+function openScan() {
+  scanning.value = true
+  scanValue.value = ''
+  scanLog.value = []
+  scanLocation.value = null
+  focusScan()
+}
+
+/**
+ * 입력칸에 포커스를 돌려놓는다.
+ *
+ * 스캐너는 키보드처럼 글자를 쳐 넣으므로 포커스가 이 칸에 없으면 아무 데나
+ * 입력된다. 한 번 찍을 때마다 되돌려야 한 손에 단말을 들고 작업할 수 있다.
+ */
+function focusScan() {
+  nextTick(() => scanBox.value?.focus())
+}
+
+function logScan(kind, text) {
+  scanLog.value = [{ kind, text, at: Date.now() }, ...scanLog.value].slice(0, 12)
+}
+
+async function onScan() {
+  const value = scanValue.value.trim()
+  scanValue.value = ''
+  focusScan()
+  if (!value || scanBusy.value) return
+
+  scanBusy.value = true
+  try {
+    const r = await opsApi.resolveScan(
+      detail.value.takeSeq,
+      value,
+      scanLocation.value?.locationId,
+    )
+
+    if (r.kind === 'LOCATION') {
+      scanLocation.value = r
+      if (!r.lineCount) {
+        toast.warn(`${r.locationFullCode} 은(는) 이 실사 대상에 없는 빈입니다.`)
+        logScan('warn', `${r.locationFullCode} — 대상 없음`)
+      } else {
+        logScan('bin', `${r.locationFullCode} (대상 ${r.lineCount}줄)`)
+      }
+      return
+    }
+
+    if (r.kind === 'SKU') {
+      // 장부에 없던 물건이다. 막지 않고 '계획에 없던 물건' 으로 넘긴다 —
+      // 실사가 잡아야 하는 가장 중요한 경우다.
+      if (!r.lineSeq) {
+        toast.warn(r.message)
+        logScan('warn', `${r.skuId} — ${r.message}`)
+        if (scanLocation.value) {
+          openAddLine()
+          extra.locationId = scanLocation.value.locationId
+          extra.skuId = r.skuId
+          extraSku.value = { skuId: r.skuId, productName: r.productName }
+        }
+        return
+      }
+      const now = (Number(draft[r.lineSeq]) || 0) + 1
+      draft[r.lineSeq] = now
+      logScan('sku', `${r.skuId} ${r.productName ?? ''} → ${now}개`)
+      return
+    }
+
+    toast.warn(r.message)
+    logScan('warn', r.message)
+  } catch (e) {
+    toast.error(e.message)
+    logScan('warn', e.message)
+  } finally {
+    scanBusy.value = false
+  }
+}
+
+/** 스캔으로 쌓은 줄 수 — 저장 버튼이 몇 건인지 보여 준다 */
+const scanTally = computed(() =>
+  Object.entries(draft)
+    .filter(([, v]) => v !== '' && v !== null && v !== undefined)
+    .length,
+)
 
 /** 입력한 줄만 보낸다. 안 건드린 줄까지 보내면 1 차가 재계수로 덮인다. */
 const dirtyLines = computed(() =>
@@ -886,6 +994,45 @@ const progressPct = (t) =>
         </div>
       </div>
 
+      <!--
+        바코드 스캔.
+
+        현장은 '목록에서 줄을 찾아 숫자를 친다' 가 아니라 '빈 앞에 서서
+        물건을 하나씩 찍는다' 이다. 순서가 반대라 입력칸만으로는 안 되고,
+        지금 어느 빈에 서 있는지를 화면이 들고 있어야 한다.
+      -->
+      <div v-if="detail.counting" class="scan-bar">
+        <button class="btn btn-sm" :class="{ 'btn-primary': scanning }" @click="scanning ? (scanning = false) : openScan()">
+          {{ scanning ? '스캔 닫기' : '📷 바코드로 세기' }}
+        </button>
+        <span v-if="scanning && scanLocation" class="scan-here">
+          지금 자리 <span class="code">{{ scanLocation.locationFullCode }}</span>
+          <span class="small dim">대상 {{ scanLocation.lineCount }}줄</span>
+        </span>
+        <span v-else-if="scanning" class="small dim">빈 라벨을 먼저 찍으세요.</span>
+      </div>
+
+      <div v-if="scanning && detail.counting" class="scan-panel">
+        <input
+          ref="scanBox"
+          v-model="scanValue"
+          class="input scan-input"
+          :placeholder="scanLocation ? '물건 바코드 또는 SKU 코드' : '빈 라벨 또는 빈코드'"
+          :disabled="!canCount || scanBusy"
+          @keyup.enter="onScan()"
+        />
+        <p class="small dim scan-help">
+          찍은 값이 빈인지 물건인지는 서버가 가립니다. 빈을 찍으면 자리가 바뀌고,
+          물건을 찍으면 그 자리의 수량이 <strong>1 씩 올라갑니다</strong>.
+          라벨이 안 읽히면 코드를 직접 치고 Enter 를 누르세요.
+          <strong>저장은 아래 '수량 기록' 버튼</strong>을 눌러야 됩니다 — 지금까지 찍은 것은
+          {{ scanTally }} 줄입니다.
+        </p>
+        <ul v-if="scanLog.length" class="scan-log">
+          <li v-for="s in scanLog" :key="s.at" :class="s.kind">{{ s.text }}</li>
+        </ul>
+      </div>
+
       <table class="table lines">
         <thead>
           <tr>
@@ -1105,6 +1252,54 @@ const progressPct = (t) =>
 </template>
 
 <style scoped>
+/* 바코드 스캔 */
+.scan-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 10px 0 6px;
+  flex-wrap: wrap;
+}
+.scan-here {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+.scan-panel {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  padding: 12px;
+  margin-bottom: 10px;
+}
+/* 스캐너는 글자를 빠르게 쳐 넣는다. 칸이 크고 글자가 커야 눈으로 확인된다. */
+.scan-input {
+  width: 100%;
+  font-size: 18px;
+  font-family: var(--font-mono, monospace);
+  padding: 10px 12px;
+}
+.scan-help {
+  margin: 8px 0 0;
+  line-height: 1.6;
+}
+.scan-log {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.7;
+}
+.scan-log .bin {
+  color: var(--primary);
+}
+.scan-log .sku {
+  color: var(--text);
+}
+.scan-log .warn {
+  color: var(--warn);
+}
+
 /* SKU 고르기 한 줄 — FormField 가 아니라서 라벨 모양을 맞춰 준다 */
 .picked-sku {
   display: flex;

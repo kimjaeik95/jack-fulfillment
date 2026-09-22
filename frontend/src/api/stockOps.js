@@ -232,6 +232,24 @@ export async function addTakeLine(takeSeq, payload) {
   return { take: data, warning }
 }
 
+/**
+ * 스캔 한 번을 해석한다 (INV-PG-009).
+ *
+ * 아무것도 바꾸지 않는다. 찍은 문자열이 이 창고의 빈인지, SKU 인지, 둘 다
+ * 아닌지를 알려 줄 뿐이다 — 수량은 화면이 모아서 countTake 로 한 번에 넣는다.
+ *
+ * 스캔마다 저장하지 않는 이유가 있다. 수량입력은 '같은 줄에 두 번째로 들어온
+ * 수량은 재계수' 로 해석한다. 스캔은 물건 하나에 한 번씩 찍으므로 다섯 개를
+ * 찍으면 저장이 다섯 번인데, 그대로 두면 1 차 1 개 · 재계수 1 개가 되어
+ * 실제로 센 다섯이 사라진다.
+ *
+ * @param locationId 지금 서 있는 빈. 아직 안 찍었으면 비운다.
+ */
+export async function resolveScan(takeSeq, scan, locationId) {
+  const { data } = await get(`/stocktakes/${takeSeq}/scan`, { scan, locationId })
+  return data
+}
+
 /** 마감 — 여기서 재고가 바뀐다. 되돌릴 수 없다. */
 export async function closeTake(takeSeq) {
   const { data, warning } = await post(`/stocktakes/${takeSeq}/close`, {})

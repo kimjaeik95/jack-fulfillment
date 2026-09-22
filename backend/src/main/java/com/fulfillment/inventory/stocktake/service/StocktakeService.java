@@ -24,6 +24,7 @@ import com.fulfillment.inventory.stock.service.StockLedger;
 import com.fulfillment.inventory.stock.service.StockLedger.Movement;
 import com.fulfillment.inventory.stocktake.dao.StocktakeDao;
 import com.fulfillment.inventory.stocktake.dto.CountRequest;
+import com.fulfillment.inventory.stocktake.dto.ScanResolveResponse;
 import com.fulfillment.inventory.stocktake.dto.StocktakeLineResponse;
 import com.fulfillment.inventory.stocktake.dto.StocktakeResponse;
 import com.fulfillment.inventory.stocktake.dto.StocktakeSaveRequest;
@@ -397,6 +398,106 @@ public class StocktakeService {
 		auditRecorder.recordAction(actor, "UPDATE", TABLE, after.getTakeNo(),
 				"실사 시작 — 대상 %d 줄".formatted(nz(after.getLineCount())));
 		return StocktakeResponse.of(after);
+	}
+
+	/* ------------------------------------------------------------------ */
+	/* 스캔 해석 (INV-PG-009)                                              */
+	/* ------------------------------------------------------------------ */
+
+	/**
+	 * 스캔한 문자열 하나가 무엇인지 알려 준다.
+	 *
+	 * 아무것도 바꾸지 않는다. 화면이 '지금 무엇을 찍었나' 를 알고 화면 안에서
+	 * 수량을 세다가, 그 빈을 다 세면 기존 수량입력(count)으로 한 번에 넣는다.
+	 *
+	 * 스캔마다 저장하지 않는 이유가 있다. count 는 '같은 줄에 두 번째로 들어온
+	 * 수량은 재계수' 로 해석한다 — 한 줄을 정하는 판단이라 옳다. 그런데 스캔은
+	 * 물건 하나에 한 번씩 찍으므로, 다섯 개를 찍으면 저장이 다섯 번 일어난다.
+	 * 그대로 두면 1 차 1 개 · 재계수 1 개가 되어 실제로 센 다섯이 사라진다.
+	 *
+	 * 찾는 순서는 빈이 먼저다. 현장에서는 빈 앞에 서서 빈을 찍고 물건을 찍는데,
+	 * 빈 라벨과 SKU 바코드 체계가 겹칠 일은 없지만 겹치더라도 '지금 선 자리'
+	 * 로 읽는 편이 덜 위험하다 — 엉뚱한 물건을 세는 것보다 엉뚱한 자리로
+	 * 옮겨가는 편이 사람 눈에 바로 띈다.
+	 *
+	 * 스캐너가 안 읽힐 때를 위해 코드 직접입력도 같은 칸으로 받는다. 입력칸을
+	 * 둘로 나누면 어느 쪽에 넣어야 하는지를 매번 고민하게 된다 (입고 검수와
+	 * 같은 방식이다).
+	 *
+	 * @param locationId 지금 서 있는 빈. SKU 를 찍었을 때 어느 줄인지 찾는 데
+	 *                   쓴다. 아직 빈을 안 찍었으면 null 이고, 그때 SKU 를
+	 *                   찍으면 빈부터 찍으라고 답한다.
+	 */
+	@Transactional(readOnly = true)
+	public ScanResolveResponse resolveScan(LoginUser actor, Long takeSeq, String scan,
+			String locationId) {
+		permissionChecker.require(actor, PERM, "R");
+
+		Stocktake take = mustFindInScope(actor, takeSeq, PERM, "R");
+		String value = scan == null ? "" : scan.trim();
+		if (value.isEmpty()) {
+			return ScanResolveResponse.unknown("스캔한 값이 비어 있습니다.");
+		}
+
+		Location location = findLocation(take, value);
+		if (location != null) {
+			return ScanResolveResponse.location(location.getLocationSeq(),
+					location.getLocationId(), locationFullCode(take, location),
+					stocktakeDao.countLinesByLocation(takeSeq, location.getLocationSeq()));
+		}
+
+		Sku sku = findSku(value);
+		if (sku == null) {
+			return ScanResolveResponse.unknown(
+					("'%s' 로는 이 창고의 빈도 SKU 도 찾을 수 없습니다. 라벨이 지워졌으면 "
+							+ "빈코드나 SKU 코드를 직접 입력하세요.").formatted(value));
+		}
+
+		if (locationId == null || locationId.isBlank()) {
+			return ScanResolveResponse.sku(sku.getSkuSeq(), sku.getSkuId(), sku.getProductName(),
+					sku.getColorCode(), sku.getSizeCode(), null,
+					"빈을 먼저 찍으세요. 어느 자리에서 센 것인지 모르면 수량을 넣을 수 없습니다.");
+		}
+
+		Location here = findLocation(take, locationId);
+		if (here == null) {
+			return ScanResolveResponse.sku(sku.getSkuSeq(), sku.getSkuId(), sku.getProductName(),
+					sku.getColorCode(), sku.getSizeCode(), null,
+					"지금 빈(%s)을 이 창고에서 찾을 수 없습니다. 빈을 다시 찍으세요."
+							.formatted(locationId));
+		}
+
+		Long lineSeq = stocktakeDao.selectLineSeqByKey(takeSeq, here.getLocationSeq(),
+				sku.getSkuSeq());
+		// lineSeq 가 null 이면 장부에 없던 물건이다. 막지 않는다 — 실사가
+		// 잡아야 하는 가장 중요한 경우이고, 화면이 '계획에 없던 물건' 으로
+		// 넘긴다.
+		return ScanResolveResponse.sku(sku.getSkuSeq(), sku.getSkuId(), sku.getProductName(),
+				sku.getColorCode(), sku.getSizeCode(), lineSeq,
+				lineSeq == null
+						? "이 자리의 대상에 없는 물건입니다. 장부에 없던 물건으로 기록하세요."
+						: null);
+	}
+
+	/** 바코드로 먼저, 없으면 빈코드로. 이 실사의 창고 안에서만 찾는다. */
+	private Location findLocation(Stocktake take, String value) {
+		Location byBarcode = locationDao.selectByBarcode(value);
+		if (byBarcode != null && take.getWarehouseSeq().equals(byBarcode.getWarehouseSeq())) {
+			return byBarcode;
+		}
+		// 빈코드는 창고 안에서만 유일하다 (V7). 창고를 같이 넘겨야 한 곳이 정해진다.
+		return locationDao.selectByCode(take.getWarehouseSeq(), value);
+	}
+
+	/** 바코드로 먼저, 없으면 SKU 코드로 — 입고 검수와 같은 순서다. */
+	private Sku findSku(String value) {
+		Sku sku = skuDao.selectByBarcode(value);
+		return sku != null ? sku : skuDao.selectBySkuId(value);
+	}
+
+	private String locationFullCode(Stocktake take, Location location) {
+		return "%s-%s-%s".formatted(take.getPlantId(), take.getWarehouseId(),
+				location.getLocationId());
 	}
 
 	/* ------------------------------------------------------------------ */

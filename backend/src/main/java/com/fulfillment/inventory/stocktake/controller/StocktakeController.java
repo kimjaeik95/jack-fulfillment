@@ -6,6 +6,7 @@ import com.fulfillment.common.web.PageResponse;
 import com.fulfillment.common.web.ReasonRequest;
 import com.fulfillment.inventory.stocktake.dto.AddLineRequest;
 import com.fulfillment.inventory.stocktake.dto.CountRequest;
+import com.fulfillment.inventory.stocktake.dto.ScanResolveResponse;
 import com.fulfillment.inventory.stocktake.dto.PickTargetRequest;
 import com.fulfillment.inventory.stocktake.dto.StocktakeResponse;
 import com.fulfillment.inventory.stocktake.dto.StocktakeSaveRequest;
@@ -144,6 +145,24 @@ public class StocktakeController {
 	}
 
 	/** 수량 입력. 1차인지 재계수인지는 서버가 정한다. */
+	/**
+	 * 스캔 해석 — 찍은 값이 빈인지 물건인지 알려 준다.
+	 *
+	 * 아무것도 바꾸지 않으므로 GET 이다. 수량은 화면이 모아서 counts 로 넣는다
+	 * — 스캔마다 저장하면 두 번째 저장이 재계수로 해석되어, 다섯 개를 찍은
+	 * 순간 1 차 1 개 · 재계수 1 개가 된다.
+	 *
+	 * @param scan       스캐너가 준 문자열. 라벨이 안 읽히면 코드를 직접 넣는다.
+	 * @param locationId 지금 서 있는 빈. 빈을 아직 안 찍었으면 비운다.
+	 */
+	@GetMapping("/{takeSeq}/scan")
+	public ApiResponse<ScanResolveResponse> resolveScan(@PathVariable Long takeSeq,
+			@RequestParam String scan,
+			@RequestParam(required = false) String locationId) {
+		return ApiResponse.ok(
+				stocktakeService.resolveScan(CurrentUser.require(), takeSeq, scan, locationId));
+	}
+
 	@PostMapping("/{takeSeq}/counts")
 	public ApiResponse<StocktakeResponse> count(@PathVariable Long takeSeq,
 			@Valid @RequestBody CountRequest request) {

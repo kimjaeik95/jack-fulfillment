@@ -359,6 +359,18 @@
            AND sku_seq = #{skuSeq}
     </select>
 
+    <!--
+      이 빈에 걸린 대상 줄 수.
+
+      스캔으로 빈을 찍었을 때 셀 것이 있는지 본다. 0 이면 대상에 없는 빈이라
+      찍어도 할 일이 없다 — 그 사실을 바로 알려 줘야 사람이 헛걸음을 안 한다.
+    -->
+    <select id="countLinesByLocation" resultType="int">
+        SELECT COUNT(*) FROM tb_stocktake_line
+         WHERE take_seq     = #{takeSeq}
+           AND location_seq = #{locationSeq}
+    </select>
+
     <delete id="deleteLines">
         DELETE FROM tb_stocktake_line WHERE take_seq = #{takeSeq}
     </delete>
