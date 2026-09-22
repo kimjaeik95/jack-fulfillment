@@ -1,6 +1,7 @@
 package com.fulfillment.order.service;
 
 import com.fulfillment.common.audit.AuditRecorder;
+import com.fulfillment.common.code.CodeValues;
 import com.fulfillment.common.exception.BusinessException;
 import com.fulfillment.common.exception.ErrorCode;
 import com.fulfillment.common.security.LoginUser;
@@ -61,19 +62,23 @@ public class AllocationService {
 	private static final String MOVE_ALLOCATE = "ALLOCATE";
 	private static final String MOVE_RELEASE = "RELEASE";
 	private static final String REF_ORDER = "ORDER";
+	/** 할당을 푸는 사유 (코드그룹) — 현품 없음 · 파손 · 위치 오류 */
+	private static final String REASON_GROUP = "REASON_SHORT";
 
 	private final SalesOrderDao orderDao;
 	private final AllocationDao allocDao;
 	private final StockLedger stockLedger;
+	private final CodeValues codeValues;
 	private final PermissionChecker permissionChecker;
 	private final AuditRecorder auditRecorder;
 
 	public AllocationService(SalesOrderDao orderDao, AllocationDao allocDao,
-			StockLedger stockLedger, PermissionChecker permissionChecker,
-			AuditRecorder auditRecorder) {
+			StockLedger stockLedger, CodeValues codeValues,
+			PermissionChecker permissionChecker, AuditRecorder auditRecorder) {
 		this.orderDao = orderDao;
 		this.allocDao = allocDao;
 		this.stockLedger = stockLedger;
+		this.codeValues = codeValues;
 		this.permissionChecker = permissionChecker;
 		this.auditRecorder = auditRecorder;
 	}
@@ -179,6 +184,12 @@ public class AllocationService {
 	@Transactional
 	public Result release(LoginUser actor, Long orderSeq, String reasonCode) {
 		permissionChecker.require(actor, PERM, "D");
+
+		// 사유는 필수다. tb_stock_alloc 의 ck_stalloc_reason 이 마지막에 막지만,
+		// 그 메시지는 '저장할 수 없는 값입니다' 라서 사용자가 무엇을 빠뜨렸는지
+		// 알 수 없다. 코드그룹에 있는 값인지도 여기서 본다 — 아무 문자열이나
+		// 들어가면 사유별로 세어 볼 수 없고 화면에도 코드가 그대로 보인다.
+		codeValues.require(REASON_GROUP, reasonCode, "할당해제 사유");
 
 		Order order = mustFind(orderSeq);
 		if (Order.PICKING.equals(order.getOrderStatus())

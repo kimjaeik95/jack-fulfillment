@@ -71,20 +71,20 @@ async function fetchPage() {
   loadError.value = ''
   try {
     const q = QUICK.find((x) => x.key === quick.value)
+    // 확정 이전 주문은 할당 대상이 아니라 서버가 걸러 준다 (allocationScope).
+    // 받아서 화면에서 거르면 서버가 말하는 총건수와 표에 보이는 줄 수가
+    // 어긋나 페이저가 거짓말을 한다.
     const data = await orderApi.list({
       keyword: filters.keyword || null,
       channelId: filters.channelId || null,
       orderStatus: q?.status || null,
+      allocationScope: 'Y',
       page: page.value,
       size,
       sortBy: 'orderedAt',
       sortDir: 'asc',
     })
-    // 확정 이전 주문은 할당 대상이 아니다. '전체' 를 골라도 접수 · 취소는
-    // 빼 둔다 — 여기서 할 수 있는 일이 없는 줄이 목록을 채우면 방해만 된다.
-    rows.value = (data.rows ?? []).filter((o) =>
-      ['CONFIRMED', 'ALLOCATED', 'PICKING', 'SHIPPED'].includes(o.orderStatus),
-    )
+    rows.value = data.rows ?? []
     total.value = data.total ?? rows.value.length
   } catch (e) {
     loadError.value = e.message

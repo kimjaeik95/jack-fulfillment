@@ -25,6 +25,7 @@ export async function list(params = {}) {
     skuId: params.skuId,
     draftOnly: params.draftOnly,
     allocatableOnly: params.allocatableOnly,
+    allocationScope: params.allocationScope,
     unmappedOnly: params.unmappedOnly,
     fromDate: params.fromDate,
     toDate: params.toDate,

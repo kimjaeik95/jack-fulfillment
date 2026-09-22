@@ -121,6 +121,13 @@
                 AND o.order_status = 'CONFIRMED'
             </if>
             <!--
+              재고할당 화면이 다루는 범위. 접수는 아직 확정 전이라 잡을 수
+              없고, 취소는 잡을 것이 없다.
+            -->
+            <if test='allocationScope == "Y"'>
+                AND o.order_status IN ('CONFIRMED', 'ALLOCATED', 'PICKING', 'SHIPPED')
+            </if>
+            <!--
               SKU 가 안 붙은 줄이 있는 주문 (ORD-PG-003 오류대기).
               취소된 줄은 세지 않는다 — 이미 처리가 끝난 것이다.
             -->
