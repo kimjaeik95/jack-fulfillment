@@ -3,7 +3,7 @@
  * 라벨 + 컨트롤 + 도움말/오류 를 묶은 폼 필드.
  * type 별로 input / select / textarea / checks(다중 체크박스) 를 렌더한다.
  */
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 
 const props = defineProps({
   label: { type: String, default: '' },
@@ -42,6 +42,24 @@ const emit = defineEmits(['update:modelValue', 'enter'])
 
 const cls = computed(() => ({ invalid: !!props.error, 'input-mono': props.mono }))
 
+/**
+ * 밖에서 포커스를 옮길 수 있게 연다.
+ *
+ * 스캔으로 이어 넣는 화면이 필요로 한다. 적치는 SKU 를 찍고 바로 로케이션을
+ * 찍는데, 그 사이에 사람이 칸을 옮겨 주지 않는다 — 스캐너는 글자와 Enter 만
+ * 보내고 기다리지 않는다. 포커스가 안 옮겨지면 두 번째 스캔이 첫 칸을
+ * 덮어써서, 화면에는 값이 들어간 것처럼 보이는데 다른 칸은 비어 있게 된다.
+ *
+ * select · textarea · 단일 input 을 한 ref 로 받는다. type 에 따라 렌더되는
+ * 것이 다르고, 그중 하나만 존재한다.
+ */
+const el = ref(null)
+
+defineExpose({
+  focus: () => el.value?.focus?.(),
+  select: () => el.value?.select?.(),
+})
+
 function onCheck(value, checked) {
   const cur = Array.isArray(props.modelValue) ? [...props.modelValue] : []
   const i = cur.indexOf(value)
@@ -60,6 +78,7 @@ const checked = (v) => Array.isArray(props.modelValue) && props.modelValue.inclu
     </label>
 
     <select
+      ref="el"
       v-if="type === 'select'"
       class="select"
       :class="cls"
@@ -74,6 +93,7 @@ const checked = (v) => Array.isArray(props.modelValue) && props.modelValue.inclu
     </select>
 
     <textarea
+      ref="el"
       v-else-if="type === 'textarea'"
       class="textarea"
       :class="cls"
@@ -132,6 +152,7 @@ const checked = (v) => Array.isArray(props.modelValue) && props.modelValue.inclu
 
     <input
       v-else
+      ref="el"
       class="input"
       :class="cls"
       :type="type"
