@@ -28,6 +28,7 @@ import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import FormField from '@/components/FormField.vue'
 import CodeBadge from '@/components/CodeBadge.vue'
 import SkuPicker from '@/components/SkuPicker.vue'
+import OrderPicker from '../components/OrderPicker.vue'
 
 const hierarchy = useHierarchyStore()
 const session = useSessionStore()
@@ -190,6 +191,30 @@ async function pullFromOrder() {
   } finally {
     loadingOrder.value = false
   }
+}
+
+/**
+  * 발주 고르기.
+  *
+  * 발주번호를 손으로 적게 하면 어딘가에서 옮겨 적어야 하고, 한 글자만 틀려도
+  * '없는 발주' 로 막힌다. 목록에서 고르면 그 일이 없고, 아직 안 들어온 발주만
+  * 보여 주므로 고른 것에는 반드시 담을 것이 있다.
+  */
+const pickingOrder = ref(false)
+
+/**
+ * 고른 발주를 반영한다.
+ *
+ * 번호만 채우고 끝내지 않는다. 센터와 공급처도 그 발주의 것으로 맞춘다 —
+ * 발주가 근거인데 센터가 다르면 물건이 엉뚱한 곳으로 예정되고, 그 어긋남은
+ * 저장할 때야 드러난다.
+ */
+async function pickOrder(order) {
+  pickingOrder.value = false
+  form.orderNo = order.orderNo
+  if (order.plantId) form.plantId = order.plantId
+  if (order.supplierId) form.supplierId = order.supplierId
+  await pullFromOrder()
 }
 
 function addLine(sku) {
@@ -552,15 +577,24 @@ const createDenyReason = computed(() => session.denyReason('INB_PLAN', 'C'))
         <FormField v-model="form.remark" label="비고" />
       </div>
 
-      <!-- 발주에서 불러오기 (PUR-PG-006) -->
+      <!--
+        발주에서 불러오기 (PUR-PG-006).
+
+        고르는 것이 기본이다. 번호를 손으로 적는 길도 남긴다 — 전화로 번호를
+        받아 적는 경우가 있고, 목록이 길어지면 아는 번호를 치는 편이 빠르다.
+      -->
       <div class="from-order">
         <FormField
           v-model="form.orderNo"
           :label="needsOrder ? '근거 발주 *' : '근거 발주'"
-          placeholder="PO-20260916-0001"
-          help="불러오면 잔량이 남은 줄을 그대로 담습니다. 수량을 옮겨 적지 마세요."
+          mono
+          placeholder="고르거나 번호를 직접 입력"
+          help="고르면 그 발주의 센터 · 공급처까지 맞추고 잔량이 남은 줄을 담습니다."
           @enter="pullFromOrder()"
         />
+        <button class="btn btn-primary" :disabled="loadingOrder" @click="pickingOrder = true">
+          발주 고르기
+        </button>
         <button class="btn" :disabled="!form.orderNo || loadingOrder" @click="pullFromOrder()">
           <span v-if="loadingOrder" class="spinner"></span>
           불러오기
@@ -623,6 +657,18 @@ const createDenyReason = computed(() => session.denyReason('INB_PLAN', 'C'))
         </button>
       </template>
     </ModalDialog>
+
+    <!--
+      아직 안 들어온 발주만 보여 준다. 위에서 고른 센터 · 공급처가 있으면
+      그 조건으로 좁힌다 — 고를 때마다 눈으로 대조하게 두지 않는다.
+    -->
+    <OrderPicker
+      v-if="pickingOrder"
+      :plant-id="form.plantId"
+      :supplier-id="form.supplierId"
+      @pick="pickOrder"
+      @close="pickingOrder = false"
+    />
 
     <SkuPicker
       v-if="picking"
