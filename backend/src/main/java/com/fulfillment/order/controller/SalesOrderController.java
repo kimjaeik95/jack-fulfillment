@@ -19,6 +19,7 @@ import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -36,7 +37,8 @@ import java.util.List;
  *   GET  /api/orders/unmapped/groups        오류대기 — 외부코드별 묶음
  *   GET  /api/orders/unmapped/lines         오류대기 — 줄 목록
  *   POST /api/orders/unmapped/reprocess     재처리 — 매핑 등록 후 일괄 해소
- *   PUT  /api/orders/{seq}/lines/{seq}/sku  줄 하나에 SKU 직접 지정
+ *   GET  /api/orders/{seq}/lines/{seq}/sku-check  붙이기 전 대조 (바꾸지 않음)
+ *   PUT  /api/orders/{seq}/lines/{seq}/sku        줄 하나에 SKU 직접 지정
  *
  * 주문 목록에도 unmappedOnly=Y 가 있지만 그것과 /unmapped 는 다른 것이다.
  * 목록은 '미매핑 줄이 있는 주문' 을 세고, 여기는 '막힌 줄' 자체를 센다 —
@@ -127,10 +129,30 @@ public class SalesOrderController {
 		return ApiResponse.ok(result, result.message());
 	}
 
+	/**
+	 * 붙이기 전 대조.
+	 *
+	 * 아무것도 바꾸지 않는다. 화면이 SKU 를 고른 직후 불러 어긋나는 점을
+	 * 보여 주고, 사람이 보고 나서 PUT 을 누른다.
+	 */
+	@GetMapping("/{orderSeq}/lines/{lineSeq}/sku-check")
+	public ApiResponse<UnmappedOrderService.SkuCheck> skuCheck(@PathVariable Long orderSeq,
+			@PathVariable Long lineSeq, @RequestParam String skuId) {
+		return ApiResponse.ok(unmappedService.check(CurrentUser.require(), orderSeq, lineSeq, skuId));
+	}
+
+	/**
+	 * SKU 지정.
+	 *
+	 * 대조에서 걸린 것이 있어도 막지 않는다 — 채널 표시명은 자유 텍스트라
+	 * 기계가 틀렸다고 단정할 수 없기 때문이다. 대신 warning 으로 돌려주고
+	 * 감사로그에도 남긴다.
+	 */
 	@PutMapping("/{orderSeq}/lines/{lineSeq}/sku")
 	public ApiResponse<SalesOrderResponse> assignSku(@PathVariable Long orderSeq,
 			@PathVariable Long lineSeq, @Valid @RequestBody LineSkuAssignRequest request) {
-		return ApiResponse.ok(
-				unmappedService.assignSku(CurrentUser.require(), orderSeq, lineSeq, request));
+		UnmappedOrderService.AssignResult result =
+				unmappedService.assignSku(CurrentUser.require(), orderSeq, lineSeq, request);
+		return ApiResponse.ok(result.order(), result.warning());
 	}
 }

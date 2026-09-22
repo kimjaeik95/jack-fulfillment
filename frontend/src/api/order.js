@@ -102,12 +102,24 @@ export async function reprocess(payload = {}) {
 }
 
 /**
+ * 붙이기 전 대조. 아무것도 바꾸지 않는다.
+ *
+ * 고른 SKU 가 채널이 보낸 내용과 어긋나는지 서버가 견줘 준다. 색상 ·
+ * 사이즈 · 상품명 셋만 본다 — 채널 표시명은 자유 텍스트라 그 이상은
+ * 기계가 단정할 수 없다.
+ */
+export async function skuCheck(orderSeq, lineSeq, skuId) {
+  const { data } = await get(`/orders/${orderSeq}/lines/${lineSeq}/sku-check`, { skuId })
+  return data
+}
+
+/**
  * 줄 하나에 SKU 를 직접 붙인다.
  *
  * 매핑은 그대로라 같은 코드가 또 오면 또 막힌다 — 반복되는 코드면
  * 채널 SKU 매핑을 등록하고 재처리하는 쪽이 맞다.
  */
 export async function assignSku(orderSeq, lineSeq, payload) {
-  const { data } = await put(`/orders/${orderSeq}/lines/${lineSeq}/sku`, payload)
-  return data
+  const { data, warning } = await put(`/orders/${orderSeq}/lines/${lineSeq}/sku`, payload)
+  return { order: data, warning }
 }

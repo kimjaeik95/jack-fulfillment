@@ -17,6 +17,11 @@
  *
  * 왜 안 풀리는지를 행마다 적는다. 재처리 버튼만 있고 이유가 없으면 사용자는
  * 눌러도 0 건이 풀리는 것을 보고 다시 누른다.
+ *
+ * SKU 를 고르면 채널이 보낸 내용과 견줘 어긋나는 점을 보여 준다. 막지는
+ * 않는다 — 채널 표시명은 자유 텍스트라 기계가 틀렸다고 단정할 수 없고,
+ * 오탐으로 막으면 경고를 안 읽는 습관이 생긴다. 잘못 붙이면 잘못된 물건이
+ * 그대로 나가므로, 사람이 보고 누르게 하는 것이 여기서 할 수 있는 전부다.
  */
 import { computed, onMounted, reactive, ref } from 'vue'
 import * as orderApi from '@/api/order.js'
@@ -244,24 +249,52 @@ const assigning = ref(null)
 const picking = ref(false)
 const assignForm = reactive({ sku: null, reason: '' })
 
+/** 서버가 견준 결과. null 이면 아직 안 골랐거나 대조를 못 받은 것이다. */
+const check = ref(null)
+const checking = ref(false)
+
 function openAssign(line) {
   if (!canUpdate.value) return toast.error(updateDenyReason.value)
   assigning.value = line
   assignForm.sku = null
   assignForm.reason = ''
+  check.value = null
+}
+
+/**
+ * SKU 를 고르면 바로 견준다.
+ *
+ * 저장한 뒤에 경고를 보여 주면 이미 붙은 것을 떼야 하고, 그러면 사람은
+ * 경고를 '끝난 일에 대한 잔소리' 로 여기게 된다.
+ */
+async function pickSku(sku) {
+  assignForm.sku = sku
+  picking.value = false
+  check.value = null
+  checking.value = true
+  try {
+    check.value = await orderApi.skuCheck(assigning.value.orderSeq, assigning.value.lineSeq, sku.skuId)
+  } catch (e) {
+    // 대조를 못 받아도 지정 자체는 막지 않는다. 서버가 저장할 때 다시 본다.
+    toast.warn('대조 결과를 받지 못했습니다. ' + e.message)
+  } finally {
+    checking.value = false
+  }
 }
 
 async function saveAssign() {
   if (!assignForm.sku) return toast.warn('붙일 SKU 를 고르세요.')
   busy.value = true
   try {
-    await orderApi.assignSku(assigning.value.orderSeq, assigning.value.lineSeq, {
-      skuId: assignForm.sku.skuId,
-      reason: assignForm.reason || null,
-    })
+    const { warning } = await orderApi.assignSku(
+      assigning.value.orderSeq,
+      assigning.value.lineSeq,
+      { skuId: assignForm.sku.skuId, reason: assignForm.reason || null },
+    )
     toast.success(
       `${assigning.value.orderNo} ${assigning.value.lineNo} 번째 줄에 ${assignForm.sku.skuId} 를 붙였습니다.`,
     )
+    if (warning) toast.warn(warning)
     assigning.value = null
     await fetchGroups()
     // 묶음이 통째로 사라졌으면 닫고, 남았으면 남은 줄만 다시 읽는다.
@@ -468,18 +501,52 @@ async function saveAssign() {
       :subtitle="assigning.displayName"
       @close="assigning = null"
     >
-      <div class="form-grid">
-        <div class="picked">
-          <span class="dt">붙일 SKU</span>
-          <span v-if="assignForm.sku" class="dd">
-            <span class="code">{{ assignForm.sku.skuId }}</span>
-            <span class="small dim"> {{ assignForm.sku.productName }}</span>
-          </span>
-          <span v-else class="dd dim">아직 고르지 않았습니다</span>
-          <button class="btn btn-sm" @click="picking = true">
-            {{ assignForm.sku ? '다시 고르기' : 'SKU 고르기' }}
-          </button>
+      <!--
+        채널이 보낸 것과 고른 것을 나란히 둔다. 견주는 것은 서버가 하지만,
+        최종 판단은 이 두 줄을 보는 사람이 한다.
+      -->
+      <div class="compare">
+        <div class="cmp">
+          <span class="cmp-l">채널이 보낸 것</span>
+          <span class="cmp-v">{{ assigning.displayName }}</span>
+          <span class="small dim mono">{{ assigning.extProductCode ?? '코드 없음' }}</span>
         </div>
+        <div class="cmp-arrow">→</div>
+        <div class="cmp">
+          <span class="cmp-l">고른 SKU</span>
+          <span v-if="assignForm.sku" class="cmp-v">
+            <span class="code">{{ assignForm.sku.skuId }}</span>
+          </span>
+          <span v-else class="cmp-v dim">아직 고르지 않았습니다</span>
+          <span v-if="assignForm.sku" class="small dim">{{ assignForm.sku.productName }}</span>
+        </div>
+        <button class="btn btn-sm" @click="picking = true">
+          {{ assignForm.sku ? '다시 고르기' : 'SKU 고르기' }}
+        </button>
+      </div>
+
+      <div v-if="checking" class="note"><span class="spinner"></span> 대조하는 중…</div>
+
+      <!--
+        어긋난 점이 있어도 막지 않는다. 채널 표시명은 자유 텍스트라 기계가
+        틀렸다고 단정할 수 없기 때문이다 — 사람이 보고 정한다.
+      -->
+      <div v-else-if="check && check.mismatches.length" class="alert alert-warn mb-2">
+        <span class="alert-icon">⚠️</span>
+        <span>
+          <strong>확인하세요.</strong>
+          <ul class="mismatch">
+            <li v-for="(m, i) in check.mismatches" :key="i">{{ m }}</li>
+          </ul>
+          맞다면 그대로 지정하세요. 사유를 적어 두면 나중에 근거가 됩니다.
+        </span>
+      </div>
+      <div v-else-if="check" class="alert alert-info mb-2">
+        <span class="alert-icon">✅</span>
+        <span>색상 · 사이즈 · 상품명에 눈에 띄는 어긋남은 없습니다. 맞는지는 최종 확인하세요.</span>
+      </div>
+
+      <div class="form-grid">
 
         <FormField
           v-model="assignForm.reason"
@@ -501,12 +568,7 @@ async function saveAssign() {
     <SkuPicker
       v-if="picking"
       title="이 줄에 붙일 SKU"
-      @pick="
-        (sku) => {
-          assignForm.sku = sku
-          picking = false
-        }
-      "
+      @pick="pickSku"
       @close="picking = false"
     />
   </div>
@@ -562,21 +624,42 @@ async function saveAssign() {
   color: var(--text-3);
 }
 
-/* SKU 고르기 한 줄 */
-.picked {
+/* 채널이 보낸 것 ↔ 고른 SKU 를 나란히 */
+.compare {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   flex-wrap: wrap;
+  padding: 12px;
+  margin-bottom: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
 }
-.picked .dt {
-  font-size: 12px;
-  color: var(--text-3);
-  min-width: 68px;
-}
-.picked .dd {
+.cmp {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
   flex: 1;
   min-width: 160px;
+}
+.cmp-l {
+  font-size: 11px;
+  color: var(--text-3);
+}
+.cmp-v {
+  font-size: 14px;
+}
+.cmp-arrow {
+  color: var(--text-3);
+}
+
+.mismatch {
+  margin: 4px 0 6px;
+  padding-left: 18px;
+}
+.mismatch li {
+  margin: 2px 0;
 }
 
 .note {

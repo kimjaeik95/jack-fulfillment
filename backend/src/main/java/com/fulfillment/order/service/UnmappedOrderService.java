@@ -5,6 +5,7 @@ import com.fulfillment.common.exception.BusinessException;
 import com.fulfillment.common.exception.ErrorCode;
 import com.fulfillment.common.security.LoginUser;
 import com.fulfillment.common.security.PermissionChecker;
+import com.fulfillment.common.sku.SkuMatchChecker;
 import com.fulfillment.common.web.PageResponse;
 import com.fulfillment.domain.Channel;
 import com.fulfillment.domain.Order;
@@ -41,6 +42,11 @@ import java.util.List;
  * 재처리가 기본이고 직접 지정은 예외다. 화면도 그 순서로 보여 준다 —
  * 직접 지정만 반복하면 매핑 테이블은 영원히 비어 있고 같은 일을 매일 한다.
  *
+ * 붙일 SKU 가 맞는지는 기계가 확신할 수 없다. 채널 표시명은 자유 텍스트라
+ * '틀렸다' 고 단정할 근거가 없기 때문이다. 대신 눈에 띄게 어긋나는 점을
+ * 골라 보여 주고 (SkuMatchChecker) 판단은 사람이 한다 — 막지 않는다.
+ * 막으면 멀쩡한 매핑이 걸리고, 그러면 경고를 안 읽는 습관이 생긴다.
+ *
  * 이 서비스는 주문을 만들지 않는다. 이미 들어온 주문의 줄을 고칠 뿐이다.
  */
 @Service
@@ -52,20 +58,37 @@ public class UnmappedOrderService {
 	private final SalesOrderDao orderDao;
 	private final ChannelDao channelDao;
 	private final SkuDao skuDao;
+	private final SkuMatchChecker matchChecker;
 	private final PermissionChecker permissionChecker;
 	private final AuditRecorder auditRecorder;
 
 	public UnmappedOrderService(SalesOrderDao orderDao, ChannelDao channelDao, SkuDao skuDao,
-			PermissionChecker permissionChecker, AuditRecorder auditRecorder) {
+			SkuMatchChecker matchChecker, PermissionChecker permissionChecker,
+			AuditRecorder auditRecorder) {
 		this.orderDao = orderDao;
 		this.channelDao = channelDao;
 		this.skuDao = skuDao;
+		this.matchChecker = matchChecker;
 		this.permissionChecker = permissionChecker;
 		this.auditRecorder = auditRecorder;
 	}
 
 	/** 재처리 결과. 몇 줄이 풀렸고 몇 줄이 남았나. */
 	public record ReprocessResult(int resolved, long remaining, String message) {
+	}
+
+	/** SKU 지정 결과. 어긋나는 점이 있었으면 warning 에 담긴다 — 막지는 않았다. */
+	public record AssignResult(SalesOrderResponse order, String warning) {
+	}
+
+	/**
+	 * 붙이기 전 미리 보는 대조 결과 (ORD-PG-004).
+	 *
+	 * 화면이 '지정' 을 누르기 전에 띄운다. 저장한 뒤에 경고를 보여 주면
+	 * 이미 붙은 것을 다시 떼야 한다.
+	 */
+	public record SkuCheck(String skuId, String productName, String colorCode, String sizeCode,
+			String channelText, List<String> mismatches) {
 	}
 
 	/* ------------------------------------------------------------------ */
@@ -155,13 +178,33 @@ public class UnmappedOrderService {
 	}
 
 	/**
+	 * 붙이기 전에 견줘 본다. 아무것도 바꾸지 않는다.
+	 *
+	 * 화면이 SKU 를 고른 직후 부른다. 저장 뒤에 경고를 보여 주면 이미 붙은
+	 * 것을 다시 떼야 하고, 그러면 사람은 경고를 '끝난 일에 대한 잔소리' 로
+	 * 여기게 된다.
+	 */
+	@Transactional(readOnly = true)
+	public SkuCheck check(LoginUser actor, Long orderSeq, Long lineSeq, String skuId) {
+		permissionChecker.require(actor, PERM, "R");
+
+		OrderLine line = mustFindLine(orderSeq, lineSeq);
+		Sku sku = mustFindSku(skuId);
+
+		return new SkuCheck(sku.getSkuId(), sku.getProductName(),
+				sku.getColorCode(), sku.getSizeCode(),
+				line.displayName(),
+				matchChecker.mismatches(line.getExtProductName(), line.getExtOptionName(), sku));
+	}
+
+	/**
 	 * 줄 하나에 SKU 를 직접 붙인다.
 	 *
 	 * 확정 전 주문만 고친다. 확정 이후는 이미 할당 대상으로 넘어간 것이라,
 	 * 여기서 SKU 를 바꾸면 잡아 둔 재고와 보낼 물건이 어긋난다.
 	 */
 	@Transactional
-	public SalesOrderResponse assignSku(LoginUser actor, Long orderSeq, Long lineSeq,
+	public AssignResult assignSku(LoginUser actor, Long orderSeq, Long lineSeq,
 			LineSkuAssignRequest request) {
 		permissionChecker.require(actor, PERM, "U");
 
@@ -184,11 +227,7 @@ public class UnmappedOrderService {
 				.orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND,
 						"주문 줄을 찾을 수 없습니다. (%s)".formatted(lineSeq)));
 
-		Sku sku = skuDao.selectBySkuId(request.skuId());
-		if (sku == null) {
-			throw new BusinessException(ErrorCode.NOT_FOUND,
-					"SKU 를 찾을 수 없습니다. (%s)".formatted(request.skuId()));
-		}
+		Sku sku = mustFindSku(request.skuId());
 
 		// 한 주문에 같은 SKU 를 두 줄 담지 않는다. 부분 유니크가 막지만 그 전에
 		// 어느 줄과 겹쳤는지 알려 준다 — 제약 위반 메시지로는 알 수 없다.
@@ -203,6 +242,11 @@ public class UnmappedOrderService {
 									.formatted(sku.getSkuId(), dup.getLineNo()));
 				});
 
+		// 어긋나는 점은 막지 않고 남긴다. 사람이 이미 화면에서 보고 누른
+		// 것이지만, 나중에 '이게 왜 이 상품이지' 를 물을 때 근거가 필요하다.
+		List<String> mismatches =
+				matchChecker.mismatches(line.getExtProductName(), line.getExtOptionName(), sku);
+
 		line.setSkuSeq(sku.getSkuSeq());
 		line.setLineStatus(OrderLine.MAPPED);
 		line.setRemark(mergeRemark(line.getRemark(), request.reason()));
@@ -210,11 +254,32 @@ public class UnmappedOrderService {
 		orderDao.updateLine(line);
 
 		auditRecorder.recordAction(actor, "UPDATE", TABLE, order.getOrderNo(),
-				"%d 번째 줄 SKU 지정 %s ← %s".formatted(
+				"%d 번째 줄 SKU 지정 %s ← %s%s".formatted(
 						line.getLineNo(), sku.getSkuId(),
-						line.getExtProductCode() == null ? "직접입력" : line.getExtProductCode()));
+						line.getExtProductCode() == null ? "직접입력" : line.getExtProductCode(),
+						mismatches.isEmpty() ? "" : " [대조경고: " + String.join(" ", mismatches) + "]"));
 
-		return SalesOrderResponse.of(orderDao.selectBySeq(orderSeq), orderDao.selectLines(orderSeq));
+		SalesOrderResponse after =
+				SalesOrderResponse.of(orderDao.selectBySeq(orderSeq), orderDao.selectLines(orderSeq));
+		return new AssignResult(after, mismatches.isEmpty() ? null
+				: "채널이 보낸 내용과 어긋나는 점이 있습니다 — " + String.join(" ", mismatches));
+	}
+
+	private OrderLine mustFindLine(Long orderSeq, Long lineSeq) {
+		return orderDao.selectLines(orderSeq).stream()
+				.filter(l -> l.getLineSeq().equals(lineSeq))
+				.findFirst()
+				.orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND,
+						"주문 줄을 찾을 수 없습니다. (%s)".formatted(lineSeq)));
+	}
+
+	private Sku mustFindSku(String skuId) {
+		Sku sku = skuDao.selectBySkuId(skuId);
+		if (sku == null) {
+			throw new BusinessException(ErrorCode.NOT_FOUND,
+					"SKU 를 찾을 수 없습니다. (%s)".formatted(skuId));
+		}
+		return sku;
 	}
 
 	/* ------------------------------------------------------------------ */

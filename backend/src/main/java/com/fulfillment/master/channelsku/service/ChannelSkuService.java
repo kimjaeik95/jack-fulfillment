@@ -8,6 +8,7 @@ import com.fulfillment.common.exception.BusinessException;
 import com.fulfillment.common.exception.ErrorCode;
 import com.fulfillment.common.security.LoginUser;
 import com.fulfillment.common.security.PermissionChecker;
+import com.fulfillment.common.sku.SkuMatchChecker;
 import com.fulfillment.common.web.PageResponse;
 import com.fulfillment.domain.Channel;
 import com.fulfillment.domain.ChannelSku;
@@ -59,16 +60,19 @@ public class ChannelSkuService {
 	private final ChannelDao channelDao;
 	private final SkuDao skuDao;
 	private final CodeValues codeValues;
+	/** 채널 표시명과 SKU 가 어긋나는지 견준다. 막지는 않는다. */
+	private final SkuMatchChecker matchChecker;
 	private final PermissionChecker permissionChecker;
 	private final AuditRecorder auditRecorder;
 
 	public ChannelSkuService(ChannelSkuDao mappingDao, ChannelDao channelDao, SkuDao skuDao,
-			CodeValues codeValues, PermissionChecker permissionChecker,
-			AuditRecorder auditRecorder) {
+			CodeValues codeValues, SkuMatchChecker matchChecker,
+			PermissionChecker permissionChecker, AuditRecorder auditRecorder) {
 		this.mappingDao = mappingDao;
 		this.channelDao = channelDao;
 		this.skuDao = skuDao;
 		this.codeValues = codeValues;
+		this.matchChecker = matchChecker;
 		this.permissionChecker = permissionChecker;
 		this.auditRecorder = auditRecorder;
 	}
@@ -234,6 +238,9 @@ public class ChannelSkuService {
 	 */
 	private String warnings(Channel channel, Sku sku, ChannelSkuSaveRequest request) {
 		List<String> notes = new java.util.ArrayList<>();
+		// 채널이 적어 준 상품명과 고른 SKU 가 어긋나는지 본다. 막지 않는다 —
+		// 채널 표시명은 자유 텍스트라 기계가 틀렸다고 단정할 수 없다.
+		notes.addAll(matchChecker.mismatches(request.extProductName(), null, sku));
 		if (!"Y".equals(channel.getUseYn())) {
 			notes.add("%s 은(는) 중지된 채널이라 신규 주문이 자동 처리되지 않습니다."
 					.formatted(channel.getChannelName()));
