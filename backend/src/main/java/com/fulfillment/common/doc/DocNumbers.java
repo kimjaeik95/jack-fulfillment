@@ -41,6 +41,8 @@ public class DocNumbers {
 	public static final String INBOUND_CORRECT = "INBC";
 	/** 주문 — 채널에서 수집한 주문 */
 	public static final String ORDER = "ORD";
+	/** 출고지시 — 주문을 창고 작업으로 바꾼 문서 (OUT-PG-002) */
+	public static final String OUTBOUND = "OUT";
 
 	private static final DateTimeFormatter DATE_PART = DateTimeFormatter.ofPattern("yyyyMMdd");
 

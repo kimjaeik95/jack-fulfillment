@@ -1,0 +1,477 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<!--
+  출고지시 (OUT-PG-001, OUT-PG-002).
+
+  두 화면이 한 매퍼를 쓴다. 출고대상은 '아직 지시가 없는 주문' 이고
+  출고지시는 '만들어진 지시' 라, 대상 조회가 지시 표를 NOT EXISTS 로
+  들여다봐야 한다 — 나누면 두 파일이 같은 조건을 각자 들게 된다.
+-->
+<mapper namespace="com.fulfillment.outbound.dao.OutboundDao">
+
+    <resultMap id="outboundMap" type="com.fulfillment.domain.Outbound">
+        <id     property="outboundSeq"       column="outbound_seq"/>
+        <result property="outboundNo"        column="outbound_no"/>
+        <result property="plantSeq"          column="plant_seq"/>
+        <result property="outboundStatus"    column="outbound_status"/>
+        <result property="singlePack"        column="single_pack"/>
+        <result property="shipDueDate"       column="ship_due_date"/>
+        <result property="instructedBy"      column="instructed_by"/>
+        <result property="instructedAt"      column="instructed_at"/>
+        <result property="shippedBy"         column="shipped_by"/>
+        <result property="shippedAt"         column="shipped_at"/>
+        <result property="canceledBy"        column="canceled_by"/>
+        <result property="canceledAt"        column="canceled_at"/>
+        <result property="cancelReason"      column="cancel_reason"/>
+        <result property="remark"            column="remark"/>
+        <result property="createdBy"         column="created_by"/>
+        <result property="createdAt"         column="created_at"/>
+        <result property="updatedBy"         column="updated_by"/>
+        <result property="updatedAt"         column="updated_at"/>
+        <result property="plantId"           column="plant_id"/>
+        <result property="plantName"         column="plant_name"/>
+        <result property="orgSeq"            column="org_seq"/>
+        <result property="instructedByName"  column="instructed_by_name"/>
+        <result property="orderSeq"          column="order_seq"/>
+        <result property="orderNo"           column="order_no"/>
+        <result property="channelName"       column="channel_name"/>
+        <result property="extOrderNo"        column="ext_order_no"/>
+        <result property="receiverName"      column="receiver_name"/>
+        <result property="lineCount"         column="line_count"/>
+        <result property="totalInstructedQty" column="total_instructed_qty"/>
+        <result property="totalPickedQty"    column="total_picked_qty"/>
+    </resultMap>
+
+    <resultMap id="lineMap" type="com.fulfillment.domain.OutboundLine">
+        <id     property="lineSeq"        column="line_seq"/>
+        <result property="outboundSeq"    column="outbound_seq"/>
+        <result property="lineNo"         column="line_no"/>
+        <result property="orderLineSeq"   column="order_line_seq"/>
+        <result property="skuSeq"         column="sku_seq"/>
+        <result property="instructedQty"  column="instructed_qty"/>
+        <result property="pickedQty"      column="picked_qty"/>
+        <result property="remainQty"      column="remain_qty"/>
+        <result property="remark"         column="remark"/>
+        <result property="skuId"          column="sku_id"/>
+        <result property="colorCode"      column="color_code"/>
+        <result property="sizeCode"       column="size_code"/>
+        <result property="productName"    column="product_name"/>
+        <result property="orderSeq"       column="order_seq"/>
+        <result property="orderNo"        column="order_no"/>
+        <result property="orderLineNo"    column="order_line_no"/>
+        <result property="locationHint"   column="location_hint"/>
+    </resultMap>
+
+
+    <!--
+      ════════════════════════════════════════════════════════════════
+      출고대상 (OUT-PG-001)
+      ════════════════════════════════════════════════════════════════
+
+      할당까지 끝났는데 아직 창고로 안 넘긴 주문.
+
+      '할당이 끝났다' 를 주문 상태가 아니라 <b>할당 행</b>으로 판정한다.
+      상태는 주문 전체가 다 잡혔을 때만 ALLOCATED 가 되는데, 결품으로
+      일부만 잡힌 주문도 잡힌 만큼은 내보내야 하기 때문이다. 상태로 거르면
+      그런 주문이 영영 안 보인다.
+
+      살아 있는 할당만 센다 — 해제된 것(qty_released)을 빼고 남은 수량이
+      있어야 진짜 잡혀 있는 것이다.
+
+      나갈 센터는 할당된 빈이 정한다. 주문에는 센터가 없다.
+    -->
+    <sql id="targetFrom">
+        FROM tb_order o
+        JOIN tb_channel ch ON ch.channel_seq = o.channel_seq
+        JOIN LATERAL (
+            SELECT COUNT(*)                    AS alloc_line_count,
+                   SUM(t.pending_qty)          AS alloc_qty,
+                   COUNT(DISTINCT t.plant_seq) AS plant_count,
+                   MIN(t.plant_seq)            AS plant_seq,
+                   MIN(t.plant_id)             AS plant_id,
+                   MIN(t.plant_name)           AS plant_name,
+                   MIN(t.org_seq)              AS org_seq
+              FROM (
+                SELECT l.line_seq,
+                       MIN(p.plant_seq)  AS plant_seq,
+                       MIN(p.plant_id)   AS plant_id,
+                       MIN(p.plant_name) AS plant_name,
+                       MIN(p.org_seq)    AS org_seq,
+                       SUM(a.qty_allocated - a.qty_released)
+                         - COALESCE((SELECT SUM(ol.instructed_qty)
+                                       FROM tb_outbound_line ol
+                                       JOIN tb_outbound      ob ON ob.outbound_seq = ol.outbound_seq
+                                      WHERE ol.order_line_seq    = l.line_seq
+                                        AND ob.outbound_status &lt;&gt; 'CANCELED'), 0) AS pending_qty
+                  FROM tb_order_line   l
+                  JOIN tb_stock_alloc  a  ON a.order_line_seq = l.line_seq
+                                         AND a.qty_allocated  &gt; a.qty_released
+                  JOIN tb_stock        s  ON s.stock_seq      = a.stock_seq
+                  JOIN tb_location     lo ON lo.location_seq  = s.location_seq
+                  JOIN tb_warehouse    w  ON w.warehouse_seq  = lo.warehouse_seq
+                  JOIN tb_plant        p  ON p.plant_seq      = w.plant_seq
+                 WHERE l.order_seq   = o.order_seq
+                   AND l.line_status &lt;&gt; 'CANCELED'
+                 GROUP BY l.line_seq
+              ) t
+             WHERE t.pending_qty &gt; 0
+        ) al ON al.alloc_qty &gt; 0
+    </sql>
+
+    <sql id="targetWhere">
+        <where>
+            AND o.order_status NOT IN ('CANCELED','SHIPPED')
+
+
+            <if test="keyword != null">
+                AND (o.order_no      ILIKE '%' || #{keyword} || '%'
+                  OR o.ext_order_no  ILIKE '%' || #{keyword} || '%'
+                  OR o.receiver_name ILIKE '%' || #{keyword} || '%')
+            </if>
+            <if test="channelId != null">
+                AND ch.channel_id = #{channelId}
+            </if>
+            <if test="plantId != null">
+                AND al.plant_id = #{plantId}
+            </if>
+            <!--
+              단포 — 줄이 하나이고 그 수량이 1 이다. 피킹 동선이 달라
+              갈라서 뽑는다.
+            -->
+            <if test='singleOnly == "Y"'>
+                AND al.alloc_line_count = 1 AND al.alloc_qty = 1
+            </if>
+            <if test='singleOnly == "N"'>
+                AND NOT (al.alloc_line_count = 1 AND al.alloc_qty = 1)
+            </if>
+
+            <!-- 데이터 범위 — 할당된 재고가 있는 센터로 판정한다 -->
+            <if test="!scope.unrestricted">
+                <choose>
+                    <when test="scope.hasNoOrg">
+                        AND o.created_by = #{scope.ownerId}
+                    </when>
+                    <otherwise>
+                        AND ( al.org_seq IN
+                              <foreach collection="scope.orgSeqs" item="org" open="(" separator="," close=")">
+                                  #{org}
+                              </foreach>
+                              OR o.created_by = #{scope.ownerId} )
+                    </otherwise>
+                </choose>
+            </if>
+        </where>
+    </sql>
+
+    <select id="selectTargets"
+            resultType="com.fulfillment.outbound.dto.OutboundTargetResponse">
+        SELECT o.order_seq                      AS orderSeq,
+               o.order_no                       AS orderNo,
+               ch.channel_id                    AS channelId,
+               ch.channel_name                  AS channelName,
+               o.ext_order_no                   AS extOrderNo,
+               o.ordered_at                     AS orderedAt,
+               o.receiver_name                  AS receiverName,
+               o.address                        AS address,
+               al.plant_id                      AS plantId,
+               al.plant_name                    AS plantName,
+               al.alloc_line_count::int         AS lineCount,
+               (SELECT COALESCE(SUM(l3.order_qty), 0)
+                  FROM tb_order_line l3
+                 WHERE l3.order_seq   = o.order_seq
+                   AND l3.line_status &lt;&gt; 'CANCELED')::int AS totalQty,
+               al.alloc_qty::int                AS allocatedQty,
+               (al.alloc_line_count = 1 AND al.alloc_qty = 1) AS singlePack,
+               (al.plant_count > 1)             AS multiPlant
+        <include refid="targetFrom"/>
+        <include refid="targetWhere"/>
+         <!-- 먼저 들어온 주문부터. 채널 약속은 주문 순서로 지킨다 -->
+         ORDER BY o.ordered_at, o.order_seq
+        <if test="size > 0">
+            LIMIT #{size} OFFSET #{offset}
+        </if>
+    </select>
+
+    <select id="countTargets" resultType="long">
+        SELECT COUNT(*)
+        <include refid="targetFrom"/>
+        <include refid="targetWhere"/>
+    </select>
+
+    <!--
+      지시로 담을 줄 — 할당수량과 집을 빈.
+
+      지시수량은 주문수량이 아니라 <b>실제로 잡힌 수량</b>이다. 결품으로
+      10 개 중 6 개만 잡혔으면 6 을 집으라고 해야 한다 — 10 이라고 하면
+      창고는 없는 4 개를 찾아 헤맨다.
+
+      빈은 힌트로만 준다. 한 줄이 여러 빈에서 나뉘어 잡힐 수 있어
+      'A-01-03 외 1곳' 으로 보여 주고, 빈별 수량은 피킹(B섹터)이 할당을
+      직접 읽는다.
+    -->
+    <select id="selectLinesToInstruct" resultMap="lineMap">
+        SELECT l.line_seq       AS order_line_seq,
+               l.line_no        AS order_line_no,
+               l.order_seq      AS order_seq,
+               l.sku_seq        AS sku_seq,
+               k.sku_id         AS sku_id,
+               k.color_code     AS color_code,
+               k.size_code      AS size_code,
+               pr.product_name  AS product_name,
+               (SUM(a.qty_allocated - a.qty_released)
+                  - COALESCE((SELECT SUM(prev.instructed_qty)
+                                FROM tb_outbound_line prev
+                                JOIN tb_outbound      pob ON pob.outbound_seq = prev.outbound_seq
+                               WHERE prev.order_line_seq   = l.line_seq
+                                 AND pob.outbound_status &lt;&gt; 'CANCELED'), 0))::int AS instructed_qty,
+               CASE WHEN COUNT(DISTINCT lo.location_seq) > 1
+                    THEN MIN(lo.location_id) || ' 외 '
+                         || (COUNT(DISTINCT lo.location_seq) - 1) || '곳'
+                    ELSE MIN(lo.location_id)
+               END              AS location_hint
+          FROM tb_order_line  l
+          JOIN tb_sku         k  ON k.sku_seq      = l.sku_seq
+          JOIN tb_product     pr ON pr.product_seq = k.product_seq
+          JOIN tb_stock_alloc a  ON a.order_line_seq = l.line_seq
+                                AND a.qty_allocated  > a.qty_released
+          JOIN tb_stock       s  ON s.stock_seq     = a.stock_seq
+          JOIN tb_location    lo ON lo.location_seq = s.location_seq
+         WHERE l.order_seq   = #{orderSeq}
+           AND l.line_status &lt;&gt; 'CANCELED'
+         GROUP BY l.line_seq, l.line_no, l.order_seq, l.sku_seq,
+                  k.sku_id, k.color_code, k.size_code, pr.product_name
+        HAVING SUM(a.qty_allocated - a.qty_released)
+                 - COALESCE((SELECT SUM(prev.instructed_qty)
+                               FROM tb_outbound_line prev
+                               JOIN tb_outbound      pob ON pob.outbound_seq = prev.outbound_seq
+                              WHERE prev.order_line_seq   = l.line_seq
+                                AND pob.outbound_status &lt;&gt; 'CANCELED'), 0) &gt; 0
+         ORDER BY l.line_no
+    </select>
+
+    <!--
+      이 주문의 할당이 걸려 있는 센터.
+
+      주문에는 센터가 없다. 어느 창고에서 보낼지는 할당이 빈을 고르면서
+      정해지므로, 잡아 둔 재고를 거슬러 올라가 판정한다.
+    -->
+    <select id="selectAllocPlants" resultType="long">
+        SELECT DISTINCT p.plant_seq
+          FROM tb_order_line   l
+          JOIN tb_stock_alloc  a  ON a.order_line_seq = l.line_seq
+                                 AND a.qty_allocated  > a.qty_released
+          JOIN tb_stock        s  ON s.stock_seq      = a.stock_seq
+          JOIN tb_location     lo ON lo.location_seq  = s.location_seq
+          JOIN tb_warehouse    w  ON w.warehouse_seq  = lo.warehouse_seq
+          JOIN tb_plant        p  ON p.plant_seq      = w.plant_seq
+         WHERE l.order_seq   = #{orderSeq}
+           AND l.line_status &lt;&gt; 'CANCELED'
+    </select>
+
+    <!-- 이 주문이 이미 지시됐나. 취소된 지시는 세지 않는다 -->
+    <select id="countLiveOutbounds" resultType="int">
+        SELECT COUNT(DISTINCT ob.outbound_seq)
+          FROM tb_outbound_line ol
+          JOIN tb_outbound      ob ON ob.outbound_seq = ol.outbound_seq
+          JOIN tb_order_line    l  ON l.line_seq      = ol.order_line_seq
+         WHERE l.order_seq        = #{orderSeq}
+           AND ob.outbound_status &lt;&gt; 'CANCELED'
+    </select>
+
+
+    <!--
+      ════════════════════════════════════════════════════════════════
+      출고지시 (OUT-PG-002)
+      ════════════════════════════════════════════════════════════════
+
+      주문은 라인에서 모아 온다. 헤더에 컬럼으로 박지 않은 것은, 합포가
+      열리면 지시 하나가 주문 여럿을 담기 때문이다. 지금은 한 지시에 주문이
+      하나뿐이라 MIN 이 곧 그 주문이다.
+    -->
+    <sql id="outboundColumns">
+        o.outbound_seq, o.outbound_no, o.plant_seq, o.outbound_status,
+        o.single_pack, o.ship_due_date,
+        o.instructed_by, o.instructed_at, o.shipped_by, o.shipped_at,
+        o.canceled_by, o.canceled_at, o.cancel_reason, o.remark,
+        o.created_by, o.created_at, o.updated_by, o.updated_at,
+        pl.plant_id    AS plant_id,
+        pl.plant_name  AS plant_name,
+        pl.org_seq     AS org_seq,
+        iu.user_name   AS instructed_by_name,
+        ord.order_seq, ord.order_no, ord.ext_order_no,
+        ord.receiver_name, ord.channel_name
+    </sql>
+
+    <sql id="outboundFrom">
+        FROM tb_outbound o
+        JOIN tb_plant pl ON pl.plant_seq = o.plant_seq
+        LEFT JOIN tb_user iu ON iu.user_id = o.instructed_by
+        LEFT JOIN LATERAL (
+            SELECT MIN(so.order_seq)     AS order_seq,
+                   MIN(so.order_no)      AS order_no,
+                   MIN(so.ext_order_no)  AS ext_order_no,
+                   MIN(so.receiver_name) AS receiver_name,
+                   MIN(ch.channel_name)  AS channel_name
+              FROM tb_outbound_line ol
+              JOIN tb_order_line    l  ON l.line_seq      = ol.order_line_seq
+              JOIN tb_order         so ON so.order_seq    = l.order_seq
+              JOIN tb_channel       ch ON ch.channel_seq  = so.channel_seq
+             WHERE ol.outbound_seq = o.outbound_seq
+        ) ord ON TRUE
+    </sql>
+
+    <sql id="outboundCounts">
+        , (SELECT COUNT(*)                            FROM tb_outbound_line l WHERE l.outbound_seq = o.outbound_seq) AS line_count
+        , (SELECT COALESCE(SUM(l.instructed_qty), 0)  FROM tb_outbound_line l WHERE l.outbound_seq = o.outbound_seq) AS total_instructed_qty
+        , (SELECT COALESCE(SUM(l.picked_qty), 0)      FROM tb_outbound_line l WHERE l.outbound_seq = o.outbound_seq) AS total_picked_qty
+    </sql>
+
+    <sql id="outboundWhere">
+        <where>
+            <if test="keyword != null">
+                AND (o.outbound_no    ILIKE '%' || #{keyword} || '%'
+                  OR ord.order_no     ILIKE '%' || #{keyword} || '%'
+                  OR ord.ext_order_no ILIKE '%' || #{keyword} || '%'
+                  OR ord.receiver_name ILIKE '%' || #{keyword} || '%')
+            </if>
+            <if test="plantId != null">
+                AND pl.plant_id = #{plantId}
+            </if>
+            <if test="outboundStatus != null">
+                AND o.outbound_status = #{outboundStatus}
+            </if>
+            <!-- 아직 창고가 할 일이 남은 것만 -->
+            <if test='openOnly == "Y"'>
+                AND o.outbound_status NOT IN ('SHIPPED','CANCELED')
+            </if>
+            <if test='singleOnly == "Y"'>
+                AND o.single_pack = 'Y'
+            </if>
+            <if test='singleOnly == "N"'>
+                AND o.single_pack = 'N'
+            </if>
+            <if test="fromDate != null">
+                AND o.instructed_at >= #{fromDate}
+            </if>
+            <if test="toDate != null">
+                AND o.instructed_at &lt; (#{toDate}::date + 1)
+            </if>
+
+            <!-- 데이터 범위 — 지시의 센터로 판정한다 -->
+            <if test="!scope.unrestricted">
+                <choose>
+                    <when test="scope.hasNoOrg">
+                        AND o.instructed_by = #{scope.ownerId}
+                    </when>
+                    <otherwise>
+                        AND ( pl.org_seq IN
+                              <foreach collection="scope.orgSeqs" item="org" open="(" separator="," close=")">
+                                  #{org}
+                              </foreach>
+                              OR o.instructed_by = #{scope.ownerId} )
+                    </otherwise>
+                </choose>
+            </if>
+        </where>
+    </sql>
+
+    <select id="selectList" resultMap="outboundMap">
+        SELECT <include refid="outboundColumns"/>
+        <include refid="outboundCounts"/>
+        <include refid="outboundFrom"/>
+        <include refid="outboundWhere"/>
+         ORDER BY ${sortColumn} ${sortDirection}, o.outbound_seq DESC
+        <if test="size > 0">
+            LIMIT #{size} OFFSET #{offset}
+        </if>
+    </select>
+
+    <select id="countList" resultType="long">
+        SELECT COUNT(*)
+        <include refid="outboundFrom"/>
+        <include refid="outboundWhere"/>
+    </select>
+
+    <select id="selectBySeq" resultMap="outboundMap">
+        SELECT <include refid="outboundColumns"/>
+        <include refid="outboundCounts"/>
+        <include refid="outboundFrom"/>
+         WHERE o.outbound_seq = #{outboundSeq}
+    </select>
+
+    <select id="selectLines" resultMap="lineMap">
+        SELECT ol.line_seq, ol.outbound_seq, ol.line_no, ol.order_line_seq,
+               ol.sku_seq, ol.instructed_qty, ol.picked_qty, ol.remain_qty, ol.remark,
+               k.sku_id, k.color_code, k.size_code, pr.product_name,
+               so.order_seq, so.order_no, l.line_no AS order_line_no,
+               CASE WHEN COUNT(DISTINCT lo.location_seq) > 1
+                    THEN MIN(lo.location_id) || ' 외 '
+                         || (COUNT(DISTINCT lo.location_seq) - 1) || '곳'
+                    ELSE MIN(lo.location_id)
+               END AS location_hint
+          FROM tb_outbound_line ol
+          JOIN tb_sku        k  ON k.sku_seq      = ol.sku_seq
+          JOIN tb_product    pr ON pr.product_seq = k.product_seq
+          JOIN tb_order_line l  ON l.line_seq     = ol.order_line_seq
+          JOIN tb_order      so ON so.order_seq   = l.order_seq
+          LEFT JOIN tb_stock_alloc a  ON a.order_line_seq = l.line_seq
+                                     AND a.qty_allocated  > a.qty_released
+          LEFT JOIN tb_stock       s  ON s.stock_seq      = a.stock_seq
+          LEFT JOIN tb_location    lo ON lo.location_seq  = s.location_seq
+         WHERE ol.outbound_seq = #{outboundSeq}
+         GROUP BY ol.line_seq, ol.outbound_seq, ol.line_no, ol.order_line_seq,
+                  ol.sku_seq, ol.instructed_qty, ol.picked_qty, ol.remain_qty, ol.remark,
+                  k.sku_id, k.color_code, k.size_code, pr.product_name,
+                  so.order_seq, so.order_no, l.line_no
+         ORDER BY ol.line_no
+    </select>
+
+    <insert id="insert" parameterType="com.fulfillment.domain.Outbound"
+            useGeneratedKeys="true" keyProperty="outboundSeq" keyColumn="outbound_seq">
+        INSERT INTO tb_outbound
+            (outbound_no, plant_seq, outbound_status, single_pack, ship_due_date,
+             instructed_by, remark, created_by)
+        VALUES
+            (#{outboundNo}, #{plantSeq}, #{outboundStatus}, #{singlePack}, #{shipDueDate},
+             #{instructedBy}, #{remark}, #{createdBy})
+    </insert>
+
+    <insert id="insertLine" parameterType="com.fulfillment.domain.OutboundLine"
+            useGeneratedKeys="true" keyProperty="lineSeq" keyColumn="line_seq">
+        INSERT INTO tb_outbound_line
+            (outbound_seq, line_no, order_line_seq, sku_seq, instructed_qty, picked_qty, remark)
+        VALUES
+            (#{outboundSeq}, #{lineNo}, #{orderLineSeq}, #{skuSeq}, #{instructedQty},
+             COALESCE(#{pickedQty}, 0), #{remark})
+    </insert>
+
+    <!--
+      상태 전이. 바꾸기 전 상태를 함께 넘겨 그 상태일 때만 바꾼다 — 두
+      사람이 동시에 눌러도 두 번째는 0 행이 되어 거부된다.
+
+      출고 확정 · 취소에 필요한 자취를 같은 문장에서 찍는다. 상태만 먼저
+      바꾸고 누가 했는지를 나중에 적으면 그 사이에 실패했을 때 '누가 냈는지
+      모르는 출고' 가 남는다 (ck_outbound_shipped 가 그 상태를 거부한다).
+    -->
+    <update id="updateStatus">
+        UPDATE tb_outbound
+           SET outbound_status = #{toStatus},
+        <choose>
+            <when test='toStatus == "SHIPPED"'>
+               shipped_by = #{actor},
+               shipped_at = CURRENT_TIMESTAMP,
+            </when>
+            <when test='toStatus == "CANCELED"'>
+               canceled_by   = #{actor},
+               canceled_at   = CURRENT_TIMESTAMP,
+               cancel_reason = #{cancelReason},
+            </when>
+        </choose>
+               updated_by = #{actor},
+               updated_at = CURRENT_TIMESTAMP
+         WHERE outbound_seq    = #{outboundSeq}
+           AND outbound_status = #{fromStatus}
+    </update>
+</mapper>
