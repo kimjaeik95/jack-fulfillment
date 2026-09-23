@@ -64,6 +64,10 @@ public class Outbound {
 	private String shippedBy;
 	private LocalDateTime shippedAt;
 
+	/** 출고검수를 끝낸 사람 (OUT-PG-006) */
+	private String inspectedBy;
+	private LocalDateTime inspectedAt;
+
 	private String canceledBy;
 	private LocalDateTime canceledAt;
 	private String cancelReason;
@@ -103,6 +107,11 @@ public class Outbound {
 	private Integer totalPickedQty;
 	/** 집으러 갔는데 없던 수량 합 */
 	private Integer totalShortageQty;
+	/** 검수에서 다시 센 수량 합 */
+	private Integer totalInspectedQty;
+	/** 박스에 담긴 수량 합 · 박스 수 */
+	private Integer totalPackedQty;
+	private Integer boxCount;
 
 	/** 라인. 단건 조회에서만 채운다. */
 	@Builder.Default

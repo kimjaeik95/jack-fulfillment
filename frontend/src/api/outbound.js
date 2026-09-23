@@ -9,7 +9,7 @@
  * 만들었으면 취소하고 다시 만든다 — 발주가 나간 뒤에는 못 고치는 것과
  * 같은 이유다.
  */
-import { get, post } from './http.js'
+import { del, get, post, put } from './http.js'
 
 export const PAGE_SIZE = 50
 
@@ -142,4 +142,68 @@ export async function shortages(params = {}) {
     size: params.size,
   })
   return data
+}
+
+/* ── 검수 · 패킹 (OUT-PG-006, PAC-PG-001, PAC-PG-002) ────────── */
+
+/**
+ * 세어야 할 것.
+ *
+ * 피킹과 달리 빈이 없다 — 카트를 앞에 두고 무엇이 들었는지를 센다.
+ */
+export async function inspectTasks(outboundSeq) {
+  const { data } = await get(`/outbounds/${outboundSeq}/inspect-tasks`)
+  return data
+}
+
+/** 세었다. 되돌릴 때는 qty 가 음수다 */
+export async function inspect(outboundSeq, body) {
+  const { data } = await post(`/outbounds/${outboundSeq}/inspects`, body)
+  return data
+}
+
+/** 집은 대로 한 번에 센다. 카트를 보고 맞다고 판단했을 때 */
+export async function inspectAll(outboundSeq) {
+  const { data } = await post(`/outbounds/${outboundSeq}/inspects/all`, {})
+  return data
+}
+
+export async function boxes(outboundSeq) {
+  const { data } = await get(`/outbounds/${outboundSeq}/boxes`)
+  return data
+}
+
+/** 박스를 하나 더. 번호는 지시 안에서만 센다 */
+export async function addBox(outboundSeq, body) {
+  const { data } = await post(`/outbounds/${outboundSeq}/boxes`, body ?? {})
+  return data
+}
+
+/** 규격 · 실측값. 닫은 박스는 못 고친다 */
+export async function updateBox(boxSeq, body) {
+  const { data } = await put(`/outbounds/boxes/${boxSeq}`, body)
+  return data
+}
+
+/** 박스에 담았다 / 뺐다. 검수한 것만 담을 수 있다 */
+export async function pack(boxSeq, body) {
+  const { data } = await post(`/outbounds/boxes/${boxSeq}/lines`, body)
+  return data
+}
+
+/** 박스를 닫는다. 빈 박스는 안 닫힌다 */
+export async function closeBox(boxSeq) {
+  const { data } = await post(`/outbounds/boxes/${boxSeq}/close`, {})
+  return data
+}
+
+/** 닫은 박스를 다시 연다 */
+export async function reopenBox(boxSeq) {
+  const { data } = await post(`/outbounds/boxes/${boxSeq}/reopen`, {})
+  return data
+}
+
+/** 빈 박스만 지운다 */
+export async function deleteBox(boxSeq) {
+  await del(`/outbounds/boxes/${boxSeq}`)
 }

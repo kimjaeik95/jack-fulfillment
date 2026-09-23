@@ -57,6 +57,11 @@ public record OutboundResponse(
 		Integer totalPickedQty,
 		/** 집으러 갔는데 없던 수량 합 */
 		Integer totalShortageQty,
+		/** 검수에서 다시 센 수량 합 */
+		Integer totalInspectedQty,
+		/** 박스에 담긴 수량 합 · 박스 수 */
+		Integer totalPackedQty,
+		Integer boxCount,
 		/** 아직 안 집은 수량 */
 		int remainQty,
 
@@ -80,7 +85,8 @@ public record OutboundResponse(
 				o.getInstructedAt(),
 				o.getShippedAt(), o.getCancelReason(), o.getRemark(),
 				o.getLineCount(), o.getTotalInstructedQty(), o.getTotalPickedQty(),
-				o.getTotalShortageQty(),
+				o.getTotalShortageQty(), o.getTotalInspectedQty(),
+				o.getTotalPackedQty(), o.getBoxCount(),
 				o.remainQty(),
 				lines.stream().map(OutboundLineResponse::of).toList());
 	}

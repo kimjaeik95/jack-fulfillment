@@ -13,6 +13,11 @@ import com.fulfillment.outbound.dto.AssignRequest;
 import com.fulfillment.outbound.dto.PickRequest;
 import com.fulfillment.outbound.dto.PickShortageRequest;
 import com.fulfillment.outbound.dto.PickTaskResponse;
+import com.fulfillment.outbound.dto.BoxSaveRequest;
+import com.fulfillment.outbound.dto.OutInspectRequest;
+import com.fulfillment.outbound.dto.OutInspectTaskResponse;
+import com.fulfillment.outbound.dto.PackBoxResponse;
+import com.fulfillment.outbound.dto.PackRequest;
 import com.fulfillment.outbound.dto.PickShortageLineResponse;
 import com.fulfillment.outbound.dto.PickShortageSearch;
 import com.fulfillment.domain.OutboundPick;
@@ -22,7 +27,9 @@ import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -158,6 +165,72 @@ public class OutboundController {
 	@GetMapping("/{outboundSeq}/picks")
 	public ApiResponse<List<OutboundPick>> picks(@PathVariable Long outboundSeq) {
 		return ApiResponse.ok(outboundService.picks(CurrentUser.require(), outboundSeq));
+	}
+
+	/* ── 검수 · 패킹 (OUT-PG-006, PAC-PG-001, PAC-PG-002) ──── */
+
+	/** 세어야 할 것. 피킹과 달리 빈이 없다 — 카트를 앞에 두고 센다 */
+	@GetMapping("/{outboundSeq}/inspect-tasks")
+	public ApiResponse<List<OutInspectTaskResponse>> inspectTasks(@PathVariable Long outboundSeq) {
+		return ApiResponse.ok(outboundService.inspectTasks(CurrentUser.require(), outboundSeq));
+	}
+
+	/** 세었다. 되돌릴 때는 수량이 음수다 */
+	@PostMapping("/{outboundSeq}/inspects")
+	public ApiResponse<OutboundResponse> inspect(@PathVariable Long outboundSeq,
+			@Valid @RequestBody OutInspectRequest request) {
+		return ApiResponse.ok(outboundService.inspect(CurrentUser.require(), outboundSeq, request));
+	}
+
+	/** 집은 대로 한 번에 센다. 세는 사람이 카트를 보고 맞다고 판단했을 때 */
+	@PostMapping("/{outboundSeq}/inspects/all")
+	public ApiResponse<OutboundResponse> inspectAll(@PathVariable Long outboundSeq) {
+		return ApiResponse.ok(outboundService.inspectAll(CurrentUser.require(), outboundSeq));
+	}
+
+	@GetMapping("/{outboundSeq}/boxes")
+	public ApiResponse<List<PackBoxResponse>> boxes(@PathVariable Long outboundSeq) {
+		return ApiResponse.ok(outboundService.boxes(CurrentUser.require(), outboundSeq));
+	}
+
+	/** 박스를 하나 더 만든다. 번호는 지시 안에서만 센다 */
+	@PostMapping("/{outboundSeq}/boxes")
+	public ApiResponse<PackBoxResponse> addBox(@PathVariable Long outboundSeq,
+			@Valid @RequestBody BoxSaveRequest request) {
+		return ApiResponse.ok(outboundService.addBox(CurrentUser.require(), outboundSeq, request));
+	}
+
+	/** 규격 · 실측값을 고친다. 닫은 박스는 못 고친다 */
+	@PutMapping("/boxes/{boxSeq}")
+	public ApiResponse<PackBoxResponse> updateBox(@PathVariable Long boxSeq,
+			@Valid @RequestBody BoxSaveRequest request) {
+		return ApiResponse.ok(outboundService.updateBox(CurrentUser.require(), boxSeq, request));
+	}
+
+	/** 박스에 담았다 / 뺐다. 검수한 것만 담을 수 있다 */
+	@PostMapping("/boxes/{boxSeq}/lines")
+	public ApiResponse<PackBoxResponse> pack(@PathVariable Long boxSeq,
+			@Valid @RequestBody PackRequest request) {
+		return ApiResponse.ok(outboundService.pack(CurrentUser.require(), boxSeq, request));
+	}
+
+	/** 박스를 닫는다. 빈 박스는 닫지 않는다 */
+	@PostMapping("/boxes/{boxSeq}/close")
+	public ApiResponse<PackBoxResponse> closeBox(@PathVariable Long boxSeq) {
+		return ApiResponse.ok(outboundService.closeBox(CurrentUser.require(), boxSeq));
+	}
+
+	/** 닫은 박스를 다시 연다. 송장이 붙기 전까지는 열 수 있어야 한다 */
+	@PostMapping("/boxes/{boxSeq}/reopen")
+	public ApiResponse<PackBoxResponse> reopenBox(@PathVariable Long boxSeq) {
+		return ApiResponse.ok(outboundService.reopenBox(CurrentUser.require(), boxSeq));
+	}
+
+	/** 빈 박스만 지운다 */
+	@DeleteMapping("/boxes/{boxSeq}")
+	public ApiResponse<Void> deleteBox(@PathVariable Long boxSeq) {
+		outboundService.deleteBox(CurrentUser.require(), boxSeq);
+		return ApiResponse.ok(null);
 	}
 
 	/**

@@ -3,10 +3,13 @@ package com.fulfillment.outbound.dao;
 import com.fulfillment.domain.Outbound;
 import com.fulfillment.domain.OutboundLine;
 import com.fulfillment.domain.OutboundPick;
+import com.fulfillment.domain.PackBox;
+import com.fulfillment.domain.PackBoxLine;
 import com.fulfillment.outbound.dto.OutboundSearch;
 import com.fulfillment.outbound.dto.OutboundTargetResponse;
 import com.fulfillment.outbound.dto.OutboundTargetSearch;
 import com.fulfillment.outbound.dto.PickTaskResponse;
+import com.fulfillment.outbound.dto.OutInspectTaskResponse;
 import com.fulfillment.outbound.dto.PickShortageLineResponse;
 import com.fulfillment.outbound.dto.PickShortageSearch;
 import org.apache.ibatis.annotations.Param;
@@ -125,4 +128,62 @@ public interface OutboundDao {
 	List<PickShortageLineResponse> selectShortageLines(PickShortageSearch search);
 
 	long countShortageLines(PickShortageSearch search);
+
+	/* ── 검수 · 패킹 (OUT-PG-006, PAC-PG-001, PAC-PG-002) ──── */
+
+	/**
+	 * 검수할 것 — 줄 단위.
+	 *
+	 * 피킹과 달리 빈이 없다. 카트를 앞에 두고 세는 일이라 어디서 가져왔는지가
+	 * 아니라 무엇이 들었는지를 본다.
+	 */
+	List<OutInspectTaskResponse> selectInspectTasks(@Param("outboundSeq") Long outboundSeq);
+
+	/** 센 수량을 더한다. 집은 것을 넘을 수 없다 */
+	int addInspectedQty(@Param("lineSeq") Long lineSeq, @Param("qty") int qty);
+
+	/** 아직 다 안 센 줄 수. 0 이면 검수가 끝났다 */
+	int countUninspectedLines(@Param("outboundSeq") Long outboundSeq);
+
+	void markInspected(@Param("outboundSeq") Long outboundSeq, @Param("actor") String actor);
+
+	/* 박스 */
+
+	List<PackBox> selectBoxes(@Param("outboundSeq") Long outboundSeq);
+
+	PackBox selectBox(@Param("boxSeq") Long boxSeq);
+
+	List<PackBoxLine> selectBoxLines(@Param("boxSeq") Long boxSeq);
+
+	/** 이 지시의 다음 박스번호. 지시 안에서만 세므로 전역 채번이 없다 */
+	int nextBoxNo(@Param("outboundSeq") Long outboundSeq);
+
+	void insertBox(PackBox box);
+
+	int updateBox(PackBox box);
+
+	int closeBox(@Param("boxSeq") Long boxSeq, @Param("actor") String actor);
+
+	int reopenBox(@Param("boxSeq") Long boxSeq, @Param("actor") String actor);
+
+	int deleteBox(@Param("boxSeq") Long boxSeq);
+
+	/* 담기 */
+
+	PackBoxLine selectBoxLine(@Param("boxSeq") Long boxSeq, @Param("lineSeq") Long lineSeq);
+
+	void insertBoxLine(PackBoxLine line);
+
+	int addBoxLineQty(@Param("boxLineSeq") Long boxLineSeq, @Param("qty") int qty);
+
+	int deleteBoxLine(@Param("boxLineSeq") Long boxLineSeq);
+
+	/** 이 지시 줄이 박스에 들어간 총 수량 */
+	int sumPacked(@Param("lineSeq") Long lineSeq);
+
+	/** 아직 다 안 담은 줄 수. 0 이면 담기가 끝났다 */
+	int countUnpackedLines(@Param("outboundSeq") Long outboundSeq);
+
+	/** 아직 안 닫은 박스 수. 0 이어야 패킹완료다 */
+	int countOpenBoxes(@Param("outboundSeq") Long outboundSeq);
 }

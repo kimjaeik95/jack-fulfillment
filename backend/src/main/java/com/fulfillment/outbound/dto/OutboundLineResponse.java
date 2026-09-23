@@ -25,6 +25,8 @@ public record OutboundLineResponse(
 		Integer instructedQty,
 		Integer pickedQty,
 		/** 집으러 갔는데 없던 수량 (OUT-PG-005) */
+		/** 검수에서 다시 센 수량 (OUT-PG-006) */
+		Integer inspectedQty,
 		Integer shortageQty,
 		String shortageReason,
 		Integer remainQty,
@@ -39,7 +41,7 @@ public record OutboundLineResponse(
 				l.getOrderLineSeq(), l.getOrderSeq(), l.getOrderNo(), l.getOrderLineNo(),
 				l.getSkuId(), l.getColorCode(), l.getSizeCode(), l.getProductName(),
 				l.getInstructedQty(), l.getPickedQty(),
-				l.getShortageQty(), l.getShortageReason(), l.getRemainQty(),
+				l.getInspectedQty(), l.getShortageQty(), l.getShortageReason(), l.getRemainQty(),
 				l.getLocationHint(), l.getRemark());
 	}
 }

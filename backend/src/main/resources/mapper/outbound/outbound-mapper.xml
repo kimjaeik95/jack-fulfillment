@@ -39,6 +39,11 @@
         <result property="assignedBy"        column="assigned_by"/>
         <result property="assignedToName"    column="assigned_to_name"/>
         <result property="totalShortageQty"  column="total_shortage_qty"/>
+        <result property="inspectedBy"       column="inspected_by"/>
+        <result property="inspectedAt"       column="inspected_at"/>
+        <result property="totalInspectedQty" column="total_inspected_qty"/>
+        <result property="totalPackedQty"    column="total_packed_qty"/>
+        <result property="boxCount"          column="box_count"/>
         <result property="orderSeq"          column="order_seq"/>
         <result property="orderNo"           column="order_no"/>
         <result property="channelName"       column="channel_name"/>
@@ -59,6 +64,7 @@
         <result property="pickedQty"      column="picked_qty"/>
         <result property="remainQty"      column="remain_qty"/>
         <result property="shortageQty"    column="shortage_qty"/>
+        <result property="inspectedQty"   column="inspected_qty"/>
         <result property="shortageReason" column="shortage_reason"/>
         <result property="remark"         column="remark"/>
         <result property="skuId"          column="sku_id"/>
@@ -337,6 +343,7 @@
         o.instructed_by, o.instructed_at, o.shipped_by, o.shipped_at,
         o.canceled_by, o.canceled_at, o.cancel_reason, o.remark,
         o.assigned_to, o.assigned_at, o.assigned_by,
+        o.inspected_by, o.inspected_at,
         au.user_name   AS assigned_to_name,
         o.created_by, o.created_at, o.updated_by, o.updated_at,
         pl.plant_id    AS plant_id,
@@ -371,6 +378,9 @@
         , (SELECT COALESCE(SUM(l.instructed_qty), 0)  FROM tb_outbound_line l WHERE l.outbound_seq = o.outbound_seq) AS total_instructed_qty
         , (SELECT COALESCE(SUM(l.picked_qty), 0)      FROM tb_outbound_line l WHERE l.outbound_seq = o.outbound_seq) AS total_picked_qty
         , (SELECT COALESCE(SUM(l.shortage_qty), 0)    FROM tb_outbound_line l WHERE l.outbound_seq = o.outbound_seq) AS total_shortage_qty
+        , (SELECT COALESCE(SUM(l.inspected_qty), 0)   FROM tb_outbound_line l WHERE l.outbound_seq = o.outbound_seq) AS total_inspected_qty
+        , (SELECT COUNT(*)                            FROM tb_pack_box b     WHERE b.outbound_seq = o.outbound_seq) AS box_count
+        , (SELECT COALESCE(SUM(bl.packed_qty), 0)     FROM tb_pack_box_line bl JOIN tb_pack_box b2 ON b2.box_seq = bl.box_seq WHERE b2.outbound_seq = o.outbound_seq) AS total_packed_qty
     </sql>
 
     <sql id="outboundWhere">
@@ -449,7 +459,7 @@
     <select id="selectLines" resultMap="lineMap">
         SELECT ol.line_seq, ol.outbound_seq, ol.line_no, ol.order_line_seq,
                ol.sku_seq, ol.instructed_qty, ol.picked_qty, ol.shortage_qty,
-               ol.shortage_reason, ol.remain_qty, ol.remark,
+               ol.inspected_qty, ol.shortage_reason, ol.remain_qty, ol.remark,
                k.sku_id, k.color_code, k.size_code, pr.product_name,
                so.order_seq, so.order_no, l.line_no AS order_line_no,
                CASE WHEN COUNT(DISTINCT lo.location_seq) > 1
@@ -469,7 +479,7 @@
          WHERE ol.outbound_seq = #{outboundSeq}
          GROUP BY ol.line_seq, ol.outbound_seq, ol.line_no, ol.order_line_seq,
                   ol.sku_seq, ol.instructed_qty, ol.picked_qty, ol.shortage_qty,
-                  ol.shortage_reason, ol.remain_qty, ol.remark,
+                  ol.inspected_qty, ol.shortage_reason, ol.remain_qty, ol.remark,
                   k.sku_id, k.color_code, k.size_code, pr.product_name,
                   so.order_seq, so.order_no, l.line_no
          ORDER BY ol.line_no
@@ -600,8 +610,8 @@
 
     <select id="selectLine" resultMap="lineMap">
         SELECT ol.line_seq, ol.outbound_seq, ol.line_no, ol.order_line_seq,
-               ol.sku_seq, ol.instructed_qty, ol.picked_qty, ol.shortage_qty,
-               ol.shortage_reason, ol.remain_qty, ol.remark,
+               ol.sku_seq, ol.instructed_qty, ol.picked_qty, ol.inspected_qty,
+               ol.shortage_qty, ol.shortage_reason, ol.remain_qty, ol.remark,
                k.sku_id, k.color_code, k.size_code, pr.product_name
           FROM tb_outbound_line ol
           JOIN tb_sku     k  ON k.sku_seq      = ol.sku_seq
@@ -791,6 +801,277 @@
         SELECT COUNT(*)
         <include refid="shortageFrom"/>
         <include refid="shortageWhere"/>
+    </select>
+
+    <!--
+      ════════════════════════════════════════════════════════════════
+      검수 · 패킹 (OUT-PG-006, PAC-PG-001, PAC-PG-002)
+      ════════════════════════════════════════════════════════════════
+    -->
+
+    <resultMap id="boxMap" type="com.fulfillment.domain.PackBox">
+        <id     property="boxSeq"         column="box_seq"/>
+        <result property="outboundSeq"    column="outbound_seq"/>
+        <result property="boxNo"          column="box_no"/>
+        <result property="boxStatus"      column="box_status"/>
+        <result property="boxType"        column="box_type"/>
+        <result property="weightG"        column="weight_g"/>
+        <result property="widthMm"        column="width_mm"/>
+        <result property="heightMm"       column="height_mm"/>
+        <result property="depthMm"        column="depth_mm"/>
+        <result property="closedBy"       column="closed_by"/>
+        <result property="closedAt"       column="closed_at"/>
+        <result property="remark"         column="remark"/>
+        <result property="createdBy"      column="created_by"/>
+        <result property="createdAt"      column="created_at"/>
+        <result property="updatedBy"      column="updated_by"/>
+        <result property="updatedAt"      column="updated_at"/>
+        <result property="closedByName"   column="closed_by_name"/>
+        <result property="lineCount"      column="line_count"/>
+        <result property="totalPackedQty" column="total_packed_qty"/>
+    </resultMap>
+
+    <resultMap id="boxLineMap" type="com.fulfillment.domain.PackBoxLine">
+        <id     property="boxLineSeq"   column="box_line_seq"/>
+        <result property="boxSeq"       column="box_seq"/>
+        <result property="lineSeq"      column="line_seq"/>
+        <result property="packedQty"    column="packed_qty"/>
+        <result property="packedBy"     column="packed_by"/>
+        <result property="packedAt"     column="packed_at"/>
+        <result property="boxNo"        column="box_no"/>
+        <result property="lineNo"       column="line_no"/>
+        <result property="skuId"        column="sku_id"/>
+        <result property="colorCode"    column="color_code"/>
+        <result property="sizeCode"     column="size_code"/>
+        <result property="productName"  column="product_name"/>
+        <result property="packedByName" column="packed_by_name"/>
+    </resultMap>
+
+    <!--
+      검수할 것 — 줄 단위.
+
+      피킹과 달리 빈이 없다. 카트를 앞에 두고 세는 일이라 어디서 가져왔는지가
+      아니라 무엇이 들었는지를 본다.
+
+      집은 것이 없는 줄은 뺀다 — 결품으로 하나도 못 집은 줄까지 세라고 하면
+      카트에 없는 것을 찾는다.
+    -->
+    <select id="selectInspectTasks"
+            resultType="com.fulfillment.outbound.dto.OutInspectTaskResponse">
+        SELECT ol.line_seq                              AS lineSeq,
+               ol.line_no                               AS lineNo,
+               k.sku_id                                 AS skuId,
+               COALESCE(k.barcode, k.sku_id)            AS skuBarcode,
+               k.color_code                             AS colorCode,
+               k.size_code                              AS sizeCode,
+               pr.product_name                          AS productName,
+               ol.instructed_qty                        AS instructedQty,
+               ol.picked_qty                            AS pickedQty,
+               ol.inspected_qty                         AS inspectedQty,
+               (ol.picked_qty - ol.inspected_qty)       AS toInspectQty
+          FROM tb_outbound_line ol
+          JOIN tb_sku     k  ON k.sku_seq      = ol.sku_seq
+          JOIN tb_product pr ON pr.product_seq = k.product_seq
+         WHERE ol.outbound_seq = #{outboundSeq}
+           AND ol.picked_qty > 0
+         ORDER BY ol.line_no
+    </select>
+
+    <!--
+      센 수량을 더한다.
+
+      집은 것보다 많이 셀 수는 없다. 많으면 카트에 남의 물건이 들어온 것이고,
+      그건 세는 것이 아니라 찾아내야 할 사고다. DB 제약도 막지만 여기서 0 행이
+      되면 서비스가 사람이 읽을 문장으로 바꾼다.
+    -->
+    <update id="addInspectedQty">
+        UPDATE tb_outbound_line
+           SET inspected_qty = inspected_qty + #{qty}
+         WHERE line_seq = #{lineSeq}
+           AND inspected_qty + #{qty} &gt;= 0
+           AND inspected_qty + #{qty} &lt;= picked_qty
+    </update>
+
+    <select id="countUninspectedLines" resultType="int">
+        SELECT COUNT(*)
+          FROM tb_outbound_line ol
+         WHERE ol.outbound_seq = #{outboundSeq}
+           AND ol.picked_qty &gt; ol.inspected_qty
+    </select>
+
+    <update id="markInspected">
+        UPDATE tb_outbound
+           SET inspected_by = #{actor},
+               inspected_at = CURRENT_TIMESTAMP,
+               updated_by   = #{actor},
+               updated_at   = CURRENT_TIMESTAMP
+         WHERE outbound_seq = #{outboundSeq}
+    </update>
+
+
+    <!-- 박스 (PAC-PG-001) -->
+
+    <sql id="boxColumns">
+        b.box_seq, b.outbound_seq, b.box_no, b.box_status, b.box_type,
+        b.weight_g, b.width_mm, b.height_mm, b.depth_mm,
+        b.closed_by, b.closed_at, b.remark,
+        b.created_by, b.created_at, b.updated_by, b.updated_at,
+        cu.user_name AS closed_by_name
+        , (SELECT COUNT(*)                          FROM tb_pack_box_line bl WHERE bl.box_seq = b.box_seq) AS line_count
+        , (SELECT COALESCE(SUM(bl.packed_qty), 0)   FROM tb_pack_box_line bl WHERE bl.box_seq = b.box_seq) AS total_packed_qty
+    </sql>
+
+    <select id="selectBoxes" resultMap="boxMap">
+        SELECT <include refid="boxColumns"/>
+          FROM tb_pack_box b
+          LEFT JOIN tb_user cu ON cu.user_id = b.closed_by
+         WHERE b.outbound_seq = #{outboundSeq}
+         ORDER BY b.box_no
+    </select>
+
+    <select id="selectBox" resultMap="boxMap">
+        SELECT <include refid="boxColumns"/>
+          FROM tb_pack_box b
+          LEFT JOIN tb_user cu ON cu.user_id = b.closed_by
+         WHERE b.box_seq = #{boxSeq}
+    </select>
+
+    <select id="selectBoxLines" resultMap="boxLineMap">
+        SELECT bl.box_line_seq, bl.box_seq, bl.line_seq, bl.packed_qty,
+               bl.packed_by, bl.packed_at,
+               b.box_no, ol.line_no,
+               k.sku_id, k.color_code, k.size_code, pr.product_name,
+               pu.user_name AS packed_by_name
+          FROM tb_pack_box_line bl
+          JOIN tb_pack_box      b  ON b.box_seq       = bl.box_seq
+          JOIN tb_outbound_line ol ON ol.line_seq     = bl.line_seq
+          JOIN tb_sku           k  ON k.sku_seq       = ol.sku_seq
+          JOIN tb_product       pr ON pr.product_seq  = k.product_seq
+          LEFT JOIN tb_user     pu ON pu.user_id      = bl.packed_by
+         WHERE bl.box_seq = #{boxSeq}
+         ORDER BY ol.line_no
+    </select>
+
+    <!-- 지시 안에서만 센다. 전역 채번이 없어 지운 번호는 다시 쓰이지 않는다 -->
+    <select id="nextBoxNo" resultType="int">
+        SELECT COALESCE(MAX(b.box_no), 0) + 1
+          FROM tb_pack_box b
+         WHERE b.outbound_seq = #{outboundSeq}
+    </select>
+
+    <insert id="insertBox" parameterType="com.fulfillment.domain.PackBox"
+            useGeneratedKeys="true" keyProperty="boxSeq" keyColumn="box_seq">
+        INSERT INTO tb_pack_box
+            (outbound_seq, box_no, box_status, box_type,
+             weight_g, width_mm, height_mm, depth_mm, remark, created_by)
+        VALUES
+            (#{outboundSeq}, #{boxNo}, #{boxStatus}, #{boxType},
+             #{weightG}, #{widthMm}, #{heightMm}, #{depthMm}, #{remark}, #{createdBy})
+    </insert>
+
+    <!-- 닫은 박스는 못 고친다. 규격과 무게는 송장에 실릴 값이라 나간 뒤에
+         바뀌면 택배사가 보는 것과 우리 화면이 달라진다 -->
+    <update id="updateBox" parameterType="com.fulfillment.domain.PackBox">
+        UPDATE tb_pack_box
+           SET box_type  = #{boxType},
+               weight_g  = #{weightG},
+               width_mm  = #{widthMm},
+               height_mm = #{heightMm},
+               depth_mm  = #{depthMm},
+               remark    = #{remark},
+               updated_by = #{updatedBy},
+               updated_at = CURRENT_TIMESTAMP
+         WHERE box_seq    = #{boxSeq}
+           AND box_status = 'OPEN'
+    </update>
+
+    <!-- 빈 박스는 닫지 않는다. 닫아 봐야 송장만 하나 더 나간다 -->
+    <update id="closeBox">
+        UPDATE tb_pack_box b
+           SET box_status = 'CLOSED',
+               closed_by  = #{actor},
+               closed_at  = CURRENT_TIMESTAMP,
+               updated_by = #{actor},
+               updated_at = CURRENT_TIMESTAMP
+         WHERE b.box_seq    = #{boxSeq}
+           AND b.box_status = 'OPEN'
+           AND EXISTS (SELECT 1 FROM tb_pack_box_line bl WHERE bl.box_seq = b.box_seq)
+    </update>
+
+    <update id="reopenBox">
+        UPDATE tb_pack_box
+           SET box_status = 'OPEN',
+               closed_by  = NULL,
+               closed_at  = NULL,
+               updated_by = #{actor},
+               updated_at = CURRENT_TIMESTAMP
+         WHERE box_seq    = #{boxSeq}
+           AND box_status = 'CLOSED'
+    </update>
+
+    <!-- 빈 박스만 지운다. 든 것이 있으면 먼저 빼야 한다 -->
+    <delete id="deleteBox">
+        DELETE FROM tb_pack_box b
+         WHERE b.box_seq = #{boxSeq}
+           AND NOT EXISTS (SELECT 1 FROM tb_pack_box_line bl WHERE bl.box_seq = b.box_seq)
+    </delete>
+
+
+    <!-- 담기 (PAC-PG-002) -->
+
+    <select id="selectBoxLine" resultMap="boxLineMap">
+        SELECT bl.box_line_seq, bl.box_seq, bl.line_seq, bl.packed_qty,
+               bl.packed_by, bl.packed_at
+          FROM tb_pack_box_line bl
+         WHERE bl.box_seq  = #{boxSeq}
+           AND bl.line_seq = #{lineSeq}
+    </select>
+
+    <insert id="insertBoxLine" parameterType="com.fulfillment.domain.PackBoxLine"
+            useGeneratedKeys="true" keyProperty="boxLineSeq" keyColumn="box_line_seq">
+        INSERT INTO tb_pack_box_line (box_seq, line_seq, packed_qty, packed_by)
+        VALUES (#{boxSeq}, #{lineSeq}, #{packedQty}, #{packedBy})
+    </insert>
+
+    <!-- 읽어서 더하지 않고 SQL 이 더한다. 0 이하가 되면 서비스가 행을 지운다 -->
+    <update id="addBoxLineQty">
+        UPDATE tb_pack_box_line
+           SET packed_qty = packed_qty + #{qty}
+         WHERE box_line_seq = #{boxLineSeq}
+           AND packed_qty + #{qty} &gt; 0
+    </update>
+
+    <delete id="deleteBoxLine">
+        DELETE FROM tb_pack_box_line WHERE box_line_seq = #{boxLineSeq}
+    </delete>
+
+    <!-- 이 지시 줄이 박스에 들어간 총 수량. 여러 박스에 나뉠 수 있다 -->
+    <select id="sumPacked" resultType="int">
+        SELECT COALESCE(SUM(bl.packed_qty), 0)
+          FROM tb_pack_box_line bl
+         WHERE bl.line_seq = #{lineSeq}
+    </select>
+
+    <!--
+      아직 다 안 담은 줄 수.
+
+      검수한 만큼 담겨야 끝이다. 집은 만큼이 아니라 검수한 만큼인 이유는,
+      수량 체인이 지시 &gt;= 집음 &gt;= 검수 &gt;= 담음 으로 좁혀지기 때문이다.
+    -->
+    <select id="countUnpackedLines" resultType="int">
+        SELECT COUNT(*)
+          FROM tb_outbound_line ol
+         WHERE ol.outbound_seq = #{outboundSeq}
+           AND ol.inspected_qty &gt; COALESCE((SELECT SUM(bl.packed_qty)
+                                              FROM tb_pack_box_line bl
+                                             WHERE bl.line_seq = ol.line_seq), 0)
+    </select>
+
+    <select id="countOpenBoxes" resultType="int">
+        SELECT COUNT(*)
+          FROM tb_pack_box b
+         WHERE b.outbound_seq = #{outboundSeq}
+           AND b.box_status = 'OPEN'
     </select>
 
 </mapper>

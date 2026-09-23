@@ -40,6 +40,15 @@ public class OutboundLine {
 	/** 남은 수량 — DB 가 뺀다 */
 	private Integer remainQty;
 
+	/**
+	 * 출고검수에서 다시 센 수량 (OUT-PG-006).
+	 *
+	 * 집은 것을 카트 앞에서 다시 세는 값이다. 집은 것보다 많을 수 없다 —
+	 * 많으면 카트에 남의 물건이 들어온 것이고, 그건 세는 것이 아니라
+	 * 찾아내야 할 사고다.
+	 */
+	private Integer inspectedQty;
+
 	/** 집으러 갔는데 없던 수량 (OUT-PG-005) */
 	private Integer shortageQty;
 	/** 코드그룹 REASON_PICK_SHORT */

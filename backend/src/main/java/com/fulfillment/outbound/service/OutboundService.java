@@ -13,6 +13,8 @@ import com.fulfillment.domain.Order;
 import com.fulfillment.domain.Outbound;
 import com.fulfillment.domain.OutboundLine;
 import com.fulfillment.domain.OutboundPick;
+import com.fulfillment.domain.PackBox;
+import com.fulfillment.domain.PackBoxLine;
 import com.fulfillment.order.dao.SalesOrderDao;
 import com.fulfillment.outbound.dao.OutboundDao;
 import com.fulfillment.outbound.dto.OutboundCancelRequest;
@@ -25,6 +27,11 @@ import com.fulfillment.outbound.dto.AssignRequest;
 import com.fulfillment.outbound.dto.PickRequest;
 import com.fulfillment.outbound.dto.PickShortageRequest;
 import com.fulfillment.outbound.dto.PickTaskResponse;
+import com.fulfillment.outbound.dto.BoxSaveRequest;
+import com.fulfillment.outbound.dto.OutInspectRequest;
+import com.fulfillment.outbound.dto.OutInspectTaskResponse;
+import com.fulfillment.outbound.dto.PackBoxResponse;
+import com.fulfillment.outbound.dto.PackRequest;
 import com.fulfillment.outbound.dto.PickShortageLineResponse;
 import com.fulfillment.outbound.dto.PickShortageSearch;
 import com.fulfillment.system.user.dao.UserDao;
@@ -62,6 +69,9 @@ public class OutboundService {
 	private static final String PERM_PICK = "OUT_PICK";
 	private static final String PERM_SHORTAGE = "OUT_SHORTAGE";
 	private static final String REASON_PICK_SHORT = "REASON_PICK_SHORT";
+	/** 박스 · 패킹. 검수는 피킹과 같은 사람이 이어서 해 OUT_PICK 을 그대로 쓴다 */
+	private static final String PERM_PACK = "OUT_PACK";
+	private static final String BOX_TYPE = "BOX_TYPE";
 	private static final String TABLE = "tb_outbound";
 
 	private final OutboundDao outboundDao;
@@ -573,6 +583,393 @@ public class OutboundService {
 		}
 		outboundDao.updateStatus(outbound.getOutboundSeq(), now.getOutboundStatus(),
 				want, actorId(actor), null);
+	}
+
+	/* ------------------------------------------------------------------ */
+	/* 출고검수 (OUT-PG-006)                                               */
+	/* ------------------------------------------------------------------ */
+
+	/**
+	 * 세어야 할 것.
+	 *
+	 * 피킹과 달리 빈이 없다. 피킹은 빈 앞에서 찍고 검수는 카트를 앞에 두고
+	 * 찍는다 — 어디서 가져왔는지가 아니라 카트에 무엇이 들었는지를 센다.
+	 *
+	 * 왜 또 세냐면, 집는 중에 옆 칸 물건이 섞이거나 카트가 바뀌는 일이
+	 * 실제로 있기 때문이다. 그걸 잡아내는 것이 이 단계의 유일한 목적이다.
+	 */
+	@Transactional(readOnly = true)
+	public List<OutInspectTaskResponse> inspectTasks(LoginUser actor, Long outboundSeq) {
+		permissionChecker.require(actor, PERM_PICK, "R");
+		mustFind(outboundSeq);
+		return outboundDao.selectInspectTasks(outboundSeq);
+	}
+
+	/**
+	 * 세었다.
+	 *
+	 * 집은 것보다 많이 셀 수는 없다. 많으면 카트에 남의 물건이 들어온
+	 * 것이고, 그건 세는 것이 아니라 찾아내야 할 사고다.
+	 *
+	 * 되돌릴 때는 수량이 음수다. 잘못 세는 일이 있어서 되돌릴 길이 없으면
+	 * 검수를 처음부터 다시 해야 한다.
+	 */
+	@Transactional
+	public OutboundResponse inspect(LoginUser actor, Long outboundSeq, OutInspectRequest request) {
+		permissionChecker.require(actor, PERM_PICK, "C");
+
+		Outbound outbound = mustFind(outboundSeq);
+		requireInspectable(outbound);
+
+		OutboundLine line = outboundDao.selectLine(request.lineSeq());
+		if (line == null || !outboundSeq.equals(line.getOutboundSeq())) {
+			throw new BusinessException(ErrorCode.NOT_FOUND,
+					"이 지시의 줄이 아닙니다. (순번 %s)".formatted(request.lineSeq()));
+		}
+		if (request.qty() == 0) {
+			throw new BusinessException(ErrorCode.INVALID_INPUT,
+					"수량이 0 입니다. 센 것도 되돌린 것도 아닙니다.");
+		}
+
+		int changed = outboundDao.addInspectedQty(request.lineSeq(), request.qty());
+		if (changed == 0) {
+			throw new BusinessException(ErrorCode.INVALID_INPUT,
+					("%s 는 집은 것이 %d 개인데 이미 %d 개를 세었습니다. %d 개를 더 "
+							+ "셀 수 없습니다 — 카트에 남의 물건이 들어온 것은 아닌지 "
+							+ "확인하세요.")
+							.formatted(line.getSkuId(), nz(line.getPickedQty()),
+									nz(line.getInspectedQty()), request.qty()));
+		}
+
+		syncPackingStatus(actor, outbound);
+		return OutboundResponse.of(mustFind(outboundSeq), outboundDao.selectLines(outboundSeq));
+	}
+
+	/**
+	 * 집은 대로 한 번에 센다.
+	 *
+	 * 하나씩 찍는 것이 기본이지만, 단포처럼 한 줄 한 개짜리를 하루에 수백 건
+	 * 치는 곳에서는 그 한 번이 그대로 시간이 된다. 세는 사람이 카트를 보고
+	 * 맞다고 판단했을 때 누르는 버튼이라, 검수를 건너뛰는 것과는 다르다.
+	 */
+	@Transactional
+	public OutboundResponse inspectAll(LoginUser actor, Long outboundSeq) {
+		permissionChecker.require(actor, PERM_PICK, "C");
+
+		Outbound outbound = mustFind(outboundSeq);
+		requireInspectable(outbound);
+
+		int counted = 0;
+		for (OutInspectTaskResponse t : outboundDao.selectInspectTasks(outboundSeq)) {
+			if (t.toInspectQty() > 0) {
+				outboundDao.addInspectedQty(t.lineSeq(), t.toInspectQty());
+				counted += t.toInspectQty();
+			}
+		}
+		if (counted == 0) {
+			throw new BusinessException(ErrorCode.INVALID_INPUT,
+					"셀 것이 남아 있지 않습니다.");
+		}
+
+		syncPackingStatus(actor, outbound);
+		Outbound after = mustFind(outboundSeq);
+		auditRecorder.recordAction(actor, "UPDATE", TABLE, after.getOutboundNo(),
+				"출고검수 일괄 %d 개".formatted(counted));
+		return OutboundResponse.of(after, outboundDao.selectLines(outboundSeq));
+	}
+
+	/* ------------------------------------------------------------------ */
+	/* 박스 · 패킹 (PAC-PG-001, PAC-PG-002)                                */
+	/* ------------------------------------------------------------------ */
+
+	@Transactional(readOnly = true)
+	public List<PackBoxResponse> boxes(LoginUser actor, Long outboundSeq) {
+		permissionChecker.require(actor, PERM_PACK, "R");
+		mustFind(outboundSeq);
+		return outboundDao.selectBoxes(outboundSeq).stream()
+				.map(b -> PackBoxResponse.of(b, outboundDao.selectBoxLines(b.getBoxSeq())))
+				.toList();
+	}
+
+	/**
+	 * 박스를 하나 더 만든다.
+	 *
+	 * 번호는 지시 안에서만 센다 (1, 2, 3...). 전역 채번을 안 하는 이유는
+	 * 사람이 부르는 이름이 '이 주문의 2번 박스' 이기 때문이다 — 밖으로
+	 * 나가는 식별자는 송장번호다.
+	 */
+	@Transactional
+	public PackBoxResponse addBox(LoginUser actor, Long outboundSeq, BoxSaveRequest request) {
+		permissionChecker.require(actor, PERM_PACK, "C");
+
+		Outbound outbound = mustFind(outboundSeq);
+		requirePackable(outbound);
+		if (request.boxType() != null) {
+			codeValues.require(BOX_TYPE, request.boxType(), "박스 규격");
+		}
+
+		PackBox box = PackBox.builder()
+				.outboundSeq(outboundSeq)
+				.boxNo(outboundDao.nextBoxNo(outboundSeq))
+				.boxStatus(PackBox.OPEN)
+				.boxType(request.boxType())
+				.weightG(request.weightG())
+				.widthMm(request.widthMm())
+				.heightMm(request.heightMm())
+				.depthMm(request.depthMm())
+				.remark(request.remark())
+				.createdBy(actorId(actor))
+				.build();
+		outboundDao.insertBox(box);
+		return PackBoxResponse.of(outboundDao.selectBox(box.getBoxSeq()));
+	}
+
+	/** 규격 · 실측값을 고친다. 닫은 박스는 못 고친다 */
+	@Transactional
+	public PackBoxResponse updateBox(LoginUser actor, Long boxSeq, BoxSaveRequest request) {
+		permissionChecker.require(actor, PERM_PACK, "U");
+
+		PackBox box = mustFindBox(boxSeq);
+		if (request.boxType() != null) {
+			codeValues.require(BOX_TYPE, request.boxType(), "박스 규격");
+		}
+		int changed = outboundDao.updateBox(PackBox.builder()
+				.boxSeq(boxSeq)
+				.boxType(request.boxType())
+				.weightG(request.weightG())
+				.widthMm(request.widthMm())
+				.heightMm(request.heightMm())
+				.depthMm(request.depthMm())
+				.remark(request.remark())
+				.updatedBy(actorId(actor))
+				.build());
+		if (changed == 0) {
+			throw new BusinessException(ErrorCode.IN_USE,
+					("%d 번 박스는 이미 닫혔습니다. 규격과 무게는 송장에 실릴 값이라 "
+							+ "닫은 뒤에 바꾸면 택배사가 보는 것과 우리 화면이 "
+							+ "달라집니다.").formatted(box.getBoxNo()));
+		}
+		return PackBoxResponse.of(mustFindBox(boxSeq), outboundDao.selectBoxLines(boxSeq));
+	}
+
+	/**
+	 * 박스에 담았다 / 뺐다.
+	 *
+	 * <b>검수한 것만 담을 수 있다.</b> 수량 체인이 지시 >= 집음 >= 검수 >=
+	 * 담음 으로 좁혀지는 것이 규칙이고, 그래야 마지막에 '어디서 틀어졌나'
+	 * 를 한 줄로 짚을 수 있다 (OUT-PG-007).
+	 *
+	 * 되돌릴 때는 수량이 음수다. 잘못 담아 다시 꺼내는 일이 흔해서, 박스를
+	 * 지우고 새로 만들게 하면 박스번호가 계속 늘어난다.
+	 */
+	@Transactional
+	public PackBoxResponse pack(LoginUser actor, Long boxSeq, PackRequest request) {
+		permissionChecker.require(actor, PERM_PACK, "C");
+
+		PackBox box = mustFindBox(boxSeq);
+		Outbound outbound = mustFind(box.getOutboundSeq());
+		requirePackable(outbound);
+		if (box.isClosed()) {
+			throw new BusinessException(ErrorCode.IN_USE,
+					("%d 번 박스는 이미 닫혔습니다. 더 담으려면 다시 여세요.")
+							.formatted(box.getBoxNo()));
+		}
+
+		OutboundLine line = outboundDao.selectLine(request.lineSeq());
+		if (line == null || !box.getOutboundSeq().equals(line.getOutboundSeq())) {
+			throw new BusinessException(ErrorCode.NOT_FOUND,
+					"이 지시의 줄이 아닙니다. (순번 %s)".formatted(request.lineSeq()));
+		}
+		int qty = request.qty();
+		if (qty == 0) {
+			throw new BusinessException(ErrorCode.INVALID_INPUT,
+					"수량이 0 입니다. 담은 것도 뺀 것도 아닙니다.");
+		}
+
+		// 검수한 것보다 많이 담을 수 없다. 박스 여러 개에 나뉘어 담기므로
+		// 이 박스가 아니라 줄 전체로 센다.
+		if (qty > 0) {
+			int already = outboundDao.sumPacked(request.lineSeq());
+			int room = nz(line.getInspectedQty()) - already;
+			if (qty > room) {
+				throw new BusinessException(ErrorCode.INVALID_INPUT, room <= 0
+						? ("%s 는 검수한 %d 개를 이미 다 담았습니다. 더 담으려면 먼저 "
+								+ "검수하세요.").formatted(line.getSkuId(),
+										nz(line.getInspectedQty()))
+						: ("%s 는 검수한 %d 개 중 %d 개를 이미 담아, 여기에 담을 수 있는 "
+								+ "것은 %d 개입니다.").formatted(line.getSkuId(),
+										nz(line.getInspectedQty()), already, room));
+			}
+		}
+
+		PackBoxLine existing = outboundDao.selectBoxLine(boxSeq, request.lineSeq());
+		if (existing == null) {
+			if (qty < 0) {
+				throw new BusinessException(ErrorCode.INVALID_INPUT,
+						"%s 는 이 박스에 들어 있지 않습니다.".formatted(line.getSkuId()));
+			}
+			outboundDao.insertBoxLine(PackBoxLine.builder()
+					.boxSeq(boxSeq)
+					.lineSeq(request.lineSeq())
+					.packedQty(qty)
+					.packedBy(actorId(actor))
+					.build());
+		} else {
+			int after = nz(existing.getPackedQty()) + qty;
+			if (after < 0) {
+				throw new BusinessException(ErrorCode.INVALID_INPUT,
+						("이 박스에 든 %s 는 %d 개뿐입니다. %d 개를 뺄 수 없습니다.")
+								.formatted(line.getSkuId(), nz(existing.getPackedQty()), -qty));
+			}
+			if (after == 0) {
+				// 0 개짜리 줄은 남겨 둘 이유가 없다. 다시 담으면 새로 생긴다.
+				outboundDao.deleteBoxLine(existing.getBoxLineSeq());
+			} else {
+				outboundDao.addBoxLineQty(existing.getBoxLineSeq(), qty);
+			}
+		}
+
+		syncPackingStatus(actor, outbound);
+		return PackBoxResponse.of(mustFindBox(boxSeq), outboundDao.selectBoxLines(boxSeq));
+	}
+
+	/** 박스를 닫는다. 빈 박스는 닫지 않는다 — 닫아 봐야 송장만 하나 더 나간다 */
+	@Transactional
+	public PackBoxResponse closeBox(LoginUser actor, Long boxSeq) {
+		permissionChecker.require(actor, PERM_PACK, "U");
+
+		PackBox box = mustFindBox(boxSeq);
+		Outbound outbound = mustFind(box.getOutboundSeq());
+		requirePackable(outbound);
+
+		int changed = outboundDao.closeBox(boxSeq, actorId(actor));
+		if (changed == 0) {
+			throw new BusinessException(ErrorCode.IN_USE, box.isClosed()
+					? "%d 번 박스는 이미 닫혔습니다.".formatted(box.getBoxNo())
+					: ("%d 번 박스가 비어 있습니다. 담은 것이 없으면 닫지 않습니다 — "
+							+ "닫아 봐야 송장만 하나 더 나갑니다.").formatted(box.getBoxNo()));
+		}
+
+		syncPackingStatus(actor, outbound);
+		Outbound after = mustFind(box.getOutboundSeq());
+		auditRecorder.recordAction(actor, "UPDATE", TABLE, after.getOutboundNo(),
+				"%d 번 박스 닫음".formatted(box.getBoxNo()));
+		return PackBoxResponse.of(mustFindBox(boxSeq), outboundDao.selectBoxLines(boxSeq));
+	}
+
+	/**
+	 * 닫은 박스를 다시 연다.
+	 *
+	 * 잘못 담은 것을 발견하는 때가 대개 닫은 직후다. 송장이 붙기 전까지는
+	 * 열 수 있어야 하고, 붙은 뒤에는 송장부터 취소해야 한다 (D섹터).
+	 */
+	@Transactional
+	public PackBoxResponse reopenBox(LoginUser actor, Long boxSeq) {
+		permissionChecker.require(actor, PERM_PACK, "U");
+
+		PackBox box = mustFindBox(boxSeq);
+		Outbound outbound = mustFind(box.getOutboundSeq());
+		requirePackable(outbound);
+
+		int changed = outboundDao.reopenBox(boxSeq, actorId(actor));
+		if (changed == 0) {
+			throw new BusinessException(ErrorCode.IN_USE,
+					"%d 번 박스는 닫혀 있지 않습니다.".formatted(box.getBoxNo()));
+		}
+		syncPackingStatus(actor, outbound);
+		return PackBoxResponse.of(mustFindBox(boxSeq), outboundDao.selectBoxLines(boxSeq));
+	}
+
+	/** 빈 박스만 지운다. 든 것이 있으면 먼저 빼야 한다 */
+	@Transactional
+	public void deleteBox(LoginUser actor, Long boxSeq) {
+		permissionChecker.require(actor, PERM_PACK, "U");
+
+		PackBox box = mustFindBox(boxSeq);
+		Outbound outbound = mustFind(box.getOutboundSeq());
+		requirePackable(outbound);
+
+		if (outboundDao.deleteBox(boxSeq) == 0) {
+			throw new BusinessException(ErrorCode.IN_USE,
+					("%d 번 박스에 담은 것이 있습니다. 먼저 빼세요.")
+							.formatted(box.getBoxNo()));
+		}
+		syncPackingStatus(actor, mustFind(box.getOutboundSeq()));
+	}
+
+	/* ------------------------------------------------------------------ */
+
+	private void requireInspectable(Outbound outbound) {
+		if (!outbound.isOpen()) {
+			throw new BusinessException(ErrorCode.IN_USE,
+					"%s 은(는) 이미 끝난 지시입니다. (%s)".formatted(
+							outbound.getOutboundNo(),
+							statusLabel(outbound.getOutboundStatus())));
+		}
+	}
+
+	/**
+	 * 담을 수 있는 지시인가.
+	 *
+	 * 나갔거나 거둬들인 지시는 손댈 수 없다. 출고확정 뒤에 박스를 고치면
+	 * 이미 줄어든 재고와 박스 안이 어긋난다.
+	 */
+	private void requirePackable(Outbound outbound) {
+		if (!outbound.isOpen()) {
+			throw new BusinessException(ErrorCode.IN_USE,
+					"%s 은(는) 이미 끝난 지시입니다. (%s)".formatted(
+							outbound.getOutboundNo(),
+							statusLabel(outbound.getOutboundStatus())));
+		}
+	}
+
+	private PackBox mustFindBox(Long boxSeq) {
+		PackBox box = outboundDao.selectBox(boxSeq);
+		if (box == null) {
+			throw new BusinessException(ErrorCode.NOT_FOUND,
+					"박스를 찾을 수 없습니다. (순번 %d)".formatted(boxSeq));
+		}
+		return box;
+	}
+
+	/**
+	 * 검수 · 패킹 진척에 맞춰 상태를 옮긴다.
+	 *
+	 *   피킹완료 -> 패킹중   박스에 뭔가 담기기 시작하면
+	 *   패킹중   -> 패킹완료 검수한 만큼 다 담기고 모든 박스가 닫히면
+	 *
+	 * 되돌리면 거꾸로 온다. 박스를 다시 열거나 빼면 패킹완료에서 패킹중으로
+	 * 돌아온다 — 안 돌리면 '다 담았다' 고 표시된 채로 열린 박스가 남는다.
+	 *
+	 * 검수는 상태를 만들지 않는다. 별도 상태를 두면 '검수중' 과 '패킹중'
+	 * 사이를 오가는 전이가 늘어나는데, 실제로는 둘이 이어진 한 동작이고
+	 * 끝났는지는 수량이 말해 준다.
+	 */
+	private void syncPackingStatus(LoginUser actor, Outbound outbound) {
+		Outbound now = mustFind(outbound.getOutboundSeq());
+		if (!now.isOpen() || Outbound.CREATED.equals(now.getOutboundStatus())
+				|| Outbound.PICKING.equals(now.getOutboundStatus())) {
+			return;
+		}
+
+		boolean anyPacked = !outboundDao.selectBoxes(outbound.getOutboundSeq()).isEmpty();
+		boolean allPacked = outboundDao.countUnpackedLines(outbound.getOutboundSeq()) == 0;
+		boolean allClosed = outboundDao.countOpenBoxes(outbound.getOutboundSeq()) == 0;
+
+		String want = !anyPacked ? Outbound.PICKED
+				: (allPacked && allClosed ? Outbound.PACKED : Outbound.PACKING);
+		if (want.equals(now.getOutboundStatus())) {
+			return;
+		}
+		outboundDao.updateStatus(outbound.getOutboundSeq(), now.getOutboundStatus(),
+				want, actorId(actor), null);
+
+		// 검수가 끝난 시점을 한 번 찍어 둔다. 누가 언제 세었는지가 남아야
+		// 나중에 '박스 안이 다르다' 는 말이 나왔을 때 되짚을 수 있다.
+		if (outboundDao.countUninspectedLines(outbound.getOutboundSeq()) == 0
+				&& now.getInspectedBy() == null) {
+			outboundDao.markInspected(outbound.getOutboundSeq(), actorId(actor));
+		}
 	}
 
 	/* ------------------------------------------------------------------ */
