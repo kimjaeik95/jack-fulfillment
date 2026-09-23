@@ -43,6 +43,10 @@ public record OutboundResponse(
 
 		String instructedBy,
 		String instructedByName,
+		/** 피킹 담당. 비면 아직 아무도 안 맡았다 */
+		String assignedTo,
+		String assignedToName,
+		boolean assigned,
 		LocalDateTime instructedAt,
 		LocalDateTime shippedAt,
 		String cancelReason,
@@ -51,6 +55,8 @@ public record OutboundResponse(
 		Integer lineCount,
 		Integer totalInstructedQty,
 		Integer totalPickedQty,
+		/** 집으러 갔는데 없던 수량 합 */
+		Integer totalShortageQty,
 		/** 아직 안 집은 수량 */
 		int remainQty,
 
@@ -69,9 +75,12 @@ public record OutboundResponse(
 				o.isSingle(), o.getShipDueDate(),
 				o.getOrderSeq(), o.getOrderNo(), o.getChannelName(),
 				o.getExtOrderNo(), o.getReceiverName(),
-				o.getInstructedBy(), o.getInstructedByName(), o.getInstructedAt(),
+				o.getInstructedBy(), o.getInstructedByName(),
+				o.getAssignedTo(), o.getAssignedToName(), o.isAssigned(),
+				o.getInstructedAt(),
 				o.getShippedAt(), o.getCancelReason(), o.getRemark(),
 				o.getLineCount(), o.getTotalInstructedQty(), o.getTotalPickedQty(),
+				o.getTotalShortageQty(),
 				o.remainQty(),
 				lines.stream().map(OutboundLineResponse::of).toList());
 	}

@@ -24,6 +24,9 @@ public record OutboundLineResponse(
 
 		Integer instructedQty,
 		Integer pickedQty,
+		/** 집으러 갔는데 없던 수량 (OUT-PG-005) */
+		Integer shortageQty,
+		String shortageReason,
 		Integer remainQty,
 
 		/** 집어야 할 빈. 여러 곳이면 'A-01-03 외 1곳' */
@@ -35,7 +38,8 @@ public record OutboundLineResponse(
 				l.getLineSeq(), l.getLineNo(),
 				l.getOrderLineSeq(), l.getOrderSeq(), l.getOrderNo(), l.getOrderLineNo(),
 				l.getSkuId(), l.getColorCode(), l.getSizeCode(), l.getProductName(),
-				l.getInstructedQty(), l.getPickedQty(), l.getRemainQty(),
+				l.getInstructedQty(), l.getPickedQty(),
+				l.getShortageQty(), l.getShortageReason(), l.getRemainQty(),
 				l.getLocationHint(), l.getRemark());
 	}
 }

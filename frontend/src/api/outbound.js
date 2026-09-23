@@ -32,6 +32,17 @@ export async function targets(params = {}) {
   return data
 }
 
+/**
+ * 이 주문이 무엇을 어디서 내보내나 (출고대상 펼치기).
+ *
+ * 지시를 만들 때 담을 줄과 같은 것이라, 미리 보는 것과 실제가 어긋나지
+ * 않는다.
+ */
+export async function targetLines(orderSeq) {
+  const { data } = await get(`/outbounds/targets/${orderSeq}/lines`)
+  return data
+}
+
 export async function list(params = {}) {
   const { data } = await get('/outbounds', {
     keyword: params.keyword,
@@ -68,5 +79,67 @@ export async function create(orderSeqs, remark) {
 /** 지시 취소. 사유가 필수다 — 창고가 하기로 한 일을 되돌린다. */
 export async function cancel(outboundSeq, reasonCode, remark) {
   const { data } = await post(`/outbounds/${outboundSeq}/cancel`, { reasonCode, remark })
+  return data
+}
+
+/* ── 피킹 (OUT-PG-003 ~ OUT-PG-005) ─────────────────────────── */
+
+/**
+ * 작업자 배정. userId 를 비우면 배정을 푼다.
+ *
+ * 여러 장을 한 번에 맡긴다 — 아침에 오늘 칠 것을 나눠 주는 것이 정상
+ * 동선이라, 한 장씩 누르게 하면 30 장을 30 번 눌러야 한다.
+ */
+export async function assign(outboundSeqs, userId) {
+  const { data } = await post('/outbounds/assign', { outboundSeqs, userId: userId || null })
+  return data
+}
+
+/**
+ * 집을 것 — 지시 줄 x 빈.
+ *
+ * 바코드가 함께 온다. 스캐너는 빈 라벨이든 상품 태그든 문자열만 보내므로
+ * 화면이 이 목록과 맞춰 본다 — 스캔마다 서버에 물으면 그 왕복이 스캔
+ * 속도에 그대로 걸린다.
+ */
+export async function pickTasks(outboundSeq) {
+  const { data } = await get(`/outbounds/${outboundSeq}/pick-tasks`)
+  return data
+}
+
+/** 집었다. 되돌릴 때는 qty 가 음수다 */
+export async function pick(outboundSeq, body) {
+  const { data } = await post(`/outbounds/${outboundSeq}/picks`, body)
+  return data
+}
+
+/** 집으러 갔는데 없다. 사유가 필수다 */
+export async function shortage(outboundSeq, body) {
+  const { data } = await post(`/outbounds/${outboundSeq}/shortages`, body)
+  return data
+}
+
+/** 피킹 실적 — 누가 언제 어느 빈에서 몇 개. 되돌림은 음수로 남는다 */
+export async function picks(outboundSeq) {
+  const { data } = await get(`/outbounds/${outboundSeq}/picks`)
+  return data
+}
+
+/**
+ * 피킹 결품 목록 (OUT-PG-005).
+ *
+ * 전산엔 있는데 실물이 없었다는 기록이라 사실상 재고 오차 목록이다.
+ * 처리는 피킹 화면에서 하고, 여기서는 무엇이 자주 비는지를 본다.
+ */
+export async function shortages(params = {}) {
+  const { data } = await get('/outbounds/shortages', {
+    keyword: params.keyword,
+    plantId: params.plantId,
+    reasonCode: params.reasonCode,
+    fromDate: params.fromDate,
+    toDate: params.toDate,
+    page: params.page,
+    size: params.size,
+  })
   return data
 }

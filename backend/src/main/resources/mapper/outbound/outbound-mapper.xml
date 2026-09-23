@@ -34,6 +34,11 @@
         <result property="plantName"         column="plant_name"/>
         <result property="orgSeq"            column="org_seq"/>
         <result property="instructedByName"  column="instructed_by_name"/>
+        <result property="assignedTo"        column="assigned_to"/>
+        <result property="assignedAt"        column="assigned_at"/>
+        <result property="assignedBy"        column="assigned_by"/>
+        <result property="assignedToName"    column="assigned_to_name"/>
+        <result property="totalShortageQty"  column="total_shortage_qty"/>
         <result property="orderSeq"          column="order_seq"/>
         <result property="orderNo"           column="order_no"/>
         <result property="channelName"       column="channel_name"/>
@@ -53,6 +58,8 @@
         <result property="instructedQty"  column="instructed_qty"/>
         <result property="pickedQty"      column="picked_qty"/>
         <result property="remainQty"      column="remain_qty"/>
+        <result property="shortageQty"    column="shortage_qty"/>
+        <result property="shortageReason" column="shortage_reason"/>
         <result property="remark"         column="remark"/>
         <result property="skuId"          column="sku_id"/>
         <result property="colorCode"      column="color_code"/>
@@ -175,6 +182,40 @@
                o.ordered_at                     AS orderedAt,
                o.receiver_name                  AS receiverName,
                o.address                        AS address,
+               o.delivery_memo                  AS deliveryMemo,
+               /*
+                 무엇이 나가고 어디서 집나.
+
+                 주문번호만 보고는 알 수 없어서 목록에 요약을 싣는다. 두
+                 개까지 적고 나머지는 '외 N건' 으로 줄인다 — 줄이 다섯인
+                 주문까지 다 적으면 목록이 그것만으로 채워진다.
+               */
+               (SELECT CASE WHEN COUNT(*) > 2
+                            THEN string_agg(x.sku_id, ', ' ORDER BY x.sku_id) FILTER (WHERE x.rn &lt;= 2)
+                                 || ' 외 ' || (COUNT(*) - 2) || '건'
+                            ELSE string_agg(x.sku_id, ', ' ORDER BY x.sku_id)
+                       END
+                  FROM (SELECT k2.sku_id,
+                               ROW_NUMBER() OVER (ORDER BY k2.sku_id) AS rn
+                          FROM tb_order_line   l4
+                          JOIN tb_sku          k2 ON k2.sku_seq       = l4.sku_seq
+                          JOIN tb_stock_alloc  a4 ON a4.order_line_seq = l4.line_seq
+                                                 AND a4.qty_allocated  &gt; a4.qty_released
+                         WHERE l4.order_seq   = o.order_seq
+                           AND l4.line_status &lt;&gt; 'CANCELED'
+                         GROUP BY k2.sku_id) x) AS skuSummary,
+               (SELECT CASE WHEN COUNT(DISTINCT lo4.location_id) &gt; 1
+                            THEN MIN(lo4.location_id) || ' 외 '
+                                 || (COUNT(DISTINCT lo4.location_id) - 1) || '곳'
+                            ELSE MIN(lo4.location_id)
+                       END
+                  FROM tb_order_line  l5
+                  JOIN tb_stock_alloc a5 ON a5.order_line_seq = l5.line_seq
+                                        AND a5.qty_allocated  &gt; a5.qty_released
+                  JOIN tb_stock       s5 ON s5.stock_seq      = a5.stock_seq
+                  JOIN tb_location    lo4 ON lo4.location_seq = s5.location_seq
+                 WHERE l5.order_seq   = o.order_seq
+                   AND l5.line_status &lt;&gt; 'CANCELED') AS locationSummary,
                al.plant_id                      AS plantId,
                al.plant_name                    AS plantName,
                al.alloc_line_count::int         AS lineCount,
@@ -295,6 +336,8 @@
         o.single_pack, o.ship_due_date,
         o.instructed_by, o.instructed_at, o.shipped_by, o.shipped_at,
         o.canceled_by, o.canceled_at, o.cancel_reason, o.remark,
+        o.assigned_to, o.assigned_at, o.assigned_by,
+        au.user_name   AS assigned_to_name,
         o.created_by, o.created_at, o.updated_by, o.updated_at,
         pl.plant_id    AS plant_id,
         pl.plant_name  AS plant_name,
@@ -308,6 +351,7 @@
         FROM tb_outbound o
         JOIN tb_plant pl ON pl.plant_seq = o.plant_seq
         LEFT JOIN tb_user iu ON iu.user_id = o.instructed_by
+        LEFT JOIN tb_user au ON au.user_id = o.assigned_to
         LEFT JOIN LATERAL (
             SELECT MIN(so.order_seq)     AS order_seq,
                    MIN(so.order_no)      AS order_no,
@@ -326,6 +370,7 @@
         , (SELECT COUNT(*)                            FROM tb_outbound_line l WHERE l.outbound_seq = o.outbound_seq) AS line_count
         , (SELECT COALESCE(SUM(l.instructed_qty), 0)  FROM tb_outbound_line l WHERE l.outbound_seq = o.outbound_seq) AS total_instructed_qty
         , (SELECT COALESCE(SUM(l.picked_qty), 0)      FROM tb_outbound_line l WHERE l.outbound_seq = o.outbound_seq) AS total_picked_qty
+        , (SELECT COALESCE(SUM(l.shortage_qty), 0)    FROM tb_outbound_line l WHERE l.outbound_seq = o.outbound_seq) AS total_shortage_qty
     </sql>
 
     <sql id="outboundWhere">
@@ -403,7 +448,8 @@
 
     <select id="selectLines" resultMap="lineMap">
         SELECT ol.line_seq, ol.outbound_seq, ol.line_no, ol.order_line_seq,
-               ol.sku_seq, ol.instructed_qty, ol.picked_qty, ol.remain_qty, ol.remark,
+               ol.sku_seq, ol.instructed_qty, ol.picked_qty, ol.shortage_qty,
+               ol.shortage_reason, ol.remain_qty, ol.remark,
                k.sku_id, k.color_code, k.size_code, pr.product_name,
                so.order_seq, so.order_no, l.line_no AS order_line_no,
                CASE WHEN COUNT(DISTINCT lo.location_seq) > 1
@@ -422,7 +468,8 @@
           LEFT JOIN tb_location    lo ON lo.location_seq  = s.location_seq
          WHERE ol.outbound_seq = #{outboundSeq}
          GROUP BY ol.line_seq, ol.outbound_seq, ol.line_no, ol.order_line_seq,
-                  ol.sku_seq, ol.instructed_qty, ol.picked_qty, ol.remain_qty, ol.remark,
+                  ol.sku_seq, ol.instructed_qty, ol.picked_qty, ol.shortage_qty,
+                  ol.shortage_reason, ol.remain_qty, ol.remark,
                   k.sku_id, k.color_code, k.size_code, pr.product_name,
                   so.order_seq, so.order_no, l.line_no
          ORDER BY ol.line_no
@@ -474,4 +521,276 @@
          WHERE outbound_seq    = #{outboundSeq}
            AND outbound_status = #{fromStatus}
     </update>
+    <!--
+      ════════════════════════════════════════════════════════════════
+      피킹 (OUT-PG-003 ~ OUT-PG-005)
+      ════════════════════════════════════════════════════════════════
+    -->
+
+    <!-- 작업자 배정. userId 가 null 이면 배정을 푼다 -->
+    <update id="updateAssignee">
+        UPDATE tb_outbound
+           SET assigned_to = #{userId},
+        <choose>
+            <when test="userId != null">
+               assigned_at = CURRENT_TIMESTAMP,
+               assigned_by = #{actor},
+            </when>
+            <otherwise>
+               assigned_at = NULL,
+               assigned_by = NULL,
+            </otherwise>
+        </choose>
+               updated_by  = #{actor},
+               updated_at  = CURRENT_TIMESTAMP
+         WHERE outbound_seq    = #{outboundSeq}
+           AND outbound_status NOT IN ('SHIPPED','CANCELED')
+    </update>
+
+    <!--
+      집을 것 — 지시 줄 x 빈.
+
+      할당이 고른 자리를 그대로 준다. 한 줄이 여러 빈에서 나뉘어 잡히므로
+      'SKU 5 개' 로는 작업자가 어디로 갈지 모른다.
+
+      이미 집은 만큼을 빼고 준다. 되돌림(음수 실적)까지 합산하므로, 잘못
+      집어 되돌린 칸은 다시 집을 것으로 돌아온다.
+
+      바코드를 함께 준다 — 스캐너는 빈 라벨이든 상품 태그든 문자열만
+      보내고, 화면이 이 목록과 맞춰 본다. 라벨 바코드가 비어 있으면
+      코드 자체를 쓰는 것이 기준정보의 약속이다.
+
+      빈 순서로 준다. 같은 자리 것을 몰아 집는 것이 동선이다.
+    -->
+    <select id="selectPickTasks"
+            resultType="com.fulfillment.outbound.dto.PickTaskResponse">
+        SELECT ol.line_seq                                  AS lineSeq,
+               ol.line_no                                   AS lineNo,
+               s.stock_seq                                  AS stockSeq,
+               a.alloc_seq                                  AS allocSeq,
+               lo.location_id                               AS locationId,
+               COALESCE(lo.barcode, lo.location_id)         AS locationBarcode,
+               k.sku_id                                     AS skuId,
+               COALESCE(k.barcode, k.sku_id)                AS skuBarcode,
+               k.color_code                                 AS colorCode,
+               k.size_code                                  AS sizeCode,
+               pr.product_name                              AS productName,
+               (a.qty_allocated - a.qty_released)           AS allocQty,
+               COALESCE(pk.picked, 0)                       AS pickedQty,
+               ((a.qty_allocated - a.qty_released) - COALESCE(pk.picked, 0)) AS toPickQty,
+               ol.instructed_qty                            AS lineInstructedQty,
+               ol.picked_qty                                AS linePickedQty,
+               ol.shortage_qty                              AS lineShortageQty
+          FROM tb_outbound_line ol
+          JOIN tb_sku         k  ON k.sku_seq       = ol.sku_seq
+          JOIN tb_product     pr ON pr.product_seq  = k.product_seq
+          JOIN tb_stock_alloc a  ON a.order_line_seq = ol.order_line_seq
+                                AND a.qty_allocated  &gt; a.qty_released
+          JOIN tb_stock       s  ON s.stock_seq     = a.stock_seq
+          JOIN tb_location    lo ON lo.location_seq = s.location_seq
+          LEFT JOIN LATERAL (
+              SELECT COALESCE(SUM(p.picked_qty), 0) AS picked
+                FROM tb_outbound_pick p
+               WHERE p.line_seq  = ol.line_seq
+                 AND p.stock_seq = s.stock_seq
+          ) pk ON TRUE
+         WHERE ol.outbound_seq = #{outboundSeq}
+         ORDER BY lo.location_id, ol.line_no
+    </select>
+
+    <select id="selectLine" resultMap="lineMap">
+        SELECT ol.line_seq, ol.outbound_seq, ol.line_no, ol.order_line_seq,
+               ol.sku_seq, ol.instructed_qty, ol.picked_qty, ol.shortage_qty,
+               ol.shortage_reason, ol.remain_qty, ol.remark,
+               k.sku_id, k.color_code, k.size_code, pr.product_name
+          FROM tb_outbound_line ol
+          JOIN tb_sku     k  ON k.sku_seq      = ol.sku_seq
+          JOIN tb_product pr ON pr.product_seq = k.product_seq
+         WHERE ol.line_seq = #{lineSeq}
+    </select>
+
+    <insert id="insertPick" parameterType="com.fulfillment.domain.OutboundPick"
+            useGeneratedKeys="true" keyProperty="pickSeq" keyColumn="pick_seq">
+        INSERT INTO tb_outbound_pick
+            (outbound_seq, line_seq, stock_seq, alloc_seq, picked_qty, picked_by, remark)
+        VALUES
+            (#{outboundSeq}, #{lineSeq}, #{stockSeq}, #{allocSeq}, #{pickedQty},
+             #{pickedBy}, #{remark})
+    </insert>
+
+    <select id="selectPicks" resultType="com.fulfillment.domain.OutboundPick">
+        SELECT p.pick_seq     AS pickSeq,
+               p.outbound_seq AS outboundSeq,
+               p.line_seq     AS lineSeq,
+               p.stock_seq    AS stockSeq,
+               p.alloc_seq    AS allocSeq,
+               p.picked_qty   AS pickedQty,
+               p.picked_by    AS pickedBy,
+               p.picked_at    AS pickedAt,
+               p.remark       AS remark,
+               lo.location_id AS locationId,
+               k.sku_id       AS skuId,
+               u.user_name    AS pickedByName
+          FROM tb_outbound_pick p
+          JOIN tb_stock    s  ON s.stock_seq     = p.stock_seq
+          JOIN tb_location lo ON lo.location_seq = s.location_seq
+          JOIN tb_sku      k  ON k.sku_seq       = s.sku_seq
+          LEFT JOIN tb_user u ON u.user_id       = p.picked_by
+         WHERE p.outbound_seq = #{outboundSeq}
+         ORDER BY p.picked_at, p.pick_seq
+    </select>
+
+    <!-- 되돌림(음수)까지 합산한 값. 그래서 되돌린 칸은 다시 집을 것이 된다 -->
+    <select id="sumPicked" resultType="int">
+        SELECT COALESCE(SUM(p.picked_qty), 0)
+          FROM tb_outbound_pick p
+         WHERE p.line_seq  = #{lineSeq}
+           AND p.stock_seq = #{stockSeq}
+    </select>
+
+    <!--
+      집은 수량을 줄에 더한다.
+
+      읽어서 더하지 않고 SQL 이 더한다 — 두 사람이 같은 줄을 동시에 집으면
+      둘 다 같은 값을 읽고 각자 써서 하나가 사라진다.
+
+      지시수량을 넘지 않을 때만 더한다. DB 의 ck_outbl_total 도 막지만,
+      제약이 터지면 '저장할 수 없는 값입니다' 만 뜨고 왜인지 알 수 없다.
+      여기서 0 행이 되면 서비스가 사람이 읽을 문장으로 바꾼다.
+    -->
+    <update id="addPickedQty">
+        UPDATE tb_outbound_line
+           SET picked_qty = picked_qty + #{qty}
+         WHERE line_seq = #{lineSeq}
+           AND picked_qty + #{qty} &gt;= 0
+           AND picked_qty + #{qty} + shortage_qty &lt;= instructed_qty
+    </update>
+
+    <update id="addShortageQty">
+        UPDATE tb_outbound_line
+           SET shortage_qty    = shortage_qty + #{qty},
+               shortage_reason = #{reason}
+         WHERE line_seq = #{lineSeq}
+           AND picked_qty + shortage_qty + #{qty} &lt;= instructed_qty
+    </update>
+
+    <!-- 아직 집을 것이 남은 줄 수. 0 이면 이 지시는 피킹이 끝났다 -->
+    <select id="countUnfinishedLines" resultType="int">
+        SELECT COUNT(*)
+          FROM tb_outbound_line ol
+         WHERE ol.outbound_seq = #{outboundSeq}
+           AND ol.remain_qty &gt; 0
+    </select>
+
+    <!--
+      피킹 결품 (OUT-PG-005).
+
+      집으러 갔는데 없던 줄. 전산엔 있는데 실물이 없었다는 기록이라, 이
+      목록은 사실상 재고 오차 목록이다 — 같은 SKU 가 반복해서 뜨면 그
+      자리를 실사해야 한다.
+
+      취소된 지시는 뺀다. 거둬들인 지시의 결품은 이미 없던 일이다.
+
+      찾았어야 할 빈을 함께 준다. '어디를 실사할까' 에 답해야 쓸모가 있다.
+    -->
+    <sql id="shortageFrom">
+        FROM tb_outbound_line ol
+        JOIN tb_outbound   o  ON o.outbound_seq  = ol.outbound_seq
+        JOIN tb_plant      pl ON pl.plant_seq    = o.plant_seq
+        JOIN tb_sku        k  ON k.sku_seq       = ol.sku_seq
+        JOIN tb_product    pr ON pr.product_seq  = k.product_seq
+        JOIN tb_order_line l  ON l.line_seq      = ol.order_line_seq
+        JOIN tb_order      so ON so.order_seq    = l.order_seq
+        LEFT JOIN tb_user  au ON au.user_id      = o.assigned_to
+    </sql>
+
+    <sql id="shortageWhere">
+        <where>
+            AND ol.shortage_qty > 0
+            AND o.outbound_status &lt;&gt; 'CANCELED'
+
+            <if test="keyword != null">
+                AND (o.outbound_no    ILIKE '%' || #{keyword} || '%'
+                  OR so.order_no      ILIKE '%' || #{keyword} || '%'
+                  OR k.sku_id         ILIKE '%' || #{keyword} || '%'
+                  OR pr.product_name  ILIKE '%' || #{keyword} || '%')
+            </if>
+            <if test="plantId != null">
+                AND pl.plant_id = #{plantId}
+            </if>
+            <!--
+              사유는 '코드 — 설명' 으로 붙여 저장한다. 앞자리로 맞춘다 —
+              코드만으로 거를 수 있어야 '빈에 없음' 이 몇 건인지 센다.
+            -->
+            <if test="reasonCode != null">
+                AND ol.shortage_reason LIKE #{reasonCode} || '%'
+            </if>
+            <if test="fromDate != null">
+                AND o.instructed_at &gt;= #{fromDate}
+            </if>
+            <if test="toDate != null">
+                AND o.instructed_at &lt; (#{toDate}::date + 1)
+            </if>
+
+            <if test="!scope.unrestricted">
+                <choose>
+                    <when test="scope.hasNoOrg">
+                        AND o.instructed_by = #{scope.ownerId}
+                    </when>
+                    <otherwise>
+                        AND ( pl.org_seq IN
+                              <foreach collection="scope.orgSeqs" item="org" open="(" separator="," close=")">
+                                  #{org}
+                              </foreach>
+                              OR o.instructed_by = #{scope.ownerId} )
+                    </otherwise>
+                </choose>
+            </if>
+        </where>
+    </sql>
+
+    <select id="selectShortageLines"
+            resultType="com.fulfillment.outbound.dto.PickShortageLineResponse">
+        SELECT o.outbound_seq     AS outboundSeq,
+               o.outbound_no      AS outboundNo,
+               o.outbound_status  AS outboundStatus,
+               ol.line_seq        AS lineSeq,
+               ol.line_no         AS lineNo,
+               so.order_no        AS orderNo,
+               so.receiver_name   AS receiverName,
+               pl.plant_id        AS plantId,
+               pl.plant_name      AS plantName,
+               k.sku_id           AS skuId,
+               k.color_code       AS colorCode,
+               k.size_code        AS sizeCode,
+               pr.product_name    AS productName,
+               ol.instructed_qty  AS instructedQty,
+               ol.picked_qty      AS pickedQty,
+               ol.shortage_qty    AS shortageQty,
+               ol.shortage_reason AS shortageReason,
+               (SELECT CASE WHEN COUNT(DISTINCT lo.location_seq) > 1
+                            THEN MIN(lo.location_id) || ' 외 '
+                                 || (COUNT(DISTINCT lo.location_seq) - 1) || '곳'
+                            ELSE MIN(lo.location_id) END
+                  FROM tb_stock_alloc a
+                  JOIN tb_stock    s  ON s.stock_seq     = a.stock_seq
+                  JOIN tb_location lo ON lo.location_seq = s.location_seq
+                 WHERE a.order_line_seq = ol.order_line_seq) AS locationHint,
+               au.user_name       AS assignedToName,
+               o.instructed_at    AS instructedAt
+        <include refid="shortageFrom"/>
+        <include refid="shortageWhere"/>
+         <!-- 최근 것부터. 방금 난 결품이 먼저 눈에 들어와야 한다 -->
+         ORDER BY o.instructed_at DESC, ol.line_no
+        <if test="size > 0">
+            LIMIT #{size} OFFSET #{offset}
+        </if>
+    </select>
+
+    <select id="countShortageLines" resultType="long">
+        SELECT COUNT(*)
+        <include refid="shortageFrom"/>
+        <include refid="shortageWhere"/>
+    </select>
+
 </mapper>

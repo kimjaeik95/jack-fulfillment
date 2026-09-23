@@ -9,6 +9,14 @@ import com.fulfillment.outbound.dto.OutboundResponse;
 import com.fulfillment.outbound.dto.OutboundSearch;
 import com.fulfillment.outbound.dto.OutboundTargetResponse;
 import com.fulfillment.outbound.dto.OutboundTargetSearch;
+import com.fulfillment.outbound.dto.AssignRequest;
+import com.fulfillment.outbound.dto.PickRequest;
+import com.fulfillment.outbound.dto.PickShortageRequest;
+import com.fulfillment.outbound.dto.PickTaskResponse;
+import com.fulfillment.outbound.dto.PickShortageLineResponse;
+import com.fulfillment.outbound.dto.PickShortageSearch;
+import com.fulfillment.domain.OutboundPick;
+import com.fulfillment.domain.OutboundLine;
 import com.fulfillment.outbound.service.OutboundService;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -53,6 +61,17 @@ public class OutboundController {
 		return ApiResponse.ok(outboundService.targets(CurrentUser.require(), search));
 	}
 
+	/**
+	 * 이 주문이 무엇을 어디서 내보내나.
+	 *
+	 * 목록에는 요약만 싣고, 펼칠 때 이것을 부른다 — 지시를 만들 때 담을
+	 * 줄과 같은 것이라 미리 보는 것과 실제가 어긋나지 않는다.
+	 */
+	@GetMapping("/targets/{orderSeq}/lines")
+	public ApiResponse<List<OutboundLine>> targetLines(@PathVariable Long orderSeq) {
+		return ApiResponse.ok(outboundService.targetLines(CurrentUser.require(), orderSeq));
+	}
+
 	@GetMapping
 	public ApiResponse<PageResponse<OutboundResponse>> list(
 			@ModelAttribute OutboundSearch search) {
@@ -81,6 +100,64 @@ public class OutboundController {
 	public ApiResponse<OutboundResponse> cancel(@PathVariable Long outboundSeq,
 			@Valid @RequestBody OutboundCancelRequest request) {
 		return ApiResponse.ok(outboundService.cancel(CurrentUser.require(), outboundSeq, request));
+	}
+
+	/* ── 피킹 (OUT-PG-003 ~ OUT-PG-005) ────────────────────── */
+
+	/**
+	 * 작업자 배정.
+	 *
+	 * 여러 장을 한 사람에게 한 번에 맡긴다 — 아침에 오늘 칠 것을 나눠 주는
+	 * 것이 정상 동선이라, 한 장씩 누르게 하면 30 장을 30 번 눌러야 한다.
+	 * userId 를 비우면 배정을 푼다.
+	 */
+	@PostMapping("/assign")
+	public ApiResponse<CreateResult> assign(@Valid @RequestBody AssignRequest request) {
+		OutboundService.Result r = outboundService.assign(CurrentUser.require(), request);
+		return ApiResponse.ok(new CreateResult(r.made(), r.failed()));
+	}
+
+	/**
+	 * 집을 것 — 지시 줄 x 빈.
+	 *
+	 * 한 줄이 여러 빈에서 나뉘어 잡히므로 'SKU 5 개' 로는 작업자가 어디로
+	 * 갈지 모른다. 바코드를 함께 주어 화면이 스캔 문자열을 맞춰 본다.
+	 */
+	@GetMapping("/{outboundSeq}/pick-tasks")
+	public ApiResponse<List<PickTaskResponse>> pickTasks(@PathVariable Long outboundSeq) {
+		return ApiResponse.ok(outboundService.pickTasks(CurrentUser.require(), outboundSeq));
+	}
+
+	/** 집었다. 되돌릴 때는 수량이 음수다 */
+	@PostMapping("/{outboundSeq}/picks")
+	public ApiResponse<OutboundResponse> pick(@PathVariable Long outboundSeq,
+			@Valid @RequestBody PickRequest request) {
+		return ApiResponse.ok(outboundService.pick(CurrentUser.require(), outboundSeq, request));
+	}
+
+	/** 집으러 갔는데 없다. 사유가 필수다 */
+	@PostMapping("/{outboundSeq}/shortages")
+	public ApiResponse<OutboundResponse> shortage(@PathVariable Long outboundSeq,
+			@Valid @RequestBody PickShortageRequest request) {
+		return ApiResponse.ok(outboundService.shortage(CurrentUser.require(), outboundSeq, request));
+	}
+
+	/**
+	 * 피킹 결품 목록.
+	 *
+	 * '/{outboundSeq}' 보다 위에 둔다 — 아래에 두면 'shortages' 가 지시
+	 * 순번으로 해석되어 숫자가 아니라는 오류부터 난다.
+	 */
+	@GetMapping("/shortages")
+	public ApiResponse<PageResponse<PickShortageLineResponse>> shortages(
+			@ModelAttribute PickShortageSearch search) {
+		return ApiResponse.ok(outboundService.shortages(CurrentUser.require(), search));
+	}
+
+	/** 피킹 실적 — 누가 언제 어느 빈에서 몇 개 */
+	@GetMapping("/{outboundSeq}/picks")
+	public ApiResponse<List<OutboundPick>> picks(@PathVariable Long outboundSeq) {
+		return ApiResponse.ok(outboundService.picks(CurrentUser.require(), outboundSeq));
 	}
 
 	/**

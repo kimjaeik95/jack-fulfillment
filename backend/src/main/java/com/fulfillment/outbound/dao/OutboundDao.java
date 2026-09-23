@@ -2,9 +2,13 @@ package com.fulfillment.outbound.dao;
 
 import com.fulfillment.domain.Outbound;
 import com.fulfillment.domain.OutboundLine;
+import com.fulfillment.domain.OutboundPick;
 import com.fulfillment.outbound.dto.OutboundSearch;
 import com.fulfillment.outbound.dto.OutboundTargetResponse;
 import com.fulfillment.outbound.dto.OutboundTargetSearch;
+import com.fulfillment.outbound.dto.PickTaskResponse;
+import com.fulfillment.outbound.dto.PickShortageLineResponse;
+import com.fulfillment.outbound.dto.PickShortageSearch;
 import org.apache.ibatis.annotations.Param;
 
 import java.util.List;
@@ -72,4 +76,53 @@ public interface OutboundDao {
 			@Param("toStatus") String toStatus,
 			@Param("actor") String actor,
 			@Param("cancelReason") String cancelReason);
+
+	/* ── 피킹 (OUT-PG-003 ~ 005) ────────────────────────────── */
+
+	/** 작업자 배정. userId 가 null 이면 배정을 푼다 */
+	int updateAssignee(@Param("outboundSeq") Long outboundSeq,
+			@Param("userId") String userId,
+			@Param("actor") String actor);
+
+	/**
+	 * 집을 것 — 지시 줄 x 빈.
+	 *
+	 * 한 줄이 여러 빈에서 나뉘어 잡히므로 'SKU 5 개' 로는 부족하다. 어느
+	 * 자리로 가서 몇 개를 집을지가 한 칸이 되어야 작업자가 움직인다.
+	 */
+	List<PickTaskResponse> selectPickTasks(@Param("outboundSeq") Long outboundSeq);
+
+	OutboundLine selectLine(@Param("lineSeq") Long lineSeq);
+
+	void insertPick(OutboundPick pick);
+
+	List<OutboundPick> selectPicks(@Param("outboundSeq") Long outboundSeq);
+
+	/** 이 줄의 이 빈에서 이미 집은 수량 (음수 되돌림을 합산한 값) */
+	int sumPicked(@Param("lineSeq") Long lineSeq, @Param("stockSeq") Long stockSeq);
+
+	/**
+	 * 집은 수량을 줄에 더한다.
+	 *
+	 * 읽어서 더하지 않고 SQL 이 더한다. 두 사람이 같은 줄을 동시에 집으면
+	 * 둘 다 같은 값을 읽고 각자 써서 하나가 사라진다.
+	 */
+	int addPickedQty(@Param("lineSeq") Long lineSeq, @Param("qty") int qty);
+
+	/** 결품 수량과 사유를 줄에 적는다 */
+	int addShortageQty(@Param("lineSeq") Long lineSeq, @Param("qty") int qty,
+			@Param("reason") String reason);
+
+	/** 이 지시가 다 끝났나 — 남은 수량이 0 인가 */
+	int countUnfinishedLines(@Param("outboundSeq") Long outboundSeq);
+
+	/**
+	 * 집으러 갔는데 없던 줄 (OUT-PG-005).
+	 *
+	 * 사실상 재고 오차 목록이다 — 전산엔 있는데 실물이 없었다는 기록이라,
+	 * 같은 SKU 가 반복해서 뜨면 그 자리를 실사해야 한다.
+	 */
+	List<PickShortageLineResponse> selectShortageLines(PickShortageSearch search);
+
+	long countShortageLines(PickShortageSearch search);
 }

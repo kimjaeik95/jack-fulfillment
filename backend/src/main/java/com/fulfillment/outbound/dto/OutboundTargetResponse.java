@@ -26,6 +26,23 @@ public record OutboundTargetResponse(
 
 		String receiverName,
 		String address,
+		/**
+		 * 배송요청.
+		 *
+		 * '부재 시 문 앞' · '포장 꼼꼼히' 같은 것이 들어온다. 패킹 전에
+		 * 알아야 하는 정보라, 지시를 만들 때 눈에 띄어야 한다.
+		 */
+		String deliveryMemo,
+
+		/**
+		 * 무엇이 나가나 — 'PRD-24001-BK-M 외 1건'.
+		 *
+		 * 주문번호만 보고는 무엇을 내보내는지 알 수 없다. 펼치면 줄 전체를
+		 * 볼 수 있지만, 목록에서 한 번에 훑을 수 있어야 고르는 일이 빨라진다.
+		 */
+		String skuSummary,
+		/** 어디서 집나 — '1A-01-01 외 1곳'. 같은 구역 것을 몰아 뽑을 때 쓴다 */
+		String locationSummary,
 
 		/** 나갈 센터 — 할당이 고른 빈이 정한다 */
 		String plantId,

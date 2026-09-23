@@ -133,6 +133,46 @@ function pickAll() {
 
 const pickedQty = computed(() => picked.value.reduce((s, r) => s + (r.allocatedQty ?? 0), 0))
 
+/* ── 펼쳐서 줄 보기 ─────────────────────────────────────────── */
+
+/**
+ * 주문번호만 보고는 무엇을 내보내는지 알 수 없다.
+ *
+ * 목록에는 요약만 싣는다 — 줄이 다섯인 주문까지 다 적으면 목록이 그것만으로
+ * 채워진다. 확인하고 싶을 때 펼치면 줄 전체를 가져온다.
+ *
+ * 한 번 가져온 것은 들고 있는다. 고르는 동안 같은 주문을 여러 번 펼쳤다
+ * 접었다 하는데, 그때마다 서버에 물으면 고르는 흐름이 끊긴다.
+ */
+const expanded = ref(new Set())
+const lineCache = ref({})
+const lineLoading = ref(null)
+
+async function toggleExpand(row) {
+  const seq = row.orderSeq
+  const next = new Set(expanded.value)
+  if (next.has(seq)) {
+    next.delete(seq)
+    expanded.value = next
+    return
+  }
+  next.add(seq)
+  expanded.value = next
+  if (lineCache.value[seq]) return
+
+  lineLoading.value = seq
+  try {
+    lineCache.value = { ...lineCache.value, [seq]: await outboundApi.targetLines(seq) }
+  } catch (e) {
+    toast.error(e.message)
+    const back = new Set(expanded.value)
+    back.delete(seq)
+    expanded.value = back
+  } finally {
+    lineLoading.value = null
+  }
+}
+
 /* ── 지시 만들기 ────────────────────────────────────────────── */
 
 const confirming = ref(false)
@@ -164,14 +204,17 @@ const num = (v) => (v === null || v === undefined ? '-' : nf.format(v))
 const dt = (v) => (v ? String(v).replace('T', ' ').slice(0, 16) : '-')
 
 const columns = [
-  { key: 'orderNo', label: '주문번호', width: '170px' },
-  { key: 'channelName', label: '채널', width: '100px' },
-  { key: 'receiverName', label: '수령인', width: '90px' },
-  { key: 'address', label: '주소', width: '220px' },
-  { key: 'plantName', label: '센터', width: '110px' },
-  { key: 'lineCount', label: '줄', width: '50px', align: 'right' },
-  { key: 'allocatedQty', label: '지시수량', width: '88px', align: 'right' },
-  { key: 'orderedAt', label: '주문일시', width: '140px' },
+  { key: 'orderNo', label: '주문번호', width: '165px' },
+  { key: 'channelName', label: '채널', width: '92px' },
+  { key: 'receiverName', label: '수령인', width: '150px' },
+  // 주문번호만 보고는 무엇이 나가는지 알 수 없다. 요약을 목록에 싣고,
+  // 확인하려면 펼친다.
+  { key: 'skuSummary', label: '무엇을', width: '210px' },
+  { key: 'locationSummary', label: '어디서', width: '130px', cls: 'code' },
+  { key: 'plantName', label: '센터', width: '104px' },
+  { key: 'lineCount', label: '줄', width: '46px', align: 'right' },
+  { key: 'allocatedQty', label: '지시수량', width: '84px', align: 'right' },
+  { key: 'orderedAt', label: '주문일시', width: '130px' },
 ]
 </script>
 
@@ -314,15 +357,49 @@ const columns = [
         <div v-if="row.extOrderNo" class="small dim">{{ row.extOrderNo }}</div>
       </template>
 
-      <template #cell-address="{ row, value }">
-        <span class="small">{{ value }}</span>
+      <template #cell-receiverName="{ row, value }">
+        {{ value }}
+        <!-- 주소는 줄여서 붙인다. 전체를 펼칠 자리는 아니고, 같은 사람
+             주문이 여럿인지만 보이면 된다 -->
+        <div class="small dim ellip" :title="row.address">{{ row.address }}</div>
         <!--
           센터가 갈린 주문. 고르기 전에 알려 줘야 '왜 안 만들어지지' 를
           안 묻는다.
         -->
         <div v-if="row.multiPlant" class="small danger">
-          잡아 둔 재고가 센터 두 곳에 나뉘어 있습니다 — 한쪽 할당을 풀고 다시 잡으세요
+          재고가 센터 두 곳에 나뉘어 있습니다 — 한쪽 할당을 풀고 다시 잡으세요
         </div>
+      </template>
+
+      <template #cell-skuSummary="{ row, value }">
+        <span class="code small">{{ value ?? '-' }}</span>
+        <button class="link-btn small" @click.stop="toggleExpand(row)">
+          {{ expanded.has(row.orderSeq) ? '접기 ▴' : '펼치기 ▾' }}
+        </button>
+        <div v-if="lineLoading === row.orderSeq" class="small dim">불러오는 중…</div>
+        <!-- 지시를 만들 때 담을 줄과 같은 것. 미리 보는 것과 실제가 어긋나면
+             미리 보는 의미가 없다 -->
+        <table v-else-if="expanded.has(row.orderSeq)" class="sub">
+          <tr v-for="l in lineCache[row.orderSeq] ?? []" :key="l.orderLineSeq">
+            <td class="code">{{ l.locationHint }}</td>
+            <td class="code">{{ l.skuId }}</td>
+            <td>{{ l.colorCode }}/{{ l.sizeCode }}</td>
+            <td class="sub-name">{{ l.productName }}</td>
+            <td class="right"><strong>{{ num(l.instructedQty) }}</strong></td>
+          </tr>
+          <!--
+            배송요청은 여기까지만 보인다.
+
+            택배사에 넘기는 값이라 진짜 쓰이는 곳은 송장 발급(D섹터)이고,
+            포장 방식이 달라지는 것은 패킹(C섹터)이다. 목록에 늘 띄우면
+            '센터 두 곳에 나뉘어 있습니다' 같은 정작 봐야 할 경고가 묻힌다.
+            다만 '○일 이후 배송' 처럼 지시 시점을 바꾸는 메모가 가끔 있어서
+            볼 길은 남긴다.
+          -->
+          <tr v-if="row.deliveryMemo">
+            <td colspan="5" class="memo">📌 {{ row.deliveryMemo }}</td>
+          </tr>
+        </table>
       </template>
 
       <template #cell-lineCount="{ row, value }">
@@ -390,6 +467,40 @@ const columns = [
   margin-right: 6px;
   color: var(--text-3);
   cursor: pointer;
+}
+/* 주소는 한 줄로 줄인다 — 전체는 title 로 본다 */
+.ellip {
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.memo {
+  color: var(--c-amber, #b45309);
+}
+/* 펼치기 — 줄을 누르면 선택이 토글되므로 버튼은 stop 이 필요하다 */
+.link-btn {
+  margin-left: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--c-blue, #2563eb);
+  cursor: pointer;
+}
+.sub {
+  margin-top: 4px;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.sub td {
+  padding: 1px 8px 1px 0;
+  white-space: nowrap;
+}
+.sub-name {
+  color: var(--text-2, #6b7280);
+}
+.right {
+  text-align: right;
 }
 .picked-bar {
   display: flex;

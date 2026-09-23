@@ -54,6 +54,11 @@ public class Outbound {
 	/** 언제까지 내보내야 하나 */
 	private LocalDate shipDueDate;
 
+	/** 피킹 담당 (OUT-PG-003). 비면 아직 아무도 안 맡았다 */
+	private String assignedTo;
+	private LocalDateTime assignedAt;
+	private String assignedBy;
+
 	private String instructedBy;
 	private LocalDateTime instructedAt;
 	private String shippedBy;
@@ -77,6 +82,7 @@ public class Outbound {
 	/** 데이터 범위 판정용 — 센터가 속한 운영 조직 */
 	private Long orgSeq;
 	private String instructedByName;
+	private String assignedToName;
 
 	/**
 	 * 이 지시가 내보내는 주문.
@@ -95,6 +101,8 @@ public class Outbound {
 	private Integer lineCount;
 	private Integer totalInstructedQty;
 	private Integer totalPickedQty;
+	/** 집으러 갔는데 없던 수량 합 */
+	private Integer totalShortageQty;
 
 	/** 라인. 단건 조회에서만 채운다. */
 	@Builder.Default
@@ -143,9 +151,19 @@ public class Outbound {
 		return "Y".equals(singlePack);
 	}
 
-	/** 남은 수량 — 지시 합 − 집은 합 */
+	/** 남은 수량 — 지시 합 − 집은 합 − 결품 합 */
 	public int remainQty() {
-		return nz(totalInstructedQty) - nz(totalPickedQty);
+		return nz(totalInstructedQty) - nz(totalPickedQty) - nz(totalShortageQty);
+	}
+
+	/** 누가 맡았나. 배정만 해 두고 아직 안 집는 것이 정상이다 */
+	public boolean isAssigned() {
+		return assignedTo != null && !assignedTo.isBlank();
+	}
+
+	/** 집을 것이 남았나 — 피킹 화면이 보여 줄 대상 */
+	public boolean isPickable() {
+		return (isCreated() || PICKING.equals(outboundStatus)) && remainQty() > 0;
 	}
 
 	private static int nz(Integer v) {

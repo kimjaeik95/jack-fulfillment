@@ -12,6 +12,7 @@ import com.fulfillment.common.web.PageResponse;
 import com.fulfillment.domain.Order;
 import com.fulfillment.domain.Outbound;
 import com.fulfillment.domain.OutboundLine;
+import com.fulfillment.domain.OutboundPick;
 import com.fulfillment.order.dao.SalesOrderDao;
 import com.fulfillment.outbound.dao.OutboundDao;
 import com.fulfillment.outbound.dto.OutboundCancelRequest;
@@ -20,6 +21,13 @@ import com.fulfillment.outbound.dto.OutboundResponse;
 import com.fulfillment.outbound.dto.OutboundSearch;
 import com.fulfillment.outbound.dto.OutboundTargetResponse;
 import com.fulfillment.outbound.dto.OutboundTargetSearch;
+import com.fulfillment.outbound.dto.AssignRequest;
+import com.fulfillment.outbound.dto.PickRequest;
+import com.fulfillment.outbound.dto.PickShortageRequest;
+import com.fulfillment.outbound.dto.PickTaskResponse;
+import com.fulfillment.outbound.dto.PickShortageLineResponse;
+import com.fulfillment.outbound.dto.PickShortageSearch;
+import com.fulfillment.system.user.dao.UserDao;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -49,10 +57,16 @@ public class OutboundService {
 	/** 지시 생성 · 취소 */
 	private static final String PERM = "OUT_ORDER";
 	private static final String REASON_OUT_CANCEL = "REASON_OUT_CANCEL";
+	/** 작업 배정 · 피킹 · 결품. V4 가 0차에 미리 깔아 둔 권한들이다 */
+	private static final String PERM_ASSIGN = "OUT_ASSIGN";
+	private static final String PERM_PICK = "OUT_PICK";
+	private static final String PERM_SHORTAGE = "OUT_SHORTAGE";
+	private static final String REASON_PICK_SHORT = "REASON_PICK_SHORT";
 	private static final String TABLE = "tb_outbound";
 
 	private final OutboundDao outboundDao;
 	private final SalesOrderDao orderDao;
+	private final UserDao userDao;
 	private final CodeValues codeValues;
 	private final DocNumbers docNumbers;
 	private final PermissionChecker permissionChecker;
@@ -60,11 +74,12 @@ public class OutboundService {
 	private final AuditRecorder auditRecorder;
 
 	public OutboundService(OutboundDao outboundDao, SalesOrderDao orderDao,
-			CodeValues codeValues, DocNumbers docNumbers,
+			UserDao userDao, CodeValues codeValues, DocNumbers docNumbers,
 			PermissionChecker permissionChecker, DataScopeResolver dataScopes,
 			AuditRecorder auditRecorder) {
 		this.outboundDao = outboundDao;
 		this.orderDao = orderDao;
+		this.userDao = userDao;
 		this.codeValues = codeValues;
 		this.docNumbers = docNumbers;
 		this.permissionChecker = permissionChecker;
@@ -92,6 +107,22 @@ public class OutboundService {
 		List<OutboundTargetResponse> rows = outboundDao.selectTargets(search);
 		long total = search.getSize() <= 0 ? rows.size() : outboundDao.countTargets(search);
 		return PageResponse.of(rows, total, search.getPage(), search.getSize());
+	}
+
+	/**
+	 * 이 주문이 무엇을 어디서 내보내나 (OUT-PG-001).
+	 *
+	 * 목록에는 요약만 싣는다 — 줄이 다섯인 주문까지 다 적으면 목록이 그것만
+	 * 으로 채워진다. 그런데 요약만으로는 '이거 맞나' 를 확인할 수 없어서,
+	 * 펼치면 줄 전체를 준다.
+	 *
+	 * 지시를 만들 때 담을 줄과 <b>같은 것</b>을 준다. 미리 보는 것과 실제로
+	 * 만들어지는 것이 다르면 미리 보는 의미가 없다.
+	 */
+	@Transactional(readOnly = true)
+	public List<OutboundLine> targetLines(LoginUser actor, Long orderSeq) {
+		permissionChecker.require(actor, PERM_TARGET, "R");
+		return outboundDao.selectLinesToInstruct(orderSeq);
 	}
 
 	/* ------------------------------------------------------------------ */
@@ -273,6 +304,275 @@ public class OutboundService {
 		auditRecorder.recordAction(actor, "CANCEL", TABLE, after.getOutboundNo(),
 				"출고지시 취소 — " + reason);
 		return OutboundResponse.of(after, outboundDao.selectLines(outboundSeq));
+	}
+
+	/* ------------------------------------------------------------------ */
+	/* 피킹 (OUT-PG-003 ~ OUT-PG-005)                                      */
+	/* ------------------------------------------------------------------ */
+
+	/**
+	 * 작업자 배정 (OUT-PG-003).
+	 *
+	 * 지시 단위로 맡긴다. 지시 하나가 주문 하나라 한 사람이 끝까지 도는
+	 * 것이 자연스럽고, 중간에 사람이 바뀌면 무엇을 집었는지 이어받을 근거가
+	 * 없다.
+	 *
+	 * 상태는 안 바꾼다. 배정은 '누가 할 일인가' 이고 상태는 '어디까지
+	 * 갔나' 라서, 맡겨 두고 아직 아무도 안 집는 것이 정상이다 — 그래야
+	 * 배정만 된 지시를 아직 취소할 수 있다.
+	 *
+	 * userId 가 비면 배정을 푼다. 맡은 사람이 자리를 비우면 다시 나눠 줘야
+	 * 하는데, 그때 지시를 취소하고 새로 만들게 할 수는 없다.
+	 */
+	@Transactional
+	public Result assign(LoginUser actor, AssignRequest request) {
+		permissionChecker.require(actor, PERM_ASSIGN, "U");
+
+		String userId = request.userId();
+		if (userId != null && userDao.selectByUserId(userId) == null) {
+			throw new BusinessException(ErrorCode.NOT_FOUND,
+					"사용자를 찾을 수 없습니다. (%s)".formatted(userId));
+		}
+
+		List<OutboundResponse> done = new ArrayList<>();
+		List<String> failed = new ArrayList<>();
+
+		for (Long seq : request.outboundSeqs()) {
+			Outbound outbound = outboundDao.selectBySeq(seq);
+			if (outbound == null) {
+				failed.add("지시를 찾을 수 없습니다. (순번 %d)".formatted(seq));
+				continue;
+			}
+			// 끝난 지시는 맡길 것이 없다. 질의도 막지만 이유를 여기서 말한다.
+			if (!outbound.isOpen()) {
+				failed.add("%s 은(는) 이미 끝났습니다. (%s)".formatted(
+						outbound.getOutboundNo(), statusLabel(outbound.getOutboundStatus())));
+				continue;
+			}
+			outboundDao.updateAssignee(seq, userId, actorId(actor));
+			done.add(OutboundResponse.of(mustFind(seq)));
+		}
+
+		if (done.isEmpty()) {
+			throw new BusinessException(ErrorCode.INVALID_INPUT,
+					"하나도 처리하지 못했습니다. — " + String.join(" / ", failed));
+		}
+		auditRecorder.recordAction(actor, "UPDATE", TABLE,
+				done.get(0).outboundNo(),
+				userId == null
+						? "피킹 배정 해제 %d 장".formatted(done.size())
+						: "피킹 배정 %d 장 → %s".formatted(done.size(), userId));
+		return new Result(done, failed);
+	}
+
+	/**
+	 * 집을 것 (OUT-PG-004).
+	 *
+	 * 지시 줄 x 빈 단위로 준다. 한 줄이 여러 빈에서 나뉘어 잡히므로
+	 * 'SKU 5 개' 로는 작업자가 어디로 갈지 모른다.
+	 */
+	@Transactional(readOnly = true)
+	public List<PickTaskResponse> pickTasks(LoginUser actor, Long outboundSeq) {
+		permissionChecker.require(actor, PERM_PICK, "R");
+		mustFind(outboundSeq);
+		return outboundDao.selectPickTasks(outboundSeq);
+	}
+
+	/**
+	 * 집었다 (OUT-PG-004).
+	 *
+	 * <b>재고 수량은 여기서 안 바뀐다.</b> 물건을 빈에서 꺼내 카트에 옮겼을
+	 * 뿐 아직 창고 안에 있고, 주문이 취소되면 도로 놓는다. 보유수량이
+	 * 줄어드는 것은 출고확정(E섹터)뿐이다 (P-01).
+	 *
+	 * 그래서 남기는 것은 둘이다 — 줄의 집은 수량, 그리고 '어느 빈에서 몇
+	 * 개' 라는 실적. 두 번째가 없으면 출고확정이 어느 빈의 재고를 줄여야
+	 * 할지 모른다.
+	 *
+	 * 되돌릴 때는 수량이 음수다. 실적을 지우지 않고 음수를 한 줄 더 넣어,
+	 * '집었다가 되돌렸다' 가 남는다.
+	 */
+	@Transactional
+	public OutboundResponse pick(LoginUser actor, Long outboundSeq, PickRequest request) {
+		permissionChecker.require(actor, PERM_PICK, "C");
+
+		Outbound outbound = mustFind(outboundSeq);
+		requirePickable(outbound);
+
+		OutboundLine line = outboundDao.selectLine(request.lineSeq());
+		if (line == null || !outboundSeq.equals(line.getOutboundSeq())) {
+			throw new BusinessException(ErrorCode.NOT_FOUND,
+					"이 지시의 줄이 아닙니다. (순번 %s)".formatted(request.lineSeq()));
+		}
+
+		int qty = request.qty();
+		if (qty == 0) {
+			throw new BusinessException(ErrorCode.INVALID_INPUT,
+					"수량이 0 입니다. 집은 것도 되돌린 것도 아닙니다.");
+		}
+
+		/*
+		 * 되돌릴 때는 그 빈에서 집은 것보다 많이 되돌릴 수 없다.
+		 *
+		 * 다른 빈에서 집은 것까지 합쳐 판정하면, A 빈에서 3 개 집고 B 빈에서
+		 * 0 개인데 B 를 3 개 되돌리는 것이 통과한다. 그러면 실적 합은 맞는데
+		 * 빈별로는 틀려서, 출고확정이 B 빈 재고를 3 개 줄이려다 못 줄인다.
+		 */
+		if (qty < 0) {
+			int already = outboundDao.sumPicked(request.lineSeq(), request.stockSeq());
+			if (already + qty < 0) {
+				throw new BusinessException(ErrorCode.INVALID_INPUT,
+						("이 빈에서 집은 것은 %d 개뿐입니다. %d 개를 되돌릴 수 "
+								+ "없습니다.").formatted(already, -qty));
+			}
+		}
+
+		int changed = outboundDao.addPickedQty(request.lineSeq(), qty);
+		if (changed == 0) {
+			throw new BusinessException(ErrorCode.INVALID_INPUT,
+					("%s 는 지시 %d 개 중 이미 %d 개를 집고 %d 개를 결품 처리했습니다. "
+							+ "%d 개를 더 넣을 수 없습니다.")
+							.formatted(line.getSkuId(), nz(line.getInstructedQty()),
+									nz(line.getPickedQty()), nz(line.getShortageQty()), qty));
+		}
+
+		outboundDao.insertPick(OutboundPick.builder()
+				.outboundSeq(outboundSeq)
+				.lineSeq(request.lineSeq())
+				.stockSeq(request.stockSeq())
+				.allocSeq(request.allocSeq())
+				.pickedQty(qty)
+				.pickedBy(actorId(actor))
+				.remark(request.remark())
+				.build());
+
+		syncPickingStatus(actor, outbound);
+		return OutboundResponse.of(mustFind(outboundSeq), outboundDao.selectLines(outboundSeq));
+	}
+
+	/**
+	 * 집으러 갔는데 없다 (OUT-PG-005).
+	 *
+	 * 할당 결품과 다른 사건이다 — 저쪽은 전산에도 없는 것이고 이쪽은
+	 * <b>전산엔 있는데 실물이 없는</b> 것이다. 재고 오차 · 파손 · 분실.
+	 *
+	 * 지시수량은 줄이지 않는다. 지시 5 = 집음 3 + 결품 2 로 남겨 '몇 개를
+	 * 집으라고 했었나' 를 지우지 않는다 — 발주 미납종결과 같은 원칙이다.
+	 *
+	 * <b>할당은 여기서 안 푼다.</b> 실물이 없다는 것은 재고가 틀렸다는
+	 * 뜻이고, 할당만 풀면 판매가능이 늘어 다음 주문이 또 같은 자리를 잡는다.
+	 * 없는 물건을 또 집으러 가는 것이다 — 재고를 맞추는 것은 실사 · 조정이
+	 * 할 일이고, 그 전까지는 잡아 둔 채로 두는 편이 덜 위험하다.
+	 */
+	@Transactional
+	public OutboundResponse shortage(LoginUser actor, Long outboundSeq,
+			PickShortageRequest request) {
+		permissionChecker.require(actor, PERM_SHORTAGE, "C");
+
+		Outbound outbound = mustFind(outboundSeq);
+		requirePickable(outbound);
+		codeValues.require(REASON_PICK_SHORT, request.reasonCode(), "결품 사유");
+
+		OutboundLine line = outboundDao.selectLine(request.lineSeq());
+		if (line == null || !outboundSeq.equals(line.getOutboundSeq())) {
+			throw new BusinessException(ErrorCode.NOT_FOUND,
+					"이 지시의 줄이 아닙니다. (순번 %s)".formatted(request.lineSeq()));
+		}
+
+		String reason = request.remark() == null
+				? request.reasonCode()
+				: "%s — %s".formatted(request.reasonCode(), request.remark());
+
+		int changed = outboundDao.addShortageQty(request.lineSeq(), request.qty(), reason);
+		if (changed == 0) {
+			throw new BusinessException(ErrorCode.INVALID_INPUT,
+					("%s 는 지시 %d 개 중 이미 %d 개를 집고 %d 개를 결품 처리했습니다. "
+							+ "%d 개를 더 결품으로 둘 수 없습니다.")
+							.formatted(line.getSkuId(), nz(line.getInstructedQty()),
+									nz(line.getPickedQty()), nz(line.getShortageQty()),
+									request.qty()));
+		}
+
+		syncPickingStatus(actor, outbound);
+
+		Outbound after = mustFind(outboundSeq);
+		auditRecorder.recordAction(actor, "UPDATE", TABLE, after.getOutboundNo(),
+				"피킹 결품 %s %d 개 — %s".formatted(line.getSkuId(), request.qty(), reason));
+		return OutboundResponse.of(after, outboundDao.selectLines(outboundSeq));
+	}
+
+	/**
+	 * 피킹 결품 목록 (OUT-PG-005).
+	 *
+	 * 처리하는 화면이 아니라 보는 화면이다. 결품을 적는 것은 물건을 찾으러
+	 * 간 사람이 그 자리에서 하고(피킹 화면), 여기서는 모아 놓고 무엇이 자주
+	 * 비는지를 본다 — 전산엔 있는데 실물이 없었다는 기록이라 사실상 재고
+	 * 오차 목록이다.
+	 */
+	@Transactional(readOnly = true)
+	public PageResponse<PickShortageLineResponse> shortages(LoginUser actor, PickShortageSearch search) {
+		permissionChecker.require(actor, PERM_SHORTAGE, "R");
+		search.applyScope(dataScopes.forRead(actor, PERM_SHORTAGE));
+
+		List<PickShortageLineResponse> rows = outboundDao.selectShortageLines(search);
+		long total = search.getSize() <= 0 ? rows.size() : outboundDao.countShortageLines(search);
+		return PageResponse.of(rows, total, search.getPage(), search.getSize());
+	}
+
+	@Transactional(readOnly = true)
+	public List<OutboundPick> picks(LoginUser actor, Long outboundSeq) {
+		permissionChecker.require(actor, PERM_PICK, "R");
+		mustFind(outboundSeq);
+		return outboundDao.selectPicks(outboundSeq);
+	}
+
+	/* ------------------------------------------------------------------ */
+
+	/**
+	 * 피킹할 수 있는 지시인가.
+	 *
+	 * 나간 지시와 거둬들인 지시는 손댈 수 없다. 패킹까지 간 지시도 막는다 —
+	 * 박스에 담은 뒤에 집은 수량이 바뀌면 박스 안과 전산이 어긋난다.
+	 */
+	private void requirePickable(Outbound outbound) {
+		if (outbound.isCanceled() || outbound.isShipped()) {
+			throw new BusinessException(ErrorCode.IN_USE,
+					"%s 은(는) 이미 끝난 지시입니다. (%s)".formatted(
+							outbound.getOutboundNo(),
+							statusLabel(outbound.getOutboundStatus())));
+		}
+		if (Outbound.PACKING.equals(outbound.getOutboundStatus())
+				|| Outbound.PACKED.equals(outbound.getOutboundStatus())) {
+			throw new BusinessException(ErrorCode.IN_USE,
+					("%s 은(는) 이미 패킹 단계입니다. (%s) 박스에 담은 뒤에 집은 수량을 "
+							+ "바꾸면 박스 안과 전산이 어긋납니다.")
+							.formatted(outbound.getOutboundNo(),
+									statusLabel(outbound.getOutboundStatus())));
+		}
+	}
+
+	/**
+	 * 상태를 진척에 맞춘다.
+	 *
+	 * 지시 -> 피킹중 -> 피킹완료. 되돌림으로 다시 집을 것이 생기면 피킹완료에서
+	 * 피킹중으로 돌아온다 — 안 돌리면 '다 집었다' 고 표시된 채로 집을 것이
+	 * 남는다.
+	 *
+	 * 아무것도 안 집었는데 피킹중으로 두지 않는다. 취소할 수 있는 상태를
+	 * 지켜 주려는 것이다 (취소는 CREATED 만 된다).
+	 */
+	private void syncPickingStatus(LoginUser actor, Outbound outbound) {
+		Outbound now = mustFind(outbound.getOutboundSeq());
+		boolean anyDone = nz(now.getTotalPickedQty()) > 0 || nz(now.getTotalShortageQty()) > 0;
+		boolean allDone = outboundDao.countUnfinishedLines(outbound.getOutboundSeq()) == 0;
+
+		String want = !anyDone ? Outbound.CREATED
+				: (allDone ? Outbound.PICKED : Outbound.PICKING);
+		if (want.equals(now.getOutboundStatus())) {
+			return;
+		}
+		outboundDao.updateStatus(outbound.getOutboundSeq(), now.getOutboundStatus(),
+				want, actorId(actor), null);
 	}
 
 	/* ------------------------------------------------------------------ */

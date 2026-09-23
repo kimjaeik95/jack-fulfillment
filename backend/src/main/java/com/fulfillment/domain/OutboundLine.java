@@ -40,6 +40,11 @@ public class OutboundLine {
 	/** 남은 수량 — DB 가 뺀다 */
 	private Integer remainQty;
 
+	/** 집으러 갔는데 없던 수량 (OUT-PG-005) */
+	private Integer shortageQty;
+	/** 코드그룹 REASON_PICK_SHORT */
+	private String shortageReason;
+
 	private String remark;
 
 	/* ── 조인해서 채우는 값 ─────────────────────────────────── */
@@ -63,8 +68,9 @@ public class OutboundLine {
 	 */
 	private String locationHint;
 
+	/** 아직 집어야 할 수량 — 지시 − 집음 − 결품 */
 	public int qtyToPick() {
-		return nz(instructedQty) - nz(pickedQty);
+		return nz(instructedQty) - nz(pickedQty) - nz(shortageQty);
 	}
 
 	private static int nz(Integer v) {
