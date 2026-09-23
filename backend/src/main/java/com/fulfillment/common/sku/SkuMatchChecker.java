@@ -1,6 +1,7 @@
 package com.fulfillment.common.sku;
 
 import com.fulfillment.common.code.CodeGroups;
+import com.fulfillment.common.util.Particles;
 import com.fulfillment.domain.Code;
 import com.fulfillment.domain.Sku;
 import com.fulfillment.system.code.dao.CodeDao;
@@ -123,29 +124,9 @@ public class SkuMatchChecker {
 		}
 		if (!seen.isEmpty()) {
 			notes.add("%s%s 다릅니다. 채널은 %s 인데 고른 SKU 는 %s 입니다."
-					.formatted(label, subjectParticle(label), String.join(" · ", seen),
+					.formatted(label, Particles.subject(label), String.join(" · ", seen),
 							mine == null ? skuCode : mine));
 		}
-	}
-
-	/**
-	 * '이' 냐 '가' 냐 — 앞말에 받침이 있으면 '이' 다.
-	 *
-	 * 문구를 조립하면 피할 수 없는 일이다. '색상가 다릅니다' 가 화면에 뜨면
-	 * 읽는 사람은 그 경고를 덜 믿게 된다.
-	 *
-	 * 한글 음절은 (코드 - 가) % 28 이 0 이면 받침이 없다. 한글이 아닌 말로
-	 * 끝나면 '가' 로 둔다 — 영문 약어가 라벨에 오는 경우다.
-	 */
-	private String subjectParticle(String word) {
-		if (word == null || word.isBlank()) {
-			return "가";
-		}
-		char last = word.charAt(word.length() - 1);
-		if (last < 0xAC00 || last > 0xD7A3) {
-			return "가";
-		}
-		return (last - 0xAC00) % 28 == 0 ? "가" : "이";
 	}
 
 	/** 코드값 → 이름. 순서를 지켜 읽기 좋게 둔다. */
