@@ -207,3 +207,50 @@ export async function reopenBox(boxSeq) {
 export async function deleteBox(boxSeq) {
   await del(`/outbounds/boxes/${boxSeq}`)
 }
+
+/* ── 송장 (PAC-PG-003, PAC-PG-004) ──────────────────────────── */
+
+/**
+ * 송장 목록.
+ *
+ * 번호는 사람이 적는다. 택배사 연동이 전부 개발 취소라 우리가 번호를
+ * 만들 수 없다 — 만들면 라벨에 가짜 번호가 찍히고 배송조회에 아무것도
+ * 안 나온다.
+ */
+export async function waybills(params = {}) {
+  const { data } = await get(`/outbounds/waybills`, {
+    keyword: params.keyword,
+    plantId: params.plantId,
+    courierCode: params.courierCode,
+    waybillStatus: params.waybillStatus,
+    fromDate: params.fromDate,
+    toDate: params.toDate,
+    page: params.page,
+    size: params.size,
+  })
+  return data
+}
+
+/** 이 지시의 송장 전부 — 취소된 것까지. 재발행 이력이 보여야 한다 */
+export async function waybillsOf(outboundSeq) {
+  const { data } = await get(`/outbounds/${outboundSeq}/waybills`)
+  return data
+}
+
+/** 송장 발급. 닫힌 박스에만 붙는다 */
+export async function issueWaybill(boxSeq, body) {
+  const { data } = await post(`/outbounds/boxes/${boxSeq}/waybill`, body)
+  return data
+}
+
+/** 송장 취소. 사유가 필수다 */
+export async function cancelWaybill(waybillSeq, body) {
+  const { data } = await post(`/outbounds/waybills/${waybillSeq}/cancel`, body)
+  return data
+}
+
+/** 재발행 — 취소와 발급을 한 번에. 둘로 나누면 송장 없는 박스가 남는다 */
+export async function reissueWaybill(waybillSeq, body) {
+  const { data } = await post(`/outbounds/waybills/${waybillSeq}/reissue`, body)
+  return data
+}

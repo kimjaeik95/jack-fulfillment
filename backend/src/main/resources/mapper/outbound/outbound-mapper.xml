@@ -1074,4 +1074,208 @@
            AND b.box_status = 'OPEN'
     </select>
 
+    <!--
+      ════════════════════════════════════════════════════════════════
+      송장 (PAC-PG-003, PAC-PG-004)
+      ════════════════════════════════════════════════════════════════
+
+      박스 하나에 송장 하나. 밖으로 나가는 유일한 식별자다.
+
+      라벨에 찍을 것(수령인 · 주소 · 배송요청)을 함께 준다 — 택배사 양식은
+      택배사 프로그램이 내지만, 화면에서 '이 박스가 누구에게 가는가' 를
+      확인하지 못하면 붙일 때 헷갈린다.
+    -->
+    <resultMap id="waybillMap" type="com.fulfillment.domain.Waybill">
+        <id     property="waybillSeq"     column="waybill_seq"/>
+        <result property="boxSeq"         column="box_seq"/>
+        <result property="courierCode"    column="courier_code"/>
+        <result property="waybillNo"      column="waybill_no"/>
+        <result property="waybillStatus"  column="waybill_status"/>
+        <result property="reissuedFrom"   column="reissued_from"/>
+        <result property="issuedBy"       column="issued_by"/>
+        <result property="issuedAt"       column="issued_at"/>
+        <result property="canceledBy"     column="canceled_by"/>
+        <result property="canceledAt"     column="canceled_at"/>
+        <result property="cancelReason"   column="cancel_reason"/>
+        <result property="remark"         column="remark"/>
+        <result property="courierName"    column="courier_name"/>
+        <result property="issuedByName"   column="issued_by_name"/>
+        <result property="reissuedFromNo" column="reissued_from_no"/>
+        <result property="boxNo"          column="box_no"/>
+        <result property="outboundSeq"    column="outbound_seq"/>
+        <result property="outboundNo"     column="outbound_no"/>
+        <result property="orderNo"        column="order_no"/>
+        <result property="receiverName"   column="receiver_name"/>
+        <result property="receiverPhone"  column="receiver_phone"/>
+        <result property="zipCode"        column="zip_code"/>
+        <result property="address"        column="address"/>
+        <result property="addressDetail"  column="address_detail"/>
+        <result property="deliveryMemo"   column="delivery_memo"/>
+        <result property="plantName"      column="plant_name"/>
+        <result property="totalPackedQty" column="total_packed_qty"/>
+    </resultMap>
+
+    <sql id="waybillColumns">
+        w.waybill_seq, w.box_seq, w.courier_code, w.waybill_no, w.waybill_status,
+        w.reissued_from, w.issued_by, w.issued_at,
+        w.canceled_by, w.canceled_at, w.cancel_reason, w.remark,
+        cc.code_name   AS courier_name,
+        iu.user_name   AS issued_by_name,
+        ow.waybill_no  AS reissued_from_no,
+        b.box_no,
+        o.outbound_seq, o.outbound_no,
+        pl.plant_name,
+        so.order_no, so.receiver_name, so.receiver_phone,
+        so.zip_code, so.address, so.address_detail, so.delivery_memo,
+        (SELECT COALESCE(SUM(bl.packed_qty), 0)
+           FROM tb_pack_box_line bl WHERE bl.box_seq = b.box_seq) AS total_packed_qty
+    </sql>
+
+    <sql id="waybillFrom">
+        FROM tb_waybill w
+        JOIN tb_pack_box b  ON b.box_seq      = w.box_seq
+        JOIN tb_outbound o  ON o.outbound_seq = b.outbound_seq
+        JOIN tb_plant    pl ON pl.plant_seq   = o.plant_seq
+        LEFT JOIN tb_user iu ON iu.user_id    = w.issued_by
+        LEFT JOIN tb_waybill ow ON ow.waybill_seq = w.reissued_from
+        LEFT JOIN tb_code_group cg ON cg.code_group_id = 'COURIER'
+        LEFT JOIN tb_code cc ON cc.code_group_seq = cg.code_group_seq
+                            AND cc.code_id        = w.courier_code
+        <!--
+          주문은 지시 라인에서 거슬러 올라간다. 지시가 주문을 머리에 들고
+          있지 않기 때문이다 (합포를 열 수 있게 라인에 뒀다). 지금은 한
+          지시에 주문이 하나뿐이라 MIN 이 곧 그 주문이다.
+        -->
+        LEFT JOIN LATERAL (
+            SELECT MIN(so2.order_no)       AS order_no,
+                   MIN(so2.receiver_name)  AS receiver_name,
+                   MIN(so2.receiver_phone) AS receiver_phone,
+                   MIN(so2.zip_code)       AS zip_code,
+                   MIN(so2.address)        AS address,
+                   MIN(so2.address_detail) AS address_detail,
+                   MIN(so2.delivery_memo)  AS delivery_memo
+              FROM tb_outbound_line ol
+              JOIN tb_order_line    l   ON l.line_seq   = ol.order_line_seq
+              JOIN tb_order         so2 ON so2.order_seq = l.order_seq
+             WHERE ol.outbound_seq = o.outbound_seq
+        ) so ON TRUE
+    </sql>
+
+    <sql id="waybillWhere">
+        <where>
+            <if test="keyword != null">
+                AND (w.waybill_no     ILIKE '%' || #{keyword} || '%'
+                  OR o.outbound_no    ILIKE '%' || #{keyword} || '%'
+                  OR so.order_no      ILIKE '%' || #{keyword} || '%'
+                  OR so.receiver_name ILIKE '%' || #{keyword} || '%')
+            </if>
+            <if test="plantId != null">
+                AND pl.plant_id = #{plantId}
+            </if>
+            <if test="courierCode != null">
+                AND w.courier_code = #{courierCode}
+            </if>
+            <if test="waybillStatus != null">
+                AND w.waybill_status = #{waybillStatus}
+            </if>
+            <if test="fromDate != null">
+                AND w.issued_at &gt;= #{fromDate}
+            </if>
+            <if test="toDate != null">
+                AND w.issued_at &lt; (#{toDate}::date + 1)
+            </if>
+
+            <!-- 데이터 범위 — 지시의 센터로 판정한다 -->
+            <if test="!scope.unrestricted">
+                <choose>
+                    <when test="scope.hasNoOrg">
+                        AND w.issued_by = #{scope.ownerId}
+                    </when>
+                    <otherwise>
+                        AND ( pl.org_seq IN
+                              <foreach collection="scope.orgSeqs" item="org" open="(" separator="," close=")">
+                                  #{org}
+                              </foreach>
+                              OR w.issued_by = #{scope.ownerId} )
+                    </otherwise>
+                </choose>
+            </if>
+        </where>
+    </sql>
+
+    <select id="selectWaybills" resultMap="waybillMap">
+        SELECT <include refid="waybillColumns"/>
+        <include refid="waybillFrom"/>
+        <include refid="waybillWhere"/>
+         ORDER BY w.issued_at DESC, w.waybill_seq DESC
+        <if test="size > 0">
+            LIMIT #{size} OFFSET #{offset}
+        </if>
+    </select>
+
+    <select id="countWaybills" resultType="long">
+        SELECT COUNT(*)
+        <include refid="waybillFrom"/>
+        <include refid="waybillWhere"/>
+    </select>
+
+    <select id="selectWaybill" resultMap="waybillMap">
+        SELECT <include refid="waybillColumns"/>
+        <include refid="waybillFrom"/>
+         WHERE w.waybill_seq = #{waybillSeq}
+    </select>
+
+    <!-- 이 박스에 살아 있는 송장. 부분 유니크가 하나만 허용한다 -->
+    <select id="selectLiveWaybillOfBox" resultMap="waybillMap">
+        SELECT <include refid="waybillColumns"/>
+        <include refid="waybillFrom"/>
+         WHERE w.box_seq        = #{boxSeq}
+           AND w.waybill_status = 'ISSUED'
+    </select>
+
+    <!-- 취소된 것까지 준다. 재발행 이력이 보여야 '왜 송장이 둘인가' 에 답한다 -->
+    <select id="selectWaybillsOfOutbound" resultMap="waybillMap">
+        SELECT <include refid="waybillColumns"/>
+        <include refid="waybillFrom"/>
+         WHERE o.outbound_seq = #{outboundSeq}
+         ORDER BY b.box_no, w.issued_at
+    </select>
+
+    <insert id="insertWaybill" parameterType="com.fulfillment.domain.Waybill"
+            useGeneratedKeys="true" keyProperty="waybillSeq" keyColumn="waybill_seq">
+        INSERT INTO tb_waybill
+            (box_seq, courier_code, waybill_no, waybill_status, reissued_from,
+             issued_by, remark)
+        VALUES
+            (#{boxSeq}, #{courierCode}, #{waybillNo}, #{waybillStatus}, #{reissuedFrom},
+             #{issuedBy}, #{remark})
+    </insert>
+
+    <!-- 발급된 것만 취소한다. 두 사람이 동시에 누르면 두 번째는 0 행이 된다 -->
+    <update id="cancelWaybill">
+        UPDATE tb_waybill
+           SET waybill_status = 'CANCELED',
+               canceled_by    = #{actor},
+               canceled_at    = CURRENT_TIMESTAMP,
+               cancel_reason  = #{reason}
+         WHERE waybill_seq    = #{waybillSeq}
+           AND waybill_status = 'ISSUED'
+    </update>
+
+    <!--
+      아직 송장이 안 붙은 박스 수.
+
+      닫힌 박스만 센다 — 열린 박스는 애초에 송장을 붙일 수 없다. 0 이어야
+      택배 인계(E섹터)로 넘어간다.
+    -->
+    <select id="countBoxesWithoutWaybill" resultType="int">
+        SELECT COUNT(*)
+          FROM tb_pack_box b
+         WHERE b.outbound_seq = #{outboundSeq}
+           AND b.box_status   = 'CLOSED'
+           AND NOT EXISTS (SELECT 1 FROM tb_waybill w
+                            WHERE w.box_seq        = b.box_seq
+                              AND w.waybill_status = 'ISSUED')
+    </select>
+
 </mapper>

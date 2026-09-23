@@ -18,6 +18,11 @@ import com.fulfillment.outbound.dto.OutInspectRequest;
 import com.fulfillment.outbound.dto.OutInspectTaskResponse;
 import com.fulfillment.outbound.dto.PackBoxResponse;
 import com.fulfillment.outbound.dto.PackRequest;
+import com.fulfillment.outbound.dto.WaybillCancelRequest;
+import com.fulfillment.outbound.dto.WaybillIssueRequest;
+import com.fulfillment.outbound.dto.WaybillReissueRequest;
+import com.fulfillment.outbound.dto.WaybillResponse;
+import com.fulfillment.outbound.dto.WaybillSearch;
 import com.fulfillment.outbound.dto.PickShortageLineResponse;
 import com.fulfillment.outbound.dto.PickShortageSearch;
 import com.fulfillment.domain.OutboundPick;
@@ -231,6 +236,50 @@ public class OutboundController {
 	public ApiResponse<Void> deleteBox(@PathVariable Long boxSeq) {
 		outboundService.deleteBox(CurrentUser.require(), boxSeq);
 		return ApiResponse.ok(null);
+	}
+
+	/* ── 송장 (PAC-PG-003, PAC-PG-004) ─────────────────────── */
+
+	/**
+	 * 송장 목록.
+	 *
+	 * '/{outboundSeq}' 보다 위에 둔다 — 아래에 두면 'waybills' 가 지시
+	 * 순번으로 해석되어 숫자가 아니라는 오류부터 난다.
+	 */
+	@GetMapping("/waybills")
+	public ApiResponse<PageResponse<WaybillResponse>> waybills(
+			@ModelAttribute WaybillSearch search) {
+		return ApiResponse.ok(outboundService.waybills(CurrentUser.require(), search));
+	}
+
+	/** 이 지시의 송장 전부 — 취소된 것까지. 재발행 이력이 보여야 한다 */
+	@GetMapping("/{outboundSeq}/waybills")
+	public ApiResponse<List<WaybillResponse>> waybillsOf(@PathVariable Long outboundSeq) {
+		return ApiResponse.ok(outboundService.waybillsOf(CurrentUser.require(), outboundSeq));
+	}
+
+	/** 송장 발급. 번호는 사람이 적는다 — 닫힌 박스에만 붙는다 */
+	@PostMapping("/boxes/{boxSeq}/waybill")
+	public ApiResponse<WaybillResponse> issueWaybill(@PathVariable Long boxSeq,
+			@Valid @RequestBody WaybillIssueRequest request) {
+		return ApiResponse.ok(
+				outboundService.issueWaybill(CurrentUser.require(), boxSeq, request));
+	}
+
+	/** 송장 취소. 사유가 필수다 */
+	@PostMapping("/waybills/{waybillSeq}/cancel")
+	public ApiResponse<WaybillResponse> cancelWaybill(@PathVariable Long waybillSeq,
+			@Valid @RequestBody WaybillCancelRequest request) {
+		return ApiResponse.ok(
+				outboundService.cancelWaybill(CurrentUser.require(), waybillSeq, request));
+	}
+
+	/** 재발행 — 취소와 발급을 한 번에. 둘로 나누면 송장 없는 박스가 남는다 */
+	@PostMapping("/waybills/{waybillSeq}/reissue")
+	public ApiResponse<WaybillResponse> reissueWaybill(@PathVariable Long waybillSeq,
+			@Valid @RequestBody WaybillReissueRequest request) {
+		return ApiResponse.ok(
+				outboundService.reissueWaybill(CurrentUser.require(), waybillSeq, request));
 	}
 
 	/**

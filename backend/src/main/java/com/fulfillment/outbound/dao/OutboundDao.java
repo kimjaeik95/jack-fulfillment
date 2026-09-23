@@ -5,11 +5,13 @@ import com.fulfillment.domain.OutboundLine;
 import com.fulfillment.domain.OutboundPick;
 import com.fulfillment.domain.PackBox;
 import com.fulfillment.domain.PackBoxLine;
+import com.fulfillment.domain.Waybill;
 import com.fulfillment.outbound.dto.OutboundSearch;
 import com.fulfillment.outbound.dto.OutboundTargetResponse;
 import com.fulfillment.outbound.dto.OutboundTargetSearch;
 import com.fulfillment.outbound.dto.PickTaskResponse;
 import com.fulfillment.outbound.dto.OutInspectTaskResponse;
+import com.fulfillment.outbound.dto.WaybillSearch;
 import com.fulfillment.outbound.dto.PickShortageLineResponse;
 import com.fulfillment.outbound.dto.PickShortageSearch;
 import org.apache.ibatis.annotations.Param;
@@ -186,4 +188,27 @@ public interface OutboundDao {
 
 	/** 아직 안 닫은 박스 수. 0 이어야 패킹완료다 */
 	int countOpenBoxes(@Param("outboundSeq") Long outboundSeq);
+
+	/* ── 송장 (PAC-PG-003, PAC-PG-004) ──────────────────────── */
+
+	List<Waybill> selectWaybills(WaybillSearch search);
+
+	long countWaybills(WaybillSearch search);
+
+	Waybill selectWaybill(@Param("waybillSeq") Long waybillSeq);
+
+	/** 이 박스에 살아 있는 송장. 없으면 아직 안 붙었다 */
+	Waybill selectLiveWaybillOfBox(@Param("boxSeq") Long boxSeq);
+
+	/** 이 지시의 송장 전부 — 취소된 것까지. 재발행 이력을 보여 준다 */
+	List<Waybill> selectWaybillsOfOutbound(@Param("outboundSeq") Long outboundSeq);
+
+	void insertWaybill(Waybill waybill);
+
+	int cancelWaybill(@Param("waybillSeq") Long waybillSeq,
+			@Param("actor") String actor,
+			@Param("reason") String reason);
+
+	/** 아직 송장이 안 붙은 박스 수. 0 이어야 인계할 수 있다 (E섹터) */
+	int countBoxesWithoutWaybill(@Param("outboundSeq") Long outboundSeq);
 }

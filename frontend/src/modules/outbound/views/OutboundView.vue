@@ -155,7 +155,7 @@ const columns = [
   { key: 'orderNo', label: '주문', width: '170px' },
   { key: 'receiverName', label: '수령인', width: '90px' },
   { key: 'plantName', label: '센터', width: '110px' },
-  { key: 'lineCount', label: '줄', width: '50px', align: 'right' },
+  { key: 'lineCount', label: '품목', width: '58px', align: 'right' },
   { key: 'totalInstructedQty', label: '지시 / 집음', width: '104px', align: 'right' },
   { key: 'outboundStatus', label: '상태', width: '90px', align: 'center' },
   { key: 'instructedAt', label: '지시일시', width: '140px' },
@@ -352,7 +352,7 @@ const columns = [
             </td>
             <td class="small">
               {{ l.productName }}
-              <div class="small dim">주문 {{ l.orderNo }} · {{ l.orderLineNo }}번째 줄</div>
+              <div class="small dim">주문 {{ l.orderNo }} · {{ l.orderLineNo }}번 품목</div>
             </td>
             <!-- 할당이 고른 자리. 여러 곳이면 'A-01-03 외 1곳' -->
             <td class="code">{{ l.locationHint ?? '-' }}</td>

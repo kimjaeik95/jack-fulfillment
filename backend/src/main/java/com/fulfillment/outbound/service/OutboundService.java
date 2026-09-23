@@ -15,6 +15,7 @@ import com.fulfillment.domain.OutboundLine;
 import com.fulfillment.domain.OutboundPick;
 import com.fulfillment.domain.PackBox;
 import com.fulfillment.domain.PackBoxLine;
+import com.fulfillment.domain.Waybill;
 import com.fulfillment.order.dao.SalesOrderDao;
 import com.fulfillment.outbound.dao.OutboundDao;
 import com.fulfillment.outbound.dto.OutboundCancelRequest;
@@ -32,9 +33,15 @@ import com.fulfillment.outbound.dto.OutInspectRequest;
 import com.fulfillment.outbound.dto.OutInspectTaskResponse;
 import com.fulfillment.outbound.dto.PackBoxResponse;
 import com.fulfillment.outbound.dto.PackRequest;
+import com.fulfillment.outbound.dto.WaybillCancelRequest;
+import com.fulfillment.outbound.dto.WaybillIssueRequest;
+import com.fulfillment.outbound.dto.WaybillReissueRequest;
+import com.fulfillment.outbound.dto.WaybillResponse;
+import com.fulfillment.outbound.dto.WaybillSearch;
 import com.fulfillment.outbound.dto.PickShortageLineResponse;
 import com.fulfillment.outbound.dto.PickShortageSearch;
 import com.fulfillment.system.user.dao.UserDao;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -72,6 +79,11 @@ public class OutboundService {
 	/** 박스 · 패킹. 검수는 피킹과 같은 사람이 이어서 해 OUT_PICK 을 그대로 쓴다 */
 	private static final String PERM_PACK = "OUT_PACK";
 	private static final String BOX_TYPE = "BOX_TYPE";
+	/** 송장. 밖으로 나가는 문서라 박스를 다루는 권한과 무게가 다르다 */
+	private static final String PERM_WAYBILL = "OUT_WAYBILL";
+	private static final String COURIER = "COURIER";
+	private static final String REASON_WB_CANCEL = "REASON_WB_CANCEL";
+	private static final String TABLE_WAYBILL = "tb_waybill";
 	private static final String TABLE = "tb_outbound";
 
 	private final OutboundDao outboundDao;
@@ -970,6 +982,205 @@ public class OutboundService {
 				&& now.getInspectedBy() == null) {
 			outboundDao.markInspected(outbound.getOutboundSeq(), actorId(actor));
 		}
+	}
+
+	/* ------------------------------------------------------------------ */
+	/* 송장 (PAC-PG-003, PAC-PG-004)                                       */
+	/* ------------------------------------------------------------------ */
+
+	@Transactional(readOnly = true)
+	public PageResponse<WaybillResponse> waybills(LoginUser actor, WaybillSearch search) {
+		permissionChecker.require(actor, PERM_WAYBILL, "R");
+		search.applyScope(dataScopes.forRead(actor, PERM_WAYBILL));
+
+		List<WaybillResponse> rows = outboundDao.selectWaybills(search).stream()
+				.map(WaybillResponse::of)
+				.toList();
+		long total = search.getSize() <= 0 ? rows.size() : outboundDao.countWaybills(search);
+		return PageResponse.of(rows, total, search.getPage(), search.getSize());
+	}
+
+	/** 이 지시의 송장 전부 — 취소된 것까지. 재발행 이력이 보여야 한다 */
+	@Transactional(readOnly = true)
+	public List<WaybillResponse> waybillsOf(LoginUser actor, Long outboundSeq) {
+		permissionChecker.require(actor, PERM_WAYBILL, "R");
+		mustFind(outboundSeq);
+		return outboundDao.selectWaybillsOfOutbound(outboundSeq).stream()
+				.map(WaybillResponse::of)
+				.toList();
+	}
+
+	/**
+	 * 송장 발급 (PAC-PG-003).
+	 *
+	 * 번호는 사람이 적는다. 택배사 연동(INT-IF-*)이 전부 개발 취소라 우리가
+	 * 번호를 만들 수 없다 — 만들면 라벨에 가짜 번호가 찍히고 고객이 배송조회를
+	 * 했을 때 아무것도 안 나온다. 그건 송장이 없는 것보다 나쁘다.
+	 *
+	 * <b>닫힌 박스에만 붙인다.</b> 열린 박스에 송장을 붙이면 그 뒤에 내용이
+	 * 바뀔 수 있고, 그러면 택배사가 들고 간 것과 우리 기록이 달라진다.
+	 *
+	 * 박스 하나에 살아 있는 송장은 하나다. 부분 유니크가 막지만 그 전에
+	 * 사람이 읽을 문장으로 거절한다 — 제약이 터지면 '저장할 수 없는 값' 만
+	 * 뜨고 이미 붙은 번호가 무엇인지 알 수 없다.
+	 */
+	@Transactional
+	public WaybillResponse issueWaybill(LoginUser actor, Long boxSeq,
+			WaybillIssueRequest request) {
+		permissionChecker.require(actor, PERM_WAYBILL, "C");
+
+		PackBox box = mustFindBox(boxSeq);
+		Outbound outbound = mustFind(box.getOutboundSeq());
+		codeValues.require(COURIER, request.courierCode(), "택배사");
+
+		if (!outbound.isOpen()) {
+			throw new BusinessException(ErrorCode.IN_USE,
+					"%s 은(는) 이미 끝난 지시입니다. (%s)".formatted(
+							outbound.getOutboundNo(),
+							statusLabel(outbound.getOutboundStatus())));
+		}
+		if (!box.isClosed()) {
+			throw new BusinessException(ErrorCode.IN_USE,
+					("%d 번 박스가 아직 열려 있습니다. 닫고 나서 송장을 붙이세요 — "
+							+ "붙인 뒤에 내용이 바뀌면 택배사가 들고 간 것과 우리 기록이 "
+							+ "달라집니다.").formatted(box.getBoxNo()));
+		}
+
+		Waybill live = outboundDao.selectLiveWaybillOfBox(boxSeq);
+		if (live != null) {
+			throw new BusinessException(ErrorCode.DUPLICATE,
+					("%d 번 박스에는 이미 송장이 붙어 있습니다. (%s %s) 바꾸려면 그 "
+							+ "송장을 취소하고 다시 뽑으세요.")
+							.formatted(box.getBoxNo(), live.getCourierName(),
+									live.getWaybillNo()));
+		}
+
+		return saveWaybill(actor, box, request, null);
+	}
+
+	/**
+	 * 송장 취소 (PAC-PG-004).
+	 *
+	 * 고치는 개념이 없다. 택배사가 이미 그 번호로 라벨을 냈기 때문에 우리 쪽
+	 * 글자만 고칠 수 없다 — 잘못 적었으면 취소하고 새 번호로 다시 뽑는다.
+	 *
+	 * 취소해도 박스는 닫힌 채로 둔다. 송장이 잘못된 것과 박스를 다시 싸는
+	 * 것은 다른 일이고, 대개는 번호만 다시 붙이면 끝난다. 다시 싸야 하면
+	 * 패킹 화면에서 박스를 연다.
+	 */
+	@Transactional
+	public WaybillResponse cancelWaybill(LoginUser actor, Long waybillSeq,
+			WaybillCancelRequest request) {
+		permissionChecker.require(actor, PERM_WAYBILL, "D");
+
+		Waybill waybill = mustFindWaybill(waybillSeq);
+		codeValues.require(REASON_WB_CANCEL, request.reasonCode(), "취소 사유");
+
+		Outbound outbound = mustFind(waybill.getOutboundSeq());
+		if (outbound.isShipped()) {
+			throw new BusinessException(ErrorCode.IN_USE,
+					("이미 나간 지시의 송장입니다. (%s) 물건이 택배사에 넘어갔으니 "
+							+ "택배사에 직접 알려야 합니다.").formatted(outbound.getOutboundNo()));
+		}
+
+		String reason = request.remark() == null
+				? request.reasonCode()
+				: "%s — %s".formatted(request.reasonCode(), request.remark());
+
+		int changed = outboundDao.cancelWaybill(waybillSeq, actorId(actor), reason);
+		if (changed == 0) {
+			throw new BusinessException(ErrorCode.IN_USE,
+					"이미 취소된 송장입니다. (%s)".formatted(waybill.getWaybillNo()));
+		}
+
+		Waybill after = mustFindWaybill(waybillSeq);
+		auditRecorder.recordAction(actor, "CANCEL", TABLE_WAYBILL, after.getWaybillNo(),
+				"송장 취소 — %s %d 번 박스, %s".formatted(
+						outbound.getOutboundNo(), waybill.getBoxNo(), reason));
+		return WaybillResponse.of(after);
+	}
+
+	/**
+	 * 송장 재발행 (PAC-PG-004).
+	 *
+	 * 취소와 발급을 한 번에 한다. 둘로 나누면 취소만 하고 새 송장을 안 붙이는
+	 * 일이 생기고, 그 박스는 송장 없이 인계를 기다리게 된다.
+	 *
+	 * 원 송장을 가리켜 둔다 — 안 두면 취소된 번호와 새 번호가 아무 관계 없이
+	 * 나란히 남아 '이 박스가 왜 송장이 둘인가' 에 답할 수 없다.
+	 */
+	@Transactional
+	public WaybillResponse reissueWaybill(LoginUser actor, Long waybillSeq,
+			WaybillReissueRequest request) {
+		permissionChecker.require(actor, PERM_WAYBILL, "C");
+		permissionChecker.require(actor, PERM_WAYBILL, "D");
+
+		Waybill old = mustFindWaybill(waybillSeq);
+		PackBox box = mustFindBox(old.getBoxSeq());
+		codeValues.require(COURIER, request.courierCode(), "택배사");
+		codeValues.require(REASON_WB_CANCEL, request.reasonCode(), "취소 사유");
+
+		if (request.waybillNo().equals(old.getWaybillNo())
+				&& request.courierCode().equals(old.getCourierCode())) {
+			throw new BusinessException(ErrorCode.INVALID_INPUT,
+					("새 송장번호가 원래 것과 같습니다. (%s) 택배사에서 새로 뽑은 번호를 "
+							+ "적으세요 — 취소한 번호는 다시 살아나지 않습니다.")
+							.formatted(request.waybillNo()));
+		}
+
+		String reason = request.remark() == null
+				? request.reasonCode()
+				: "%s — %s".formatted(request.reasonCode(), request.remark());
+		if (old.isIssued() && outboundDao.cancelWaybill(waybillSeq, actorId(actor), reason) == 0) {
+			throw new BusinessException(ErrorCode.IN_USE,
+					"다른 사람이 먼저 처리했습니다. 화면을 새로 고치세요.");
+		}
+
+		return saveWaybill(actor, box,
+				new WaybillIssueRequest(request.courierCode(), request.waybillNo(),
+						request.remark()),
+				waybillSeq);
+	}
+
+	/* ------------------------------------------------------------------ */
+
+	private WaybillResponse saveWaybill(LoginUser actor, PackBox box,
+			WaybillIssueRequest request, Long reissuedFrom) {
+		Waybill waybill = Waybill.builder()
+				.boxSeq(box.getBoxSeq())
+				.courierCode(request.courierCode())
+				.waybillNo(request.waybillNo())
+				.waybillStatus(Waybill.ISSUED)
+				.reissuedFrom(reissuedFrom)
+				.issuedBy(actorId(actor))
+				.remark(request.remark())
+				.build();
+		try {
+			outboundDao.insertWaybill(waybill);
+		} catch (DuplicateKeyException e) {
+			// 앞 박스 번호를 그대로 붙여넣는 사고가 실제로 잦다. 그대로 두면
+			// 두 박스가 같은 번호로 나가 한쪽이 통째로 사라진다.
+			throw new BusinessException(ErrorCode.DUPLICATE,
+					("%s 는 이미 쓴 송장번호입니다. 앞 박스의 번호를 그대로 붙여넣은 "
+							+ "것은 아닌지 확인하세요.").formatted(request.waybillNo()));
+		}
+
+		Waybill saved = mustFindWaybill(waybill.getWaybillSeq());
+		auditRecorder.recordAction(actor, "CREATE", TABLE_WAYBILL, saved.getWaybillNo(),
+				"%s %d 번 박스 송장 %s (%s)%s".formatted(
+						saved.getOutboundNo(), box.getBoxNo(),
+						saved.getWaybillNo(), saved.getCourierName(),
+						reissuedFrom == null ? "" : " — 재발행"));
+		return WaybillResponse.of(saved);
+	}
+
+	private Waybill mustFindWaybill(Long waybillSeq) {
+		Waybill waybill = outboundDao.selectWaybill(waybillSeq);
+		if (waybill == null) {
+			throw new BusinessException(ErrorCode.NOT_FOUND,
+					"송장을 찾을 수 없습니다. (순번 %d)".formatted(waybillSeq));
+		}
+		return waybill;
 	}
 
 	/* ------------------------------------------------------------------ */

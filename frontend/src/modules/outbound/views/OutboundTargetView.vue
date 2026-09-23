@@ -133,7 +133,7 @@ function pickAll() {
 
 const pickedQty = computed(() => picked.value.reduce((s, r) => s + (r.allocatedQty ?? 0), 0))
 
-/* ── 펼쳐서 줄 보기 ─────────────────────────────────────────── */
+/* ── 펼쳐서 품목 보기 ─────────────────────────────────────────── */
 
 /**
  * 주문번호만 보고는 무엇을 내보내는지 알 수 없다.
@@ -212,7 +212,7 @@ const columns = [
   { key: 'skuSummary', label: '무엇을', width: '210px' },
   { key: 'locationSummary', label: '어디서', width: '130px', cls: 'code' },
   { key: 'plantName', label: '센터', width: '104px' },
-  { key: 'lineCount', label: '줄', width: '46px', align: 'right' },
+  { key: 'lineCount', label: '품목', width: '58px', align: 'right' },
   { key: 'allocatedQty', label: '지시수량', width: '84px', align: 'right' },
   { key: 'orderedAt', label: '주문일시', width: '130px' },
 ]
