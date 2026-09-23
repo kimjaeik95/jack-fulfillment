@@ -29,8 +29,14 @@ public record OrderResponse(
 		String plantId,
 		String plantName,
 		Long requestSeq,
-		/** 근거 구매요청. 직접 발주(PUR-005)면 비어 있다. */
+		/** 근거 구매요청 — 요청이 딱 하나일 때만 찬다. 화면은 requestNos 를 본다. */
 		String requestNo,
+		/**
+		 * 근거 구매요청 전부 — 쉼표로 이어 붙인다.
+		 *
+		 * 비어 있으면 요청 없이 낸 발주다 (PUR-005).
+		 */
+		String requestNos,
 		String orderStatus,
 		boolean draft,
 		boolean issued,
@@ -72,7 +78,7 @@ public record OrderResponse(
 				o.getSupplierId(), o.getSupplierName(), o.getSupplierStatus(),
 				o.getOverReceiptRate(),
 				o.getPlantId(), o.getPlantName(),
-				o.getRequestSeq(), o.getRequestNo(),
+				o.getRequestSeq(), o.getRequestNo(), o.getRequestNos(),
 				o.getOrderStatus(), o.isDraft(), o.isIssued(), o.isOpen(),
 				o.isClosed(), o.isCanceled(), o.isOverdue(),
 				o.getOrderDate(), o.getDueDate(), o.getPayTerm(), o.getRemark(),

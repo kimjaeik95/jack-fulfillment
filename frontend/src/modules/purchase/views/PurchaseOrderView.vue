@@ -16,7 +16,6 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { codeOptions } from '@/api/codes.js'
 import * as orderApi from '@/api/purchaseOrder.js'
-import * as purchaseApi from '@/api/purchase.js'
 import * as stockApi from '@/api/stock.js'
 import * as partnerApi from '@/api/partner.js'
 import { useHierarchyStore } from '@/stores/hierarchy.js'
@@ -28,7 +27,7 @@ import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import FormField from '@/components/FormField.vue'
 import CodeBadge from '@/components/CodeBadge.vue'
 import SkuPicker from '@/components/SkuPicker.vue'
-import RequestPicker from '../components/RequestPicker.vue'
+import PendingPicker from '../components/PendingPicker.vue'
 
 const hierarchy = useHierarchyStore()
 const session = useSessionStore()
@@ -82,6 +81,28 @@ async function goPage(n) {
   await fetchPage()
 }
 
+/**
+ * 발주 대기 건수.
+ *
+ * 목록을 열 때 한 번 센다. 배너에만 쓰므로 전부 받아 올 이유가 없어
+ * 앞의 200 줄만 받아 필요일 지난 것을 함께 센다 — 그보다 많이 밀려
+ * 있으면 정확한 숫자보다 '많이 밀렸다' 가 더 중요한 정보다.
+ */
+const pendingTotal = ref(0)
+const pendingOverdue = ref(0)
+
+async function loadPending() {
+  try {
+    const page = await orderApi.pending({ size: 200 })
+    pendingTotal.value = page.total ?? 0
+    pendingOverdue.value = (page.rows ?? []).filter((r) => r.overdue).length
+  } catch {
+    // 못 세도 목록은 보여야 한다. 배너가 안 뜰 뿐이다.
+    pendingTotal.value = 0
+    pendingOverdue.value = 0
+  }
+}
+
 /** 공급처 드롭다운 — 발주는 공급처가 있어야 성립한다 */
 const suppliers = ref([])
 /** 거래중인 곳만. 거래중지된 곳으로는 발주가 나가지 않는다 (MST-010). */
@@ -96,7 +117,7 @@ onMounted(async () => {
   } catch {
     suppliers.value = []
   }
-  await fetchPage()
+  await Promise.all([fetchPage(), loadPending()])
 })
 
 const supplierOptions = computed(() =>
@@ -132,7 +153,6 @@ const defaultDueDate = () => stockApi.daysAgo(-14)
 const form = reactive({
   supplierId: '',
   plantId: '',
-  requestNo: '',
   dueDate: defaultDueDate(),
   payTerm: '',
   remark: '',
@@ -158,13 +178,12 @@ function openCreate() {
   Object.assign(form, {
     supplierId: '',
     plantId: '',
-    requestNo: '',
-    dueDate: defaultDueDate(),
+      dueDate: defaultDueDate(),
     payTerm: '',
     remark: '',
   })
   lines.value = []
-  approvedRequest.value = null
+  pendingByLineSeq.value = {}
   serverError.value = ''
   editing.value = true
 }
@@ -177,14 +196,20 @@ function openCreate() {
  */
 function addLine(sku) {
   picking.value = false
-  const fromRequest = approvedLineOf(sku.skuId)
+  if (lines.value.some((l) => l.sku.skuId === sku.skuId)) {
+    toast.error(sku.skuId + ' 는 이미 담겨 있습니다. 수량을 고치세요.')
+    return
+  }
+  // 요청 줄에 붙이지 않는다. 손으로 담는 것은 근거 없이 내는 발주이고
+  // (PUR-005), 승인 한도도 걸리지 않는다. 요청에서 온 것으로 만들려면
+  // '발주 대기 담기' 로 골라야 한다 — 그래야 남은 수량이 따라온다.
   lines.value = [
     ...lines.value,
     {
       sku,
-      orderQty: fromRequest?.approvedQty ?? 1,
+      orderQty: 1,
       unitPrice: sku.costAmount ?? '',
-      requestLineSeq: fromRequest?.lineSeq ?? null,
+      requestLineSeq: null,
       remark: '',
     },
   ]
@@ -222,10 +247,7 @@ const totalAmount = computed(() =>
   ),
 )
 
-/* ── 근거 구매요청 불러오기 (PUR-005 의 반대편) ─────────────── */
-
-const approvedRequest = ref(null)
-const loadingRequest = ref(false)
+/* ── 발주 대기에서 담기 ─────────────────────────────────────── */
 
 /**
  * 요청번호를 넣으면 승인된 줄을 그대로 담아 준다.
@@ -237,76 +259,91 @@ const loadingRequest = ref(false)
  * 요청 없이 본사가 바로 내는 경우가 있다.
  */
 /**
- * 구매요청 고르기.
+ * 발주 대기에서 담기 (PUR-PG-003).
  *
- * 요청번호를 손으로 적게 하면 다른 화면에서 찾아 옮겨 적어야 하고, 한
- * 글자만 틀려도 막힌다. 목록에서 고르면 그 일이 없고, 발주할 수 있는
- * 것만(승인 · 부분승인) 보여 주므로 고른 것에는 반드시 담을 것이 있다.
+ * 요청을 통째로 담던 자리다. 그런데 요청은 SKU 마다 공급처가 달라 한
+ * 건에 섞여 들어오고, 발주는 공급처 한 곳에 나가는 문서다. 통째로 담으면
+ * A 사 물건이 적힌 B 사 발주서가 만들어진다 — 그래서 <b>줄</b>을 고른다.
+ *
+ * 줄 단위라 여러 요청에서 같은 공급처 것만 모아 한 발주로 낼 수도 있다.
+ * 요청은 센터가 필요한 단위로 따로따로 올라오지만, 발주는 공급처로
+ * 묶는 문서여서 둘이 1:1 이 아니다.
+ *
+ * 담기는 <b>덮어쓰지 않고 더한다.</b> 두 번째 요청을 담을 때 첫 번째가
+ * 사라지면 모으는 일 자체가 안 된다.
  */
-const pickingRequest = ref(false)
+const pickingPending = ref(false)
 
-async function pickRequest(row) {
-  pickingRequest.value = false
-  form.requestNo = row.requestNo
-  // 센터는 요청의 것으로 맞춘다. 요청이 근거인데 센터가 다르면 엉뚱한
-  // 곳으로 들어올 발주가 되고, 그 어긋남은 저장할 때야 드러난다.
-  if (row.plantId) form.plantId = row.plantId
-  await pullFromRequest()
-}
+/** 담아 둔 요청 줄 — 두 번 담지 않게, 그리고 한도를 판정하려고 */
+const pendingByLineSeq = ref({})
 
-async function pullFromRequest() {
-  const no = form.requestNo.trim()
-  if (!no) {
-    approvedRequest.value = null
-    return
+const pickedLineSeqs = computed(() =>
+  lines.value.map((l) => l.requestLineSeq).filter((v) => v !== null && v !== undefined),
+)
+
+/** 담은 줄이 어느 요청에서 왔나 — 여러 건일 수 있다 */
+const pickedRequestNos = computed(() => {
+  const set = new Set()
+  for (const seq of pickedLineSeqs.value) {
+    const src = pendingByLineSeq.value[seq]
+    if (src) set.add(src.requestNo)
   }
-  loadingRequest.value = true
-  serverError.value = ''
-  try {
-    const found = await purchaseApi.list({ keyword: no, size: 5 })
-    const hit = found.rows.find((r) => r.requestNo === no)
-    if (!hit) throw new Error(`${no} 을(를) 찾을 수 없습니다.`)
-    const full = await purchaseApi.detail(hit.requestSeq)
-    if (!full.orderable) {
-      throw new Error(
-        `${no} 은(는) 아직 결재가 끝나지 않았습니다. 승인 또는 부분승인이어야 발주할 수 있습니다.`,
-      )
+  return [...set].sort()
+})
+
+function pickPending(rows) {
+  pickingPending.value = false
+  const added = []
+  const map = { ...pendingByLineSeq.value }
+
+  for (const row of rows) {
+    // 같은 SKU 를 두 줄 담을 수 없다. 두 줄이면 얼마를 받아야 하는지
+    // 정할 수 없고, 입고 검수도 어느 줄에 붙일지 모른다.
+    if (lines.value.some((l) => l.sku.skuId === row.skuId)) {
+      toast.error(row.skuId + ' 는 이미 담겨 있습니다. 수량을 고치세요.')
+      continue
     }
-    approvedRequest.value = full
-    if (!form.plantId) form.plantId = full.plantId
-    // 승인수량이 0 인 줄은 담지 않는다 — 결재가 "사지 말라" 고 한 줄이다.
-    lines.value = full.lines
-      .filter((l) => (l.approvedQty ?? 0) > 0)
-      .map((l) => ({
-        sku: {
-          skuId: l.skuId,
-          productName: l.productName,
-          colorCode: l.colorCode,
-          sizeCode: l.sizeCode,
-        },
-        orderQty: l.approvedQty,
-        unitPrice: '',
-        requestLineSeq: l.lineSeq,
-        remark: '',
-      }))
-    toast.success(`${no} 의 승인된 ${lines.value.length} 줄을 담았습니다.`)
-  } catch (e) {
-    approvedRequest.value = null
-    serverError.value = e.message
-  } finally {
-    loadingRequest.value = false
+    map[row.lineSeq] = row
+    added.push({
+      sku: {
+        skuId: row.skuId,
+        productName: row.productName,
+        colorCode: row.colorCode,
+        sizeCode: row.sizeCode,
+      },
+      // 남은 수량이 담기는 값이다. 승인수량이 아니라 — 이미 나간 만큼은
+      // 다시 낼 수 없다.
+      orderQty: row.remainQty,
+      unitPrice: row.unitCost ?? '',
+      requestLineSeq: row.lineSeq,
+      remark: '',
+    })
+
+    // 센터는 담은 줄의 것으로 맞춘다. 발주 하나는 센터 한 곳으로만
+    // 가는데, 다르면 엉뚱한 곳으로 들어올 발주가 된다.
+    if (!form.plantId && row.plantId) form.plantId = row.plantId
   }
+
+  if (!added.length) return
+  pendingByLineSeq.value = map
+  lines.value = [...lines.value, ...added]
+  toast.success(added.length + ' 줄을 담았습니다.')
 }
 
-const approvedLineOf = (skuId) =>
-  approvedRequest.value?.lines.find((l) => l.skuId === skuId && (l.approvedQty ?? 0) > 0) ?? null
-
-/** 승인수량을 넘겼나. 서버도 알리지만, 넣는 순간 보여야 고칠 수 있다. */
+/**
+ * 남은 수량을 넘겼나.
+ *
+ * 서버가 거절하지만, 넣는 순간 보여야 고칠 수 있다. 저장을 눌러야
+ * 알게 되면 어느 줄이 문제인지 다시 찾아야 한다.
+ *
+ * 승인수량이 아니라 <b>남은 수량</b>으로 본다 — 승인 60 에 40 이 이미
+ * 나갔으면 여기서 낼 수 있는 것은 20 이다.
+ */
 function overApproved(line) {
   if (!line.requestLineSeq) return 0
-  const src = approvedRequest.value?.lines.find((l) => l.lineSeq === line.requestLineSeq)
-  if (!src || src.approvedQty === null) return 0
-  const over = Number(line.orderQty || 0) - src.approvedQty
+  const src = pendingByLineSeq.value[line.requestLineSeq]
+  if (!src) return 0
+  const over = Number(line.orderQty || 0) - (src.remainQty ?? 0)
   return over > 0 ? over : 0
 }
 
@@ -317,7 +354,10 @@ async function submit() {
     const payload = {
       supplierId: form.supplierId,
       plantId: form.plantId,
-      requestNo: form.requestNo.trim() || null,
+      // 머리에는 요청이 하나일 때만 넣는다. 여러 건인데 하나를 골라
+      // 넣으면 나머지가 없는 일이 되므로 비운다 — 근거는 라인이 들고
+      // 있고, 화면은 거기서 모아 온 값을 본다.
+      requestNo: pickedRequestNos.value.length === 1 ? pickedRequestNos.value[0] : null,
       dueDate: form.dueDate,
       payTerm: form.payTerm || null,
       remark: form.remark || null,
@@ -335,7 +375,8 @@ async function submit() {
     toast.success(`${order.orderNo} — ${order.lineCount} 줄을 작성했습니다. 아직 나가지 않았습니다.`)
     if (warning) toast.warn(warning)
     editing.value = false
-    await search()
+    // 담은 만큼 대기에서 빠진다
+    await Promise.all([search(), loadPending()])
   } catch (e) {
     serverError.value = e.message
   } finally {
@@ -368,7 +409,6 @@ async function openEdit(row) {
     Object.assign(form, {
       supplierId: full.supplierId,
       plantId: full.plantId,
-      requestNo: full.requestNo ?? '',
       dueDate: full.dueDate,
       payTerm: full.payTerm ?? '',
       remark: full.remark ?? '',
@@ -385,7 +425,8 @@ async function openEdit(row) {
       requestLineSeq: l.requestLineSeq,
       remark: l.remark ?? '',
     }))
-    approvedRequest.value = null
+    // 고칠 때는 대기 정보가 없다. 담아 둔 줄의 한도는 서버가 다시 본다.
+    pendingByLineSeq.value = {}
     serverError.value = ''
     editing.value = true
   } catch (e) {
@@ -427,7 +468,8 @@ async function doCancel() {
     toast.success(`${order.orderNo} 을(를) 취소했습니다.`)
     askCancel.value = null
     if (detail.value) detail.value = await orderApi.detail(order.orderSeq)
-    await fetchPage()
+    // 취소한 발주의 줄도 다시 대기로 돌아온다
+    await Promise.all([fetchPage(), loadPending()])
   } catch (e) {
     serverError.value = e.message
   } finally {
@@ -442,7 +484,8 @@ async function doDelete() {
     toast.success(`${askDelete.value.orderNo} 을(를) 지웠습니다.`)
     askDelete.value = null
     detail.value = null
-    await fetchPage()
+    // 지운 발주의 줄은 다시 대기로 돌아온다
+    await Promise.all([fetchPage(), loadPending()])
   } catch (e) {
     loadError.value = e.message
     askDelete.value = null
@@ -483,6 +526,27 @@ const createDenyReason = computed(() => session.denyReason('PUR_PO_ISSUE', 'C'))
           + 구매오더
         </button>
       </div>
+    </div>
+
+    <!--
+      발주 대기 알림.
+
+      승인만 되고 아무도 발주하지 않으면 지금까지는 어디에도 뜨지 않았다.
+      요청자는 올렸으니 됐다고 보고, 구매 담당은 그런 요청이 있는 줄
+      몰라서 필요일이 지나서야 센터가 묻는다.
+    -->
+    <div v-if="pendingTotal > 0" class="alert alert-warn mb-2 pending-bar">
+      <span class="alert-icon">📌</span>
+      <span>
+        결재가 끝났는데 아직 발주 안 한 줄이
+        <strong>{{ num(pendingTotal) }}</strong> 줄 있습니다.
+        <template v-if="pendingOverdue > 0">
+          그중 <strong class="over">{{ num(pendingOverdue) }}</strong> 줄은 필요일이 지났습니다.
+        </template>
+      </span>
+      <button class="btn btn-sm btn-primary" :disabled="!canCreate" @click="openCreate()">
+        발주 만들기
+      </button>
     </div>
 
     <div v-if="loadError" class="alert alert-danger mb-2">
@@ -669,37 +733,26 @@ const createDenyReason = computed(() => session.denyReason('PUR_PO_ISSUE', 'C'))
         />
       </div>
 
-      <!-- 근거 구매요청. 없어도 된다 (PUR-005). -->
-      <div class="from-request">
-        <FormField
-          v-model="form.requestNo"
-          label="근거 구매요청"
-          mono
-          placeholder="고르거나 번호를 직접 입력 (없으면 비워 둡니다)"
-          help="고르면 그 요청의 센터를 맞추고 승인수량대로 담습니다."
-          @enter="pullFromRequest()"
-        />
-        <!--
-          고르는 것이 기본이다. 번호를 치는 길도 남긴다 — 아는 번호는
-          치는 편이 빠르고, 요청 없이 내는 발주도 있다 (PUR-005).
-        -->
-        <button
-          class="btn btn-primary"
-          :disabled="loadingRequest"
-          @click="pickingRequest = true"
-        >
-          요청 고르기
-        </button>
-        <button class="btn" :disabled="!form.requestNo || loadingRequest" @click="pullFromRequest()">
-          <span v-if="loadingRequest" class="spinner"></span>
-          불러오기
-        </button>
-      </div>
-      <div v-if="approvedRequest" class="alert alert-info mb-2">
+      <!--
+        근거 구매요청. 없어도 된다 (PUR-005).
+
+        번호를 적는 칸이 아니라 담은 결과를 보여 주는 자리다. 요청은
+        SKU 마다 공급처가 달라 여러 건으로 올라오고 발주가 그것을 공급처
+        하나로 묶으므로, 근거가 한 건이라는 보장이 없다.
+      -->
+      <div v-if="pickedRequestNos.length" class="alert alert-info mb-2">
         <span class="alert-icon">📋</span>
         <span>
-          {{ approvedRequest.requestNo }} · {{ approvedRequest.plantName }} ·
-          승인 <strong>{{ num(approvedRequest.totalApprovedQty) }}</strong> 개
+          근거 구매요청
+          <strong class="code">{{ pickedRequestNos.join(', ') }}</strong>
+          <template v-if="pickedRequestNos.length > 1"> · {{ pickedRequestNos.length }} 건</template>
+        </span>
+      </div>
+      <div v-else class="alert alert-warn mb-2">
+        <span class="alert-icon">📝</span>
+        <span>
+          근거 구매요청 없이 내는 발주입니다 (PUR-005). 승인 한도가 걸리지 않으니
+          수량을 직접 확인하세요.
         </span>
       </div>
 
@@ -707,11 +760,19 @@ const createDenyReason = computed(() => session.denyReason('PUR_PO_ISSUE', 'C'))
         <strong>
           발주할 SKU {{ lines.length }} 줄 · 수량 {{ num(totalQty) }} · 금액 {{ won(totalAmount) }} 원
         </strong>
-        <button class="btn btn-sm btn-primary" @click="picking = true">+ SKU 담기</button>
+        <!--
+          대기에서 고르는 것이 기본이다. 결재가 끝난 것만 뜨고 남은 수량이
+          따라온다. 'SKU 담기' 는 요청 없이 내는 발주용이다 (PUR-005).
+        -->
+        <button class="btn btn-sm btn-primary" @click="pickingPending = true">
+          + 발주 대기에서 담기
+        </button>
+        <button class="btn btn-sm" @click="picking = true">+ SKU 직접 담기</button>
       </div>
 
       <div v-if="!lines.length" class="empty-note">
-        담은 SKU 가 없습니다. 요청번호로 불러오거나 'SKU 담기' 로 한 줄 이상 담으세요.
+        담은 SKU 가 없습니다. '발주 대기에서 담기' 로 결재가 끝난 줄을 고르거나,
+        요청 없이 낼 것이면 'SKU 직접 담기' 로 넣으세요.
       </div>
 
       <table v-else class="table lines">
@@ -774,11 +835,19 @@ const createDenyReason = computed(() => session.denyReason('PUR_PO_ISSUE', 'C'))
       결재가 끝난 요청만 보여 준다. 위에서 센터를 골랐으면 그 센터로
       좁힌다 — 고를 때마다 눈으로 대조하게 두지 않는다.
     -->
-    <RequestPicker
-      v-if="pickingRequest"
+    <!--
+      결재가 끝났는데 아직 안 나간 줄만 보여 준다. 공급처를 골랐으면 그
+      공급처 것과 공급처 미정인 줄로 좁힌다 — 고를 때마다 눈으로 대조하게
+      두지 않는다.
+    -->
+    <PendingPicker
+      v-if="pickingPending"
+      :supplier-id="form.supplierId"
+      :supplier-name="pickedSupplier?.partnerName ?? ''"
       :plant-id="form.plantId"
-      @pick="pickRequest"
-      @close="pickingRequest = false"
+      :picked-line-seqs="pickedLineSeqs"
+      @pick="pickPending"
+      @close="pickingPending = false"
     />
 
     <SkuPicker
@@ -802,7 +871,7 @@ const createDenyReason = computed(() => session.denyReason('PUR_PO_ISSUE', 'C'))
         <span v-if="detail.orderDate">발주일 <strong>{{ detail.orderDate }}</strong></span>
         <span v-else class="dim">아직 나가지 않았습니다</span>
         <span v-if="detail.issuedByName">발주자 <strong>{{ detail.issuedByName }}</strong></span>
-        <span v-if="detail.requestNo">근거 <strong class="code">{{ detail.requestNo }}</strong></span>
+        <span v-if="detail.requestNos">근거 <strong class="code">{{ detail.requestNos }}</strong></span>
         <span>결제 <strong>{{ detail.payTerm }}</strong></span>
         <span>
           발주 <strong>{{ num(detail.totalOrderQty) }}</strong>

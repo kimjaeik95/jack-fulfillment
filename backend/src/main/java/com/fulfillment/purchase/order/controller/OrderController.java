@@ -8,6 +8,8 @@ import com.fulfillment.purchase.order.dto.OrderCancelRequest;
 import com.fulfillment.purchase.order.dto.OrderResponse;
 import com.fulfillment.purchase.order.dto.OrderSaveRequest;
 import com.fulfillment.purchase.order.dto.OrderSearch;
+import com.fulfillment.purchase.order.dto.PendingLineResponse;
+import com.fulfillment.purchase.order.dto.PendingSearch;
 import com.fulfillment.purchase.order.service.OrderService;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -52,6 +54,18 @@ public class OrderController {
 	@GetMapping
 	public ApiResponse<PageResponse<OrderResponse>> list(@ModelAttribute OrderSearch search) {
 		return ApiResponse.ok(orderService.search(CurrentUser.require(), search));
+	}
+
+	/**
+	 * 발주 대기 — 결재는 끝났는데 아직 안 나간 줄.
+	 *
+	 * '/{orderSeq}' 보다 위에 둔다. 아래에 두면 'pending' 이 발주 순번으로
+	 * 해석되어 숫자가 아니라는 오류부터 난다.
+	 */
+	@GetMapping("/pending")
+	public ApiResponse<PageResponse<PendingLineResponse>> pending(
+			@ModelAttribute PendingSearch search) {
+		return ApiResponse.ok(orderService.pending(CurrentUser.require(), search));
 	}
 
 	@GetMapping("/{orderSeq}")

@@ -3,6 +3,8 @@ package com.fulfillment.purchase.order.dao;
 import com.fulfillment.domain.PurchaseOrder;
 import com.fulfillment.domain.PurchaseOrderLine;
 import com.fulfillment.purchase.order.dto.OrderSearch;
+import com.fulfillment.purchase.order.dto.PendingLineResponse;
+import com.fulfillment.purchase.order.dto.PendingSearch;
 import org.apache.ibatis.annotations.Param;
 
 import java.util.List;
@@ -72,4 +74,14 @@ public interface OrderDao {
 	 */
 	int sumOrderedByRequestLine(@Param("requestLineSeq") Long requestLineSeq,
 			@Param("exceptOrderSeq") Long exceptOrderSeq);
+
+	/**
+	 * 발주 대기 — 결재는 끝났는데 아직 안 나간 줄.
+	 *
+	 * 응답 DTO 로 바로 받는다. 요청 줄과 발주 집계를 합친 모양이라
+	 * 어느 쪽 도메인에도 맞지 않고, 화면 말고 쓰는 곳도 없다.
+	 */
+	List<PendingLineResponse> selectPendingLines(PendingSearch search);
+
+	long countPendingLines(PendingSearch search);
 }

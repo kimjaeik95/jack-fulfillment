@@ -42,6 +42,28 @@ export async function list(params = {}) {
 }
 
 /**
+ * 발주 대기 (PUR-PG-003).
+ *
+ * 결재는 끝났는데 아직 공급처에 안 나간 줄. 승인만 되고 아무도
+ * 발주하지 않으면 지금은 어디에도 뜨지 않아서, 필요일이 지나서야
+ * 센터가 묻는다.
+ *
+ * 요청이 아니라 줄 단위다 — 한 요청 안에서도 어떤 줄은 나갔고 어떤
+ * 줄은 안 나갔을 수 있다. supplierId 를 주면 그 공급처로 적힌 줄과
+ * 공급처가 안 적힌 줄을 함께 준다 (대부분 안 적혀 있다).
+ */
+export async function pending(params = {}) {
+  const { data } = await get('/purchase-orders/pending', {
+    keyword: params.keyword,
+    plantId: params.plantId,
+    supplierId: params.supplierId,
+    page: params.page,
+    size: params.size,
+  })
+  return data
+}
+
+/**
  * 진행현황 (PUR-PG-005).
  *
  * 목록과 같은 경로다. 아직 물건이 덜 들어온 발주만, 급한 납기부터.

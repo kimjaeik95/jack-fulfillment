@@ -78,6 +78,16 @@ public class PurchaseOrder {
 	private String plantName;
 	private Long orgSeq;
 	private String requestNo;
+
+	/**
+	 * 근거가 된 구매요청 전부. 'REQ-...0002, REQ-...0003' 처럼 이어 붙인다.
+	 *
+	 * 요청은 SKU 마다 공급처가 달라 여러 건으로 올라오고, 발주는 그것을
+	 * 공급처 하나로 묶는다. 그래서 하나만 들고 있을 수 없다. 라인에서
+	 * 모아 오므로 저장하지 않는다 — 저장하면 라인을 고칠 때마다 갱신해야
+	 * 하고, 한 번 빠뜨리면 영원히 틀린다.
+	 */
+	private String requestNos;
 	private String issuedByName;
 	private Integer lineCount;
 	private Integer totalOrderQty;

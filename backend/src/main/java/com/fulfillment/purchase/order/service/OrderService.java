@@ -7,6 +7,7 @@ import com.fulfillment.common.exception.BusinessException;
 import com.fulfillment.common.exception.ErrorCode;
 import com.fulfillment.common.security.DataScopeResolver;
 import com.fulfillment.common.security.LoginUser;
+import com.fulfillment.common.util.Particles;
 import com.fulfillment.common.security.PermissionChecker;
 import com.fulfillment.common.security.ScopeFilter;
 import com.fulfillment.common.web.PageResponse;
@@ -26,12 +27,13 @@ import com.fulfillment.purchase.order.dto.OrderLineResponse;
 import com.fulfillment.purchase.order.dto.OrderResponse;
 import com.fulfillment.purchase.order.dto.OrderSaveRequest;
 import com.fulfillment.purchase.order.dto.OrderSearch;
+import com.fulfillment.purchase.order.dto.PendingLineResponse;
+import com.fulfillment.purchase.order.dto.PendingSearch;
 import com.fulfillment.purchase.request.dao.RequestDao;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -115,6 +117,26 @@ public class OrderService {
 		return PageResponse.of(rows, total, search.getPage(), search.getSize());
 	}
 
+	/**
+	 * 발주 대기 — 결재는 끝났는데 아직 공급처에 안 나간 줄 (PUR-PG-003).
+	 *
+	 * 승인만 되고 아무도 발주하지 않으면 지금은 어디에도 뜨지 않는다.
+	 * 요청자는 올렸으니 됐다고 보고, 구매 담당은 그런 요청이 있는 줄
+	 * 모른다 — 필요일이 지나서야 센터가 묻는다.
+	 *
+	 * 권한은 <b>발주</b> 기준으로 본다. 구매 담당에게 요청 조회 권한이
+	 * 없을 수 있는데, 없다고 자기가 발주할 것을 못 보면 안 된다.
+	 */
+	@Transactional(readOnly = true)
+	public PageResponse<PendingLineResponse> pending(LoginUser actor, PendingSearch search) {
+		permissionChecker.require(actor, PERM, "R");
+		search.applyScope(dataScopes.forRead(actor, PERM));
+
+		List<PendingLineResponse> rows = orderDao.selectPendingLines(search);
+		long total = search.getSize() <= 0 ? rows.size() : orderDao.countPendingLines(search);
+		return PageResponse.of(rows, total, search.getPage(), search.getSize());
+	}
+
 	@Transactional(readOnly = true)
 	public OrderResponse get(LoginUser actor, Long orderSeq) {
 		permissionChecker.require(actor, PERM, "R");
@@ -157,7 +179,7 @@ public class OrderService {
 				.build();
 		orderDao.insert(order);
 
-		List<String> over = saveLines(order.getOrderSeq(), request.lines(), null);
+		saveLines(order.getOrderSeq(), request.lines(), null, supplier);
 
 		PurchaseOrder saved = mustFind(order.getOrderSeq());
 		auditRecorder.recordAction(actor, "CREATE", TABLE, saved.getOrderNo(),
@@ -165,7 +187,7 @@ public class OrderService {
 						request.lines().size(), supplier.getPartnerName(), request.dueDate()));
 
 		return new Result(OrderResponse.of(saved, linesOf(saved.getOrderSeq())),
-				joinWarnings(warnOnSupplier(supplier), overWarning(over)));
+				warnOnSupplier(supplier));
 	}
 
 	/** 작성중에만 고칠 수 있다. 발주 뒤에는 이미 나간 문서다. */
@@ -195,13 +217,13 @@ public class OrderService {
 				.build());
 
 		orderDao.deleteLines(orderSeq);
-		List<String> over = saveLines(orderSeq, request.lines(), orderSeq);
+		saveLines(orderSeq, request.lines(), orderSeq, supplier);
 
 		PurchaseOrder after = mustFind(orderSeq);
 		auditRecorder.recordAction(actor, "UPDATE", TABLE, after.getOrderNo(),
 				"구매오더 수정 %d 줄".formatted(request.lines().size()));
 		return new Result(OrderResponse.of(after, linesOf(orderSeq)),
-				joinWarnings(warnOnSupplier(supplier), overWarning(over)));
+				warnOnSupplier(supplier));
 	}
 
 	/** 작성중인 오더만 지운다. 나간 적 없는 문서라 흔적을 남길 이유가 없다. */
@@ -324,10 +346,9 @@ public class OrderService {
 	 * @return 승인수량을 넘긴 SKU 코드. 막지 않고 알린다 — 결재 뒤에
 	 *         사정이 바뀌어 더 사야 하는 경우가 실제로 있다.
 	 */
-	private List<String> saveLines(Long orderSeq, List<OrderSaveRequest.Line> requestLines,
-			Long exceptOrderSeq) {
+	private void saveLines(Long orderSeq, List<OrderSaveRequest.Line> requestLines,
+			Long exceptOrderSeq, Partner supplier) {
 		Set<String> seen = new HashSet<>();
-		List<String> over = new ArrayList<>();
 		Map<Long, PurchaseRequestLine> reqLineCache = new HashMap<>();
 		int lineNo = 0;
 
@@ -346,7 +367,7 @@ public class OrderService {
 			}
 
 			BigDecimal unitPrice = resolvePrice(lineNo, rl, sku);
-			checkAgainstApproved(rl, reqLineCache, exceptOrderSeq, over);
+			checkAgainstApproved(rl, reqLineCache, exceptOrderSeq, supplier);
 
 			orderDao.insertLine(PurchaseOrderLine.builder()
 					.orderSeq(orderSeq)
@@ -359,7 +380,6 @@ public class OrderService {
 					.remark(rl.remark())
 					.build());
 		}
-		return over;
 	}
 
 	/**
@@ -416,7 +436,7 @@ public class OrderService {
 	 * 넘겼다는 사실을 반드시 보여 준다.
 	 */
 	private void checkAgainstApproved(OrderSaveRequest.Line rl,
-			Map<Long, PurchaseRequestLine> cache, Long exceptOrderSeq, List<String> over) {
+			Map<Long, PurchaseRequestLine> cache, Long exceptOrderSeq, Partner supplier) {
 		if (rl.requestLineSeq() == null) {
 			return;
 		}
@@ -432,20 +452,70 @@ public class OrderService {
 							+ "정해져야 얼마를 살지 알 수 있습니다.").formatted(rl.skuId()));
 		}
 
+		checkSupplier(rl, reqLine, supplier);
+
+		/*
+		 * 승인수량을 넘으면 거절한다.
+		 *
+		 * 경고만 하던 자리다. 그런데 이 줄은 <b>결재가 사도 된다고 정한
+		 * 한도</b>이고, 넘겨서 내보내면 결재를 우회한 발주가 나간다.
+		 * 경고는 저장을 막지 않으므로 우회가 실제로 가능했다.
+		 *
+		 * 발주를 나눠 내는 것까지 세어서 판정한다 — 60 승인에 40 을 이미
+		 * 냈으면 여기서 낼 수 있는 것은 20 이다. 그래서 '이미 낸 만큼'을
+		 * 함께 알려 준다. 잔량을 모르면 몇으로 고쳐야 할지 알 수 없다.
+		 *
+		 * 더 사야 한다면 그건 이 발주를 늘릴 일이 아니라 새 요청이다
+		 * (PUR-003 과 같은 원칙). 요청 없이 사야 한다면 그 줄을 요청에서
+		 * 떼고 직접 담으면 된다 — 그때는 근거가 없으니 한도도 없다.
+		 */
 		int already = orderDao.sumOrderedByRequestLine(rl.requestLineSeq(), exceptOrderSeq);
 		int total = already + rl.orderQty();
 		if (total > reqLine.getApprovedQty()) {
-			over.add("%s 승인 %d / 발주 %d".formatted(
-					rl.skuId(), reqLine.getApprovedQty(), total));
+			int left = Math.max(reqLine.getApprovedQty() - already, 0);
+			// 이미 나간 것이 있으면 그 사실부터 말한다. 승인 60 인데 20 밖에
+			// 못 넣는 이유가 '40 은 벌써 나갔다' 인 것을 모르면, 숫자만 보고
+			// 결재가 잘못됐다고 생각한다.
+			String why = already > 0
+					? "승인 %d 개 중 %d 개가 이미 발주되어 여기서 낼 수 있는 것은 %d 개인데"
+							.formatted(reqLine.getApprovedQty(), already, left)
+					: "승인은 %d 개인데".formatted(reqLine.getApprovedQty());
+			throw new BusinessException(ErrorCode.INVALID_INPUT,
+					("%s%s 승인수량보다 많이 발주할 수 없습니다. %s %d 개를 넣었습니다. "
+							+ "더 사야 한다면 새 구매요청을 올리세요.")
+							.formatted(rl.skuId(), Particles.topic(rl.skuId()),
+									why, rl.orderQty()));
 		}
 	}
 
-	private static String overWarning(List<String> over) {
-		if (over.isEmpty()) {
-			return null;
+	/**
+	 * 요청 줄의 공급처가 이 발주의 공급처와 같은가.
+	 *
+	 * 발주는 공급처 <b>한 곳</b>에 보내는 문서인데, 요청은 SKU 마다
+	 * 공급처가 달라 한 건에 섞여 들어온다. 그 요청을 통째로 담으면 A 사
+	 * 물건이 적힌 B 사 발주서가 만들어지고, 아무도 대조하지 않으면 그대로
+	 * 나간다 — 공급처는 안 만드는 물건을 주문받고, 우리는 입고 검수에서야
+	 * 안다.
+	 *
+	 * 경고가 아니라 거절이다. 나간 발주는 되돌릴 수 없다.
+	 *
+	 * 요청 줄에 공급처가 없으면 통과시킨다. 지금 그 칸은 요청자가 아는
+	 * 경우에만 적는 참고값이라, 막으면 대부분의 요청이 발주 불가가 된다.
+	 * 어디로 보낼지는 발주 담당이 정하고, 그 판단이 곧 이 발주다.
+	 */
+	private void checkSupplier(OrderSaveRequest.Line rl, PurchaseRequestLine reqLine,
+			Partner supplier) {
+		Long wantSeq = reqLine.getPrefSupplierSeq();
+		if (wantSeq == null || wantSeq.equals(supplier.getPartnerSeq())) {
+			return;
 		}
-		return ("승인수량보다 많이 발주하는 줄이 %d 개 있습니다. 결재가 정한 한도를 넘는 "
-				+ "것이니 확인하세요. — %s").formatted(over.size(), String.join(", ", over));
+		String want = reqLine.getPrefSupplierName();
+		throw new BusinessException(ErrorCode.INVALID_INPUT,
+				("%s%s 공급처가 %s%s 되어 있어 %s 발주에 담을 수 없습니다. 발주 하나는 "
+						+ "공급처 한 곳에 나가는 문서입니다 — %s 것은 따로 발주하세요.")
+						.formatted(rl.skuId(), Particles.topic(rl.skuId()),
+								want, Particles.direction(want),
+								supplier.getPartnerName(), want));
 	}
 
 	/* ------------------------------------------------------------------ */
@@ -487,16 +557,6 @@ public class OrderService {
 		}
 		return ("납품예정일(%s)이 이미 지났습니다. 공급처와 납기를 다시 맞추거나 발주를 "
 				+ "취소하고 새로 내세요.").formatted(order.getDueDate());
-	}
-
-	private static String joinWarnings(String first, String second) {
-		if (first == null) {
-			return second;
-		}
-		if (second == null) {
-			return first;
-		}
-		return first + " " + second;
 	}
 
 	/* ------------------------------------------------------------------ */
