@@ -185,7 +185,7 @@ async function pullFromOrder() {
       orderRemainQty: l.plannedQty,
       remark: '',
     }))
-    toast.success(`${no} 에서 ${lines.value.length} 줄을 담았습니다.`)
+    toast.success(`${no} 에서 ${lines.value.length} 품목을 담았습니다.`)
   } catch (e) {
     serverError.value = e.message
   } finally {
@@ -538,7 +538,7 @@ const createDenyReason = computed(() => session.denyReason('INB_PLAN', 'C'))
           :help="
             needsOrder
               ? '구매입고는 발주가 근거입니다. 발주번호가 필요합니다.'
-              : '발주 없이 받는 물건입니다. 줄을 직접 담으세요.'
+              : '발주 없이 받는 물건입니다. 품목을 직접 담으세요.'
           "
         />
         <FormField
@@ -602,12 +602,12 @@ const createDenyReason = computed(() => session.denyReason('INB_PLAN', 'C'))
       </div>
 
       <div class="lines-head">
-        <strong>받을 SKU {{ lines.length }} 줄 · 합계 {{ num(totalQty) }}</strong>
+        <strong>받을 SKU {{ lines.length }} 품목 · 합계 {{ num(totalQty) }}</strong>
         <button class="btn btn-sm btn-primary" @click="picking = true">+ SKU 담기</button>
       </div>
 
       <div v-if="!lines.length" class="empty-note">
-        담은 SKU 가 없습니다. 발주번호로 불러오거나 'SKU 담기' 로 한 줄 이상 담으세요.
+        담은 SKU 가 없습니다. 발주번호로 불러오거나 'SKU 담기' 로 한 품목 이상 담으세요.
       </div>
 
       <table v-else class="table lines">

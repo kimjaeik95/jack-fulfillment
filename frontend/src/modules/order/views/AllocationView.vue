@@ -136,7 +136,7 @@ const columns = [
   { key: 'orderNo', label: '주문번호', width: '155px', cls: 'code' },
   { key: 'channelName', label: '채널', width: '110px' },
   { key: 'receiverName', label: '수령인', width: '130px' },
-  { key: 'lineCount', label: '줄', width: '56px', align: 'right' },
+  { key: 'lineCount', label: '품목', width: '58px', align: 'right' },
   { key: 'totalQty', label: '수량', width: '70px', align: 'right' },
   { key: 'orderStatus', label: '상태', width: '100px' },
   { key: 'orderedAt', label: '주문일시', width: '132px' },

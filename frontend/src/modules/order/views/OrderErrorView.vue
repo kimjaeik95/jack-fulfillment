@@ -13,7 +13,7 @@
  *
  * 푸는 길이 둘이고 화면도 그 순서다.
  *   재처리     채널 SKU 매핑을 등록 · 확정한 뒤 누른다. 근본 해결이다
- *   SKU 지정   이 줄에만 붙인다. 매핑은 그대로라 같은 코드가 또 오면 또 막힌다
+ *   SKU 지정   이 품목에만 붙인다. 매핑은 그대로라 같은 코드가 또 오면 또 막힌다
  *
  * 왜 안 풀리는지를 행마다 적는다. 재처리 버튼만 있고 이유가 없으면 사용자는
  * 눌러도 0 건이 풀리는 것을 보고 다시 누른다.
@@ -114,7 +114,7 @@ const summary = computed(() => ({
 const columns = [
   { key: 'extProductCode', label: '외부 상품코드', width: '190px', cls: 'code' },
   { key: 'channelName', label: '채널', width: '110px' },
-  { key: 'lineCount', label: '막힌 줄', width: '80px', align: 'right' },
+  { key: 'lineCount', label: '막힌 품목', width: '80px', align: 'right' },
   { key: 'orderCount', label: '주문', width: '70px', align: 'right' },
   { key: 'totalQty', label: '수량', width: '76px', align: 'right' },
   { key: 'oldestOrderedAt', label: '가장 오래된', width: '132px' },
@@ -220,7 +220,7 @@ const detailLoading = ref(false)
 
 const lineColumns = [
   { key: 'orderNo', label: '주문번호', width: '155px', cls: 'code' },
-  { key: 'lineNo', label: '줄', width: '55px', align: 'right' },
+  { key: 'lineNo', label: '#', width: '44px', align: 'right' },
   { key: 'displayName', label: '채널 표시명' },
   { key: 'orderQty', label: '수량', width: '70px', align: 'right' },
   { key: '_act', label: '', width: '120px', align: 'right' },
@@ -292,7 +292,7 @@ async function saveAssign() {
       { skuId: assignForm.sku.skuId, reason: assignForm.reason || null },
     )
     toast.success(
-      `${assigning.value.orderNo} ${assigning.value.lineNo} 번째 줄에 ${assignForm.sku.skuId} 를 붙였습니다.`,
+      `${assigning.value.orderNo} ${assigning.value.lineNo} 번 품목에 ${assignForm.sku.skuId} 를 붙였습니다.`,
     )
     if (warning) toast.warn(warning)
     assigning.value = null
@@ -354,7 +354,7 @@ async function saveAssign() {
       </div>
       <div class="sum">
         <span class="sum-n">{{ num(summary.lines) }}</span>
-        <span class="sum-l">막힌 줄</span>
+        <span class="sum-l">막힌 품목</span>
       </div>
       <div class="sum" :class="{ ready: summary.ready > 0 }">
         <span class="sum-n">{{ num(summary.ready) }}</span>
@@ -417,13 +417,13 @@ async function saveAssign() {
       </template>
 
       <template #cell-_act="{ row }">
-        <button class="btn btn-sm" @click.stop="openDetail(row)">줄 보기</button>
+        <button class="btn btn-sm" @click.stop="openDetail(row)">품목 보기</button>
         <button
           class="btn btn-sm btn-primary"
           :disabled="!canUpdate || busy || !row.reprocessable"
           :title="
             row.reprocessable
-              ? '이 코드로 막힌 줄을 모두 풉니다'
+              ? '이 코드로 막힌 품목을 모두 풉니다'
               : '매핑이 확정되어야 재처리됩니다'
           "
           @click.stop="reprocessOne(row)"
@@ -452,7 +452,7 @@ async function saveAssign() {
         :loading="detailLoading"
         row-key="lineSeq"
         :show-pager="false"
-        empty-text="남은 줄이 없습니다."
+        empty-text="남은 품목이 없습니다."
       >
         <template #cell-displayName="{ row, value }">
           <span>{{ value }}</span>
@@ -463,7 +463,7 @@ async function saveAssign() {
           <button
             class="btn btn-sm"
             :disabled="!canUpdate || busy"
-            :title="updateDenyReason ?? '이 줄에만 SKU 를 붙입니다'"
+            :title="updateDenyReason ?? '이 품목에만 SKU 를 붙입니다'"
             @click="openAssign(row)"
           >
             SKU 지정
@@ -472,7 +472,7 @@ async function saveAssign() {
       </DataTable>
 
       <p v-if="detail.rows.length < detail.total" class="note warn-note">
-        막힌 줄 {{ num(detail.total) }} 개 중 {{ num(detail.rows.length) }} 개만 보고 있습니다.
+        막힌 품목 {{ num(detail.total) }} 개 중 {{ num(detail.rows.length) }} 개만 보고 있습니다.
         재처리는 보이지 않는 줄까지 모두 처리합니다.
       </p>
 
@@ -497,7 +497,7 @@ async function saveAssign() {
     <!-- ── SKU 직접 지정 ────────────────────────────────────── -->
     <ModalDialog
       v-if="assigning"
-      :title="`${assigning.orderNo} · ${assigning.lineNo} 번째 줄`"
+      :title="`${assigning.orderNo} · ${assigning.lineNo} 번 품목`"
       :subtitle="assigning.displayName"
       @close="assigning = null"
     >
@@ -567,7 +567,7 @@ async function saveAssign() {
 
     <SkuPicker
       v-if="picking"
-      title="이 줄에 붙일 SKU"
+      title="이 품목에 붙일 SKU"
       @pick="pickSku"
       @close="picking = false"
     />

@@ -13,7 +13,7 @@
  * 화면이 둘로 나뉜다. 위는 '무엇을 고칠까' 이고 아래는 '내가 올린 것' 이다.
  * 한 목록에 섞으면 완료된 입고 수백 건 사이에서 자기 요청을 찾게 된다.
  *
- * 정정은 <b>적치 행</b>에 건다. 한 줄을 여러 자리에 나눠 놓는 일이 흔한데,
+ * 정정은 <b>적치 행</b>에 건다. 한 품목을 여러 자리에 나눠 놓는 일이 흔한데,
  * 입고 라인에 걸면 어느 자리에서 뺄지를 시스템이 멋대로 정하게 되고 창고에
  * 가 보면 없는 자리에서 뺀 것이 된다.
  */
@@ -105,7 +105,7 @@ const myColumns = [
   { key: 'correctNo', label: '정정번호', width: '150px', cls: 'code' },
   { key: 'inboundNo', label: '입고번호', width: '150px', cls: 'code' },
   { key: 'reasonName', label: '사유', width: '110px' },
-  { key: 'lineCount', label: '줄', width: '50px', align: 'right' },
+  { key: 'lineCount', label: '품목', width: '58px', align: 'right' },
   { key: '_delta', label: '순변동', width: '80px', align: 'right' },
   { key: 'correctStatus', label: '상태', width: '84px', align: 'center' },
   { key: 'requestedAt', label: '요청', width: '140px' },
@@ -502,10 +502,10 @@ async function doCancel() {
       <template #footer>
         <span class="left small">
           <template v-if="filledLines.length">
-            {{ filledLines.length }} 줄 · 순변동
+            {{ filledLines.length }} 품목 · 순변동
             <strong :class="totalDelta < 0 ? 'danger' : 'warn'">{{ signed(totalDelta) }}</strong>
           </template>
-          <span v-else class="dim">고칠 줄에 개수를 적으세요.</span>
+          <span v-else class="dim">고칠 품목에 개수를 적으세요.</span>
         </span>
         <button class="btn" :disabled="busy" @click="target = null">닫기</button>
         <button class="btn btn-primary" :disabled="!canSubmit || busy" @click="submit()">

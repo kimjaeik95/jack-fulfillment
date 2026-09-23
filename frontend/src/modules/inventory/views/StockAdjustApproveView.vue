@@ -88,7 +88,7 @@ const columns = [
   { key: 'adjustNo', label: '전표번호', width: '150px', cls: 'code' },
   { key: 'warehouseName', label: '창고', width: '120px' },
   { key: 'reasonName', label: '사유', width: '100px' },
-  { key: 'lineCount', label: '줄', width: '52px', align: 'right' },
+  { key: 'lineCount', label: '품목', width: '58px', align: 'right' },
   { key: 'totalDelta', label: '순변동', width: '76px', align: 'right' },
   { key: 'requestedByName', label: '요청자', width: '90px' },
   { key: 'requestedAt', label: '요청시각', width: '118px' },
@@ -322,7 +322,7 @@ const pendingCount = computed(() => rows.value.filter((r) => r.pending).length)
       <div v-if="detail.staleLineCount" class="alert alert-warn mt-2">
         <span class="alert-icon">⚠</span>
         <span>
-          요청한 뒤 장부가 움직인 줄이 <strong>{{ detail.staleLineCount }}개</strong> 있습니다
+          요청한 뒤 장부가 움직인 품목이 <strong>{{ detail.staleLineCount }}개</strong> 있습니다
           (아래 표에 표시). 승인하면 반영되는 것은 <strong>변동량</strong>이라, 결과가
           요청자가 적은 목표와 다를 수 있습니다.
         </span>

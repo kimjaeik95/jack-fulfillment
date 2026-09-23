@@ -340,7 +340,7 @@ const denyReason = computed(() => session.denyReason('INB_INSPECT', 'C'))
         <strong>
           금회 검수 — 합격 {{ num(totalPassed) }} / 거부 {{ num(totalRejected) }}
         </strong>
-        <span class="small dim">안 센 수량으로 채워 뒀습니다. 다른 줄만 고치세요.</span>
+        <span class="small dim">안 센 수량으로 채워 뒀습니다. 다른 품목만 고치세요.</span>
       </div>
 
       <table class="table lines">

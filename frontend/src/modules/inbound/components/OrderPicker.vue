@@ -87,7 +87,7 @@ const columns = [
   { key: 'supplierName', label: '공급처', width: '130px' },
   { key: 'plantName', label: '센터', width: '110px' },
   { key: 'dueDate', label: '납기', width: '100px' },
-  { key: 'lineCount', label: '줄', width: '50px', align: 'right' },
+  { key: 'lineCount', label: '품목', width: '58px', align: 'right' },
   { key: 'remainQty', label: '남은 수량', width: '86px', align: 'right' },
   { key: 'orderStatus', label: '상태', width: '90px' },
 ]

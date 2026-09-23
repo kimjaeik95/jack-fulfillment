@@ -125,7 +125,7 @@ const selectedLine = computed(
  * 버튼은 아무 말 없이 잠겨 있다 — 왜 안 되는지 화면 어디에도 없었다.
  */
 const missing = computed(() => {
-  if (!scan.lineSeq) return '먼저 위에서 놓을 줄을 고르세요.'
+  if (!scan.lineSeq) return '먼저 위에서 놓을 품목을 고르세요.'
   if (!scan.skuScan.trim()) return `① SKU 를 스캔하세요 (${selectedLine.value?.skuId ?? ''}).`
   if (!scan.locationScan.trim()) return '② 놓을 자리의 빈 라벨을 스캔하세요.'
   const q = Number(scan.qty)
@@ -385,10 +385,10 @@ const closeDenyReason = computed(
         </span>
       </div>
 
-      <!-- 놓을 줄 고르기 -->
+      <!-- 놓을 품목 고르기 -->
       <div class="lines-head">
-        <strong>놓을 줄</strong>
-        <span class="small dim">남은 수량이 있는 줄만 고를 수 있습니다.</span>
+        <strong>놓을 품목</strong>
+        <span class="small dim">남은 수량이 있는 품목만 고를 수 있습니다.</span>
       </div>
       <table class="table lines">
         <thead>
@@ -446,9 +446,9 @@ const closeDenyReason = computed(
           v-model="scan.skuScan"
           label="① SKU 스캔"
           mono
-          :placeholder="selectedLine ? `${selectedLine.skuId} 를 스캔` : '줄을 먼저 고르세요'"
+          :placeholder="selectedLine ? `${selectedLine.skuId} 를 스캔` : '품목을 먼저 고르세요'"
           :disabled="!scan.lineSeq"
-          help="지시한 줄과 다르면 막습니다."
+          help="지시한 품목과 다르면 막습니다."
           @enter="onSkuScanned()"
         />
         <div class="loc-field">
@@ -488,7 +488,7 @@ const closeDenyReason = computed(
       <template v-if="target.putaways.length">
         <div class="lines-head">
           <strong>놓은 자리 {{ target.putaways.length }} 곳</strong>
-          <span class="small dim">한 줄을 여러 자리에 나눠 놓을 수 있습니다.</span>
+          <span class="small dim">한 품목을 여러 자리에 나눠 놓을 수 있습니다.</span>
         </div>
         <table class="table lines">
           <thead>

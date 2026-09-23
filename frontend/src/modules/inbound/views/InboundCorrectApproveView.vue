@@ -345,7 +345,7 @@ async function reject() {
       <div v-if="shortLines.length" class="alert alert-danger mt-2">
         <span class="alert-icon">⛔</span>
         <span>
-          요청 뒤에 다른 정정이 먼저 반영되어 뺄 것이 모자란 줄이
+          요청 뒤에 다른 정정이 먼저 반영되어 뺄 것이 모자란 품목이
           {{ shortLines.length }} 개 있습니다. 이대로 승인하면 서버가 막습니다 —
           반려하고 남은 수량으로 다시 올리게 하세요.
         </span>
@@ -363,7 +363,7 @@ async function reject() {
 
       <template #footer>
         <span class="left small dim">
-          재고 · 입고 · 발주가 한 트랜잭션에서 움직입니다. 한 줄이라도 실패하면 전부 되돌아갑니다.
+          재고 · 입고 · 발주가 한 트랜잭션에서 움직입니다. 한 품목이라도 실패하면 전부 되돌아갑니다.
         </span>
         <button class="btn" :disabled="busy" @click="target = null">닫기</button>
         <button class="btn btn-danger" :disabled="!canApprove || busy" @click="reject()">

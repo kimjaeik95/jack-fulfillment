@@ -269,7 +269,7 @@ async function allocatePending() {
       :loading="loading"
       row-key="lineSeq"
       :show-pager="false"
-      empty-text="결품 줄이 없습니다."
+      empty-text="결품 품목이 없습니다."
     >
       <template #cell-orderNo="{ row, value }">
         <span class="code">{{ value }}</span>

@@ -89,7 +89,7 @@ const columns = [
   { key: 'requestNo', label: '요청번호', width: '150px', cls: 'code' },
   { key: 'plantName', label: '센터', width: '116px' },
   { key: 'reasonName', label: '사유', width: '96px' },
-  { key: 'lineCount', label: '줄', width: '48px', align: 'right' },
+  { key: 'lineCount', label: '품목', width: '58px', align: 'right' },
   { key: 'totalRequestQty', label: '요청수량', width: '80px', align: 'right' },
   { key: 'requiredDate', label: '필요일', width: '98px', align: 'center' },
   { key: 'requestedByName', label: '요청자', width: '86px' },

@@ -102,7 +102,7 @@ const columns = [
   { key: 'requestNo', label: '요청번호', width: '150px', cls: 'code' },
   { key: 'plantName', label: '센터', width: '120px' },
   { key: 'reasonName', label: '사유', width: '100px' },
-  { key: 'lineCount', label: '줄', width: '50px', align: 'right' },
+  { key: 'lineCount', label: '품목', width: '58px', align: 'right' },
   { key: '_qty', label: '요청 / 승인', width: '110px', align: 'right' },
   { key: 'requiredDate', label: '필요일', width: '100px', align: 'center' },
   { key: 'requestStatus', label: '상태', width: '84px', align: 'center' },
@@ -196,7 +196,7 @@ async function submit() {
     const { request, warning } = editSeq.value
       ? await purchaseApi.update(editSeq.value, payload)
       : await purchaseApi.create(payload)
-    toast.success(`${request.requestNo} — ${request.lineCount} 줄을 올렸습니다.`)
+    toast.success(`${request.requestNo} — ${request.lineCount} 품목을 올렸습니다.`)
     if (warning) toast.warn(warning)
     editing.value = false
     await search()
@@ -446,12 +446,12 @@ const mine = (row) => row.requestedBy === myId.value
       </div>
 
       <div class="lines-head">
-        <strong>요청할 SKU {{ lines.length }} 줄 · 합계 {{ num(totalQty) }}</strong>
+        <strong>요청할 SKU {{ lines.length }} 품목 · 합계 {{ num(totalQty) }}</strong>
         <button class="btn btn-sm btn-primary" @click="picking = true">+ SKU 담기</button>
       </div>
 
       <div v-if="!lines.length" class="empty-note">
-        담은 SKU 가 없습니다. 'SKU 담기' 로 한 줄 이상 담으세요.
+        담은 SKU 가 없습니다. 'SKU 담기' 로 한 품목 이상 담으세요.
       </div>
 
       <table v-else class="table lines">

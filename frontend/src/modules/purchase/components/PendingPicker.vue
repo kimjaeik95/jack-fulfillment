@@ -188,7 +188,7 @@ const columns = [
       </span>
       <button class="btn" @click="emit('close')">닫기</button>
       <button class="btn btn-primary" :disabled="!checked.length" @click="confirm()">
-        {{ checked.length ? `${checked.length} 줄 담기` : '담기' }}
+        {{ checked.length ? `${checked.length} 품목 담기` : '담기' }}
       </button>
     </template>
   </ModalDialog>

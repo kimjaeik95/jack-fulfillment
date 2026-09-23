@@ -5,7 +5,7 @@
  * 장부와 실물이 다를 때 장부를 실물에 맞춘다. 총량이 바뀌므로 요청과
  * 승인을 나눈다 — 이동이나 판매불가 전환과 갈리는 지점이 그것이다.
  *
- * 한 전표에 여러 줄을 담는다. 낱개로 올리면 승인자가 같은 창고의 조정을
+ * 한 전표에 여러 품목을 담는다. 낱개로 올리면 승인자가 같은 창고의 조정을
  * 수십 건 따로 열어 봐야 하고, 그러다 보면 읽지 않고 누른다.
  *
  * 목표수량만 입력받는다. 변동량은 요청 시점 장부수량과의 차이라 서버가
@@ -87,7 +87,7 @@ const columns = [
   { key: 'adjustNo', label: '전표번호', width: '150px', cls: 'code' },
   { key: 'warehouseName', label: '창고', width: '130px' },
   { key: 'reasonName', label: '사유', width: '110px' },
-  { key: 'lineCount', label: '줄', width: '56px', align: 'right' },
+  { key: 'lineCount', label: '품목', width: '58px', align: 'right' },
   { key: 'totalDelta', label: '순변동', width: '80px', align: 'right' },
   { key: 'adjustStatus', label: '상태', width: '86px', align: 'center' },
   { key: 'requestedByName', label: '요청자', width: '90px' },
@@ -202,7 +202,7 @@ async function submit() {
     const { adjust } = editSeq.value
       ? await opsApi.updateAdjust(editSeq.value, payload)
       : await opsApi.createAdjust(payload)
-    toast.success(`${adjust.adjustNo} — ${adjust.lineCount} 줄을 올렸습니다.`)
+    toast.success(`${adjust.adjustNo} — ${adjust.lineCount} 품목을 올렸습니다.`)
     editing.value = false
     await search()
   } catch (e) {
@@ -302,7 +302,7 @@ const QTY_FIELD_OPTIONS = [
         <p class="page-desc">
           장부와 실물이 다를 때 <strong>장부를 실물에 맞춥니다</strong>. 총량이 바뀌므로
           센터 관리자의 승인을 거칩니다 — 요청만으로는 재고가 변하지 않습니다.
-          한 전표에 여러 줄을 담으세요. 낱개로 올리면 승인자가 수십 건을 따로 열어 봐야 합니다.
+          한 전표에 여러 품목을 담으세요. 낱개로 올리면 승인자가 수십 건을 따로 열어 봐야 합니다.
         </p>
       </div>
       <div class="page-head-actions">
@@ -433,7 +433,7 @@ const QTY_FIELD_OPTIONS = [
           :model-value="form.warehouseId ? `${form.plantId} · ${form.warehouseId}` : ''"
           label="창고"
           readonly
-          :placeholder="'첫 줄을 담으면 정해집니다'"
+          :placeholder="'첫 품목을 담으면 정해집니다'"
           help="한 전표는 한 창고만 담습니다. 승인 권한이 창고 단위로 나뉘기 때문입니다."
         />
         <FormField v-model="form.remark" label="비고" class="span-2" />
@@ -445,7 +445,7 @@ const QTY_FIELD_OPTIONS = [
       </div>
 
       <div v-if="!lines.length" class="empty-note">
-        담은 재고가 없습니다. '재고 담기' 로 한 줄 이상 담으세요.
+        담은 재고가 없습니다. '재고 담기' 로 한 품목 이상 담으세요.
       </div>
 
       <table v-else class="table lines">
@@ -563,7 +563,7 @@ const QTY_FIELD_OPTIONS = [
       <div v-if="detail.staleLineCount" class="alert alert-info mt-2">
         <span class="alert-icon">ℹ</span>
         <span>
-          요청한 뒤 장부가 움직인 줄이 <strong>{{ detail.staleLineCount }}개</strong> 있습니다.
+          요청한 뒤 장부가 움직인 품목이 <strong>{{ detail.staleLineCount }}개</strong> 있습니다.
           승인하면 반영되는 것은 목표수량이 아니라 변동량이라, 결과가 목표와 다를 수 있습니다.
         </span>
       </div>

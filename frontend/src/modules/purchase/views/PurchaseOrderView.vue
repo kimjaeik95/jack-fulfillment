@@ -131,7 +131,7 @@ const columns = [
   { key: 'orderNo', label: '발주번호', width: '150px', cls: 'code' },
   { key: 'supplierName', label: '공급처', width: '130px' },
   { key: 'plantName', label: '입고 센터', width: '110px' },
-  { key: 'lineCount', label: '줄', width: '44px', align: 'right' },
+  { key: 'lineCount', label: '품목', width: '58px', align: 'right' },
   { key: '_qty', label: '발주 / 기입고', width: '116px', align: 'right' },
   { key: 'totalAmount', label: '금액', width: '104px', align: 'right' },
   { key: 'dueDate', label: '납기', width: '96px', align: 'center' },
@@ -327,7 +327,7 @@ function pickPending(rows) {
   if (!added.length) return
   pendingByLineSeq.value = map
   lines.value = [...lines.value, ...added]
-  toast.success(added.length + ' 줄을 담았습니다.')
+  toast.success(added.length + ' 품목을 담았습니다.')
 }
 
 /**
@@ -372,7 +372,7 @@ async function submit() {
     const { order, warning } = editSeq.value
       ? await orderApi.update(editSeq.value, payload)
       : await orderApi.create(payload)
-    toast.success(`${order.orderNo} — ${order.lineCount} 줄을 작성했습니다. 아직 나가지 않았습니다.`)
+    toast.success(`${order.orderNo} — ${order.lineCount} 품목을 작성했습니다. 아직 나가지 않았습니다.`)
     if (warning) toast.warn(warning)
     editing.value = false
     // 담은 만큼 대기에서 빠진다
@@ -819,7 +819,7 @@ const createDenyReason = computed(() => session.denyReason('PUR_PO_ISSUE', 'C'))
 
       <div class="lines-head">
         <strong>
-          발주할 SKU {{ lines.length }} 줄 · 수량 {{ num(totalQty) }} · 금액 {{ won(totalAmount) }} 원
+          발주할 SKU {{ lines.length }} 품목 · 수량 {{ num(totalQty) }} · 금액 {{ won(totalAmount) }} 원
         </strong>
         <!--
           대기에서 고르는 것이 기본이다. 결재가 끝난 것만 뜨고 남은 수량이

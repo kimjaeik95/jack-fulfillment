@@ -93,7 +93,7 @@ const columns = [
   { key: 'inboundType', label: '종류', width: '84px', align: 'center' },
   { key: 'supplierName', label: '공급처', width: '124px' },
   { key: '_where', label: '받을 곳', width: '150px' },
-  { key: 'lineCount', label: '줄', width: '48px', align: 'right' },
+  { key: 'lineCount', label: '품목', width: '58px', align: 'right' },
   { key: 'totalPlannedQty', label: '예정수량', width: '86px', align: 'right' },
   { key: '_act', label: '', width: '92px', align: 'right' },
 ]
@@ -338,7 +338,7 @@ const denyReason = computed(() => session.denyReason('INB_ARRIVE', 'C'))
           내린 개수 — 예정 {{ num(arriving.totalPlannedQty) }} / 입하 {{ num(totalArrived) }}
           <span v-if="diff !== 0" class="warn">({{ diff > 0 ? '+' : '' }}{{ diff }})</span>
         </strong>
-        <span class="small dim">예정수량으로 채워 뒀습니다. 다른 줄만 고치세요.</span>
+        <span class="small dim">예정수량으로 채워 뒀습니다. 다른 품목만 고치세요.</span>
       </div>
 
       <table class="table lines">
@@ -384,7 +384,7 @@ const denyReason = computed(() => session.denyReason('INB_ARRIVE', 'C'))
       <div v-if="changed.length" class="alert alert-warn mt-2">
         <span class="alert-icon">⚠</span>
         <span>
-          예정과 다른 줄이 <strong>{{ changed.length }}</strong> 개입니다. 막지 않습니다 —
+          예정과 다른 품목이 <strong>{{ changed.length }}</strong> 개입니다. 막지 않습니다 —
           덜 오거나 더 오는 일은 실제로 있고, <strong>검수에서 판정합니다.</strong>
         </span>
       </div>

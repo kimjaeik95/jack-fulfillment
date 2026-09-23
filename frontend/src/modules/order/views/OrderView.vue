@@ -133,7 +133,7 @@ const columns = [
   { key: 'orderNo', label: '주문번호', width: '155px', cls: 'code' },
   { key: 'origin', label: '채널', width: '140px' },
   { key: 'receiverName', label: '수령인', width: '150px' },
-  { key: 'lineCount', label: '줄', width: '60px', align: 'right' },
+  { key: 'lineCount', label: '품목', width: '60px', align: 'right' },
   { key: 'totalQty', label: '수량', width: '76px', align: 'right' },
   { key: 'orderStatus', label: '상태', width: '100px' },
   { key: 'orderedAt', label: '주문일시', width: '132px' },
@@ -381,7 +381,7 @@ async function submit() {
   if (!form.receiverName?.trim()) errors.receiverName = '수령인은 필수입니다.'
   if (!form.address?.trim()) errors.address = '주소는 필수입니다.'
   if (!lines.value.length) {
-    serverError.value = '주문 라인을 한 줄 이상 담으세요.'
+    serverError.value = '주문 라인을 한 품목 이상 담으세요.'
     return toast.warn('주문할 SKU 를 담으세요.')
   }
   if (lines.value.some((l) => lineError(l))) return toast.warn('라인 수량을 확인하세요.')
@@ -857,7 +857,7 @@ async function submit() {
     <!-- ── 줄 접기 ──────────────────────────────────────────── -->
     <ModalDialog
       v-if="cancelingLine"
-      :title="`${cancelingLine.lineNo} 번째 줄 접기`"
+      :title="`${cancelingLine.lineNo} 번 품목 접기`"
       :subtitle="cancelingLine.skuId ?? cancelingLine.displayName"
       @close="cancelingLine = null"
     >
