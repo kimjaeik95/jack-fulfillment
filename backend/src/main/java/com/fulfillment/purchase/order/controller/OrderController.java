@@ -8,6 +8,7 @@ import com.fulfillment.purchase.order.dto.OrderCancelRequest;
 import com.fulfillment.purchase.order.dto.OrderResponse;
 import com.fulfillment.purchase.order.dto.OrderSaveRequest;
 import com.fulfillment.purchase.order.dto.OrderSearch;
+import com.fulfillment.purchase.order.dto.OrderShortCloseRequest;
 import com.fulfillment.purchase.order.dto.PendingLineResponse;
 import com.fulfillment.purchase.order.dto.PendingSearch;
 import com.fulfillment.purchase.order.service.OrderService;
@@ -120,5 +121,18 @@ public class OrderController {
 	public ApiResponse<OrderResponse> cancel(@PathVariable Long orderSeq,
 			@Valid @RequestBody OrderCancelRequest request) {
 		return ApiResponse.ok(orderService.cancel(CurrentUser.require(), orderSeq, request));
+	}
+
+	/**
+	 * 미납종결 (PUR-PG-004).
+	 *
+	 * 공급처가 남은 수량을 못 보낸다고 했을 때, 그 발주를 끝낸다. 취소와
+	 * 같은 POST 인 이유도 같다 — 필드를 바꾸는 것이 아니라 '끝낸다' 는
+	 * 행위이고, 두 번 부르면 두 번째는 거부되어야 한다.
+	 */
+	@PostMapping("/{orderSeq}/short-close")
+	public ApiResponse<OrderResponse> shortClose(@PathVariable Long orderSeq,
+			@Valid @RequestBody OrderShortCloseRequest request) {
+		return ApiResponse.ok(orderService.shortClose(CurrentUser.require(), orderSeq, request));
 	}
 }

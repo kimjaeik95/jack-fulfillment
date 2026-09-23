@@ -84,4 +84,13 @@ public interface OrderDao {
 	List<PendingLineResponse> selectPendingLines(PendingSearch search);
 
 	long countPendingLines(PendingSearch search);
+
+	/**
+	 * 이 발주에 아직 안 끝난 입고가 몇 건인가.
+	 *
+	 * 미납종결이 쓴다. 예정 · 입하 · 검수중 · 적치중은 <b>진행 중</b>이라
+	 * 물건이 들어오는 길이 아직 열려 있다 — 그 상태에서 발주를 끝내면
+	 * 종결해 둔 발주에 기입고수량이 더 붙는다.
+	 */
+	int countOpenInbounds(@Param("orderSeq") Long orderSeq);
 }

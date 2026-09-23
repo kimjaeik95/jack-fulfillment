@@ -24,6 +24,7 @@ import java.util.List;
  *   발주(ISSUED)     공급처에 나갔다. 입고를 기다린다.
  *   부분입고(PARTIAL) 일부만 들어왔다. 잔량이 남아 있다.
  *   입고완료(CLOSED)  발주수량이 다 들어왔다.
+ *   미납종결(SHORT_CLOSED) 덜 들어왔지만 안 온다고 보고 끝냈다.
  *   취소(CANCELED)    사유와 함께 거둬들였다.
  *
  * 부분입고와 입고완료는 입고(INB)가 만든다. 지금은 그 경로가 없어서
@@ -62,6 +63,11 @@ public class PurchaseOrder {
 	private LocalDateTime canceledAt;
 	/** 취소 사유. 취소에는 필수다 (PUR-006). */
 	private String cancelReason;
+
+	/** 미납종결 (PUR-PG-004). 취소와 칸을 나눠 둔다 */
+	private String closedBy;
+	private java.time.LocalDateTime closedAt;
+	private String closeReason;
 
 	private String createdBy;
 	private LocalDateTime createdAt;
@@ -102,6 +108,8 @@ public class PurchaseOrder {
 	public static final String ISSUED = "ISSUED";
 	public static final String PARTIAL = "PARTIAL";
 	public static final String CLOSED = "CLOSED";
+	/** 미납종결 — 덜 들어왔지만 끝냈다 (PUR-PG-004) */
+	public static final String SHORT_CLOSED = "SHORT_CLOSED";
 	public static final String CANCELED = "CANCELED";
 
 	/** 아직 안 나갔나. 고치고 지울 수 있는 유일한 상태다. */
@@ -125,6 +133,26 @@ public class PurchaseOrder {
 
 	public boolean isClosed() {
 		return CLOSED.equals(orderStatus);
+	}
+
+	/**
+	 * 남은 수량을 안 받기로 하고 끝냈나 (PUR-PG-004).
+	 *
+	 * 입고완료와 다르다. 저쪽은 잔량이 0 이고 이쪽은 잔량이 남아 있다.
+	 * 섞으면 수량 대사에서 '누락' 인지 '종결' 인지 구분할 수 없다.
+	 */
+	public boolean isShortClosed() {
+		return SHORT_CLOSED.equals(orderStatus);
+	}
+
+	/**
+	 * 끝난 발주인가 — 입고완료 · 미납종결 · 취소.
+	 *
+	 * 더 기다릴 것도, 더 받을 것도 없다는 뜻이다. 입고예정을 만들 때와
+	 * 진행현황에서 '아직 안 끝난 것' 을 가릴 때 쓴다.
+	 */
+	public boolean isFinished() {
+		return isClosed() || isShortClosed() || isCanceled();
 	}
 
 	/** 남은 수량 — 발주 합 − 기입고 합 */

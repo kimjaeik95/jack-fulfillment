@@ -477,6 +477,54 @@ async function doCancel() {
   }
 }
 
+/**
+ * 미납종결 (PUR-PG-004).
+ *
+ * 공급처가 "남은 20 은 못 보낸다" 고 했을 때 그 발주를 끝낸다.
+ *
+ * 취소와 다르다. 취소는 아무것도 안 받고 약속을 통째로 거둬들이는 것이고,
+ * 이건 받을 만큼 받고 나머지를 포기하는 것이다. 그래서 한 개도 안 들어온
+ * 발주에는 이 버튼이 안 뜬다 — 그건 취소가 맞다.
+ *
+ * 분할 납품 중인 발주와 구분할 방법은 없다. 잔량이 남은 발주가 '곧 온다'
+ * 인지 '안 온다' 인지는 공급처와 통화한 사람만 안다. 그래서 자동이 아니라
+ * 버튼이고, 누르기 전에 무엇을 포기하는지 숫자로 보여 준다.
+ */
+const askClose = ref(null)
+const closeReason = reactive({ reasonCode: '', remark: '' })
+
+/** 종결할 수 있나 — 받은 것이 있고 남은 것도 있는 발주 */
+const canShortClose = (row) =>
+  row.open && row.totalReceivedQty > 0 && row.remainQty > 0
+
+function openShortClose(row) {
+  closeReason.reasonCode = ''
+  closeReason.remark = ''
+  serverError.value = ''
+  askClose.value = row
+}
+
+async function doShortClose() {
+  acting.value = true
+  try {
+    const order = await orderApi.shortClose(
+      askClose.value.orderSeq,
+      closeReason.reasonCode,
+      closeReason.remark || null,
+    )
+    toast.success(
+      order.orderNo + ' — 미입고 ' + order.remainQty + ' 개를 안 받는 것으로 끝냈습니다.',
+    )
+    askClose.value = null
+    if (detail.value) detail.value = await orderApi.detail(order.orderSeq)
+    await fetchPage()
+  } catch (e) {
+    serverError.value = e.message
+  } finally {
+    acting.value = false
+  }
+}
+
 async function doDelete() {
   acting.value = true
   try {
@@ -662,6 +710,19 @@ const createDenyReason = computed(() => session.denyReason('PUR_PO_ISSUE', 'C'))
               @click.stop="openCancel(row)"
             >
               취소
+            </button>
+            <!--
+              입고가 시작되면 취소는 막히지만 끝낼 길은 있어야 한다.
+              그게 미납종결이다 — 안 들어온다고 확정하고 기다림을 끊는다.
+            -->
+            <button
+              v-else-if="canShortClose(row)"
+              class="btn btn-sm"
+              :disabled="!canCancel"
+              title="남은 수량을 안 받는 것으로 확정하고 끝냅니다"
+              @click.stop="openShortClose(row)"
+            >
+              종결
             </button>
             <span v-else-if="row.open" class="small dim" title="입고가 시작되어 취소할 수 없습니다">
               입고중
@@ -958,6 +1019,15 @@ const createDenyReason = computed(() => session.denyReason('PUR_PO_ISSUE', 'C'))
         >
           취소
         </button>
+        <button
+          v-else-if="canShortClose(detail)"
+          class="btn btn-danger"
+          :disabled="!canCancel"
+          title="남은 수량을 안 받는 것으로 확정하고 끝냅니다"
+          @click="openShortClose(detail)"
+        >
+          미납종결
+        </button>
         <button class="btn" @click="detail = null">닫기</button>
       </template>
     </ModalDialog>
@@ -973,6 +1043,67 @@ const createDenyReason = computed(() => session.denyReason('PUR_PO_ISSUE', 'C'))
       @cancel="askIssue = null"
       @confirm="doIssue()"
     />
+
+    <!-- ── 미납종결 — 안 들어온 것으로 확정한다 ─────────────── -->
+    <ModalDialog
+      v-if="askClose"
+      title="미납종결"
+      :subtitle="askClose.orderNo"
+      @close="askClose = null"
+    >
+      <div v-if="serverError" class="alert alert-danger mb-2">
+        <span class="alert-icon">⛔</span><span>{{ serverError }}</span>
+      </div>
+
+      <!--
+        무엇을 포기하는지 숫자로 먼저 보여 준다. '미입고 20' 을 읽고 누르는
+        것과 그냥 누르는 것은 다르다 — 되돌릴 수 없는 판단이다.
+      -->
+      <div class="close-sum">
+        <span>발주 <strong>{{ num(askClose.totalOrderQty) }}</strong></span>
+        <span>입고 <strong>{{ num(askClose.totalReceivedQty) }}</strong></span>
+        <span class="give-up">안 받기로 <strong>{{ num(askClose.remainQty) }}</strong></span>
+      </div>
+
+      <p class="small">
+        남은 <strong>{{ num(askClose.remainQty) }}</strong> 개는 <strong>안 들어오는 것으로</strong>
+        확정하고 이 발주를 끝냅니다. 공급처가 나눠 보내는 중이라면 누르지 마세요 —
+        그건 그냥 기다리면 됩니다.
+      </p>
+      <p class="small dim">
+        발주수량과 기입고수량은 그대로 둡니다. 되돌릴 수 없고, 그 수량이 그래도
+        필요하면 구매요청을 새로 올려야 합니다.
+      </p>
+
+      <div class="form-grid mt-2">
+        <FormField
+          v-model="closeReason.reasonCode"
+          label="종결 사유"
+          type="select"
+          required
+          empty-option="선택하세요"
+          :options="codeOptions('REASON_PO_CLOSE')"
+          help="어느 공급처가 자주 끊는지는 다음 발주를 어디에 낼지의 근거가 됩니다."
+        />
+        <FormField
+          v-model="closeReason.remark"
+          label="설명"
+          placeholder="공급처와 어떻게 이야기됐는지"
+        />
+      </div>
+
+      <template #footer>
+        <button class="btn" :disabled="acting" @click="askClose = null">닫기</button>
+        <button
+          class="btn btn-danger"
+          :disabled="!closeReason.reasonCode || acting"
+          @click="doShortClose()"
+        >
+          <span v-if="acting" class="spinner"></span>
+          미입고 {{ num(askClose.remainQty) }} 개 종결
+        </button>
+      </template>
+    </ModalDialog>
 
     <!-- ── 취소 — 사유가 필수다 ─────────────────────────────── -->
     <ModalDialog
@@ -1094,5 +1225,18 @@ const createDenyReason = computed(() => session.denyReason('PUR_PO_ISSUE', 'C'))
 }
 .warn {
   color: var(--c-amber, #b45309);
+}
+/* 미납종결 — 무엇을 포기하는지 숫자로 먼저 보인다 */
+.close-sum {
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  border-radius: 6px;
+  background: var(--bg-2, #f6f7f9);
+}
+.close-sum .give-up {
+  color: var(--c-red, #dc2626);
 }
 </style>

@@ -56,6 +56,11 @@ public record OrderResponse(
 		String canceledBy,
 		LocalDateTime canceledAt,
 		String cancelReason,
+		/** 미납종결 — 덜 들어왔지만 끝낸 발주 (PUR-PG-004) */
+		boolean shortClosed,
+		String closedBy,
+		LocalDateTime closedAt,
+		String closeReason,
 		Integer lineCount,
 		Integer totalOrderQty,
 		Integer totalReceivedQty,
@@ -84,6 +89,7 @@ public record OrderResponse(
 				o.getOrderDate(), o.getDueDate(), o.getPayTerm(), o.getRemark(),
 				o.getIssuedBy(), o.getIssuedByName(), o.getIssuedAt(),
 				o.getCanceledBy(), o.getCanceledAt(), o.getCancelReason(),
+				o.isShortClosed(), o.getClosedBy(), o.getClosedAt(), o.getCloseReason(),
 				o.getLineCount(), o.getTotalOrderQty(), o.getTotalReceivedQty(),
 				o.remainQty(), o.progressPercent(), o.getTotalAmount(),
 				lines);

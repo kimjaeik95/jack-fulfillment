@@ -130,6 +130,21 @@ export async function issue(orderSeq) {
  * 입고가 시작된 발주는 취소되지 않는다. 물건이 이미 재고가 된 뒤라
  * 발주를 지운다고 재고가 사라지지 않는다 — 그건 반품이다.
  */
+/**
+ * 미납종결 (PUR-PG-004).
+ *
+ * 남은 수량은 안 들어오는 것으로 확정하고 발주를 끝낸다. 발주수량과
+ * 기입고수량은 그대로 두고 상태와 사유만 붙는다 — 수량을 고치면 '얼마를
+ * 약속했었나' 가 사라진다.
+ */
+export async function shortClose(orderSeq, reasonCode, remark) {
+  const { data } = await post(`/purchase-orders/${orderSeq}/short-close`, {
+    reasonCode,
+    remark,
+  })
+  return data
+}
+
 export async function cancel(orderSeq, reasonCode, remark) {
   const { data } = await post(`/purchase-orders/${orderSeq}/cancel`, {
     reasonCode,

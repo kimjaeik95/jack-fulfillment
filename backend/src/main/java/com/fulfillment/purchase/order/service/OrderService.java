@@ -27,6 +27,7 @@ import com.fulfillment.purchase.order.dto.OrderLineResponse;
 import com.fulfillment.purchase.order.dto.OrderResponse;
 import com.fulfillment.purchase.order.dto.OrderSaveRequest;
 import com.fulfillment.purchase.order.dto.OrderSearch;
+import com.fulfillment.purchase.order.dto.OrderShortCloseRequest;
 import com.fulfillment.purchase.order.dto.PendingLineResponse;
 import com.fulfillment.purchase.order.dto.PendingSearch;
 import com.fulfillment.purchase.request.dao.RequestDao;
@@ -71,6 +72,7 @@ public class OrderService {
 	private static final String PERM = "PUR_PO_ISSUE";
 	/** 취소. 발주를 내는 일과 거둬들이는 일은 무게가 달라 V3 가 나눠 뒀다. */
 	private static final String PERM_CANCEL = "PUR_PO_CANCEL";
+	private static final String REASON_PO_CLOSE = "REASON_PO_CLOSE";
 	private static final String TABLE = "tb_purchase_order";
 	private static final String REASON_PO_CANCEL = "REASON_PO_CANCEL";
 
@@ -330,6 +332,106 @@ public class OrderService {
 		auditRecorder.recordAction(actor, "CANCEL", TABLE, after.getOrderNo(),
 				"발주 취소 — " + reason);
 		return OrderResponse.of(after, linesOf(orderSeq));
+	}
+
+	/**
+	 * 미납종결 — 남은 수량은 안 들어오는 것으로 확정하고 끝낸다 (PUR-PG-004).
+	 *
+	 * 공급처가 "남은 20 은 못 보낸다" 고 했을 때 쓴다. 지금까지는 그 발주를
+	 * 끝낼 길이 하나도 없었다 — 나간 발주는 못 고치고, 일부라도 입고되면
+	 * 취소가 막히고, 승인된 요청도 못 고친다. 그래서 '부분입고' 로 영원히
+	 * 남아, 입고 담당은 오지 않을 물건을 계속 기다렸다.
+	 *
+	 * <b>분할 납품과 섞으면 안 된다.</b> 공급처가 나눠 보내는 것은 정상이고
+	 * 그건 그냥 기다리면 된다. 둘을 시스템이 구분할 수는 없다 — 잔량이 남은
+	 * 발주가 '곧 온다' 인지 '안 온다' 인지는 공급처와 통화한 사람만 안다.
+	 * 그래서 배치가 아니라 사람이 누르는 버튼이다.
+	 *
+	 * 수량은 건드리지 않는다. 발주수량 100 도 기입고수량 80 도 그대로 두고
+	 * 상태와 사유만 따로 적는다. 100 을 80 으로 고치면 "얼마를 약속했었나"
+	 * 가 사라진다 (PUR-003 과 같은 원칙).
+	 *
+	 * 취소와 같은 권한으로 본다. 둘 다 '공급처와의 약속을 우리가 끊는' 일이고,
+	 * 발주를 낼 수 있다고 끊을 수 있는 것은 아니다.
+	 */
+	@Transactional
+	public OrderResponse shortClose(LoginUser actor, Long orderSeq,
+			OrderShortCloseRequest request) {
+		permissionChecker.require(actor, PERM_CANCEL, "U");
+
+		PurchaseOrder order = mustFindInScope(actor, orderSeq, PERM_CANCEL, "U");
+		codeValues.require(REASON_PO_CLOSE, request.reasonCode(), "종결 사유");
+
+		requireShortCloseable(order);
+
+		String reason = request.remark() == null
+				? request.reasonCode()
+				: "%s — %s".formatted(request.reasonCode(), request.remark());
+
+		int changed = orderDao.updateStatus(orderSeq, order.getOrderStatus(),
+				PurchaseOrder.SHORT_CLOSED, actorId(actor), reason);
+		requireChanged(changed, order, "미납종결");
+
+		PurchaseOrder after = mustFind(orderSeq);
+		auditRecorder.recordAction(actor, "CLOSE", TABLE, after.getOrderNo(),
+				"발주 미납종결 — 발주 %d / 입고 %d / 미입고 %d, %s".formatted(
+						nz(order.getTotalOrderQty()), nz(order.getTotalReceivedQty()),
+						order.remainQty(), reason));
+		return OrderResponse.of(after, linesOf(orderSeq));
+	}
+
+	/**
+	 * 종결할 수 있는 상태인가.
+	 *
+	 * 잔량이 남은 발주만 종결한다. 다 들어온 발주는 이미 끝났고, 한 개도
+	 * 안 들어온 발주는 <b>취소</b>가 맞다 — 받은 것이 없으면 공급처와의
+	 * 약속을 통째로 거둬들이는 것이지, 일부만 받고 끝내는 것이 아니다.
+	 * 둘을 섞으면 "80 받고 끝낸 건" 과 "아예 안 받은 건" 이 같은 상태가 되어
+	 * 공급처별 미납률을 셀 수 없다.
+	 */
+	private void requireShortCloseable(PurchaseOrder order) {
+		if (order.isDraft()) {
+			throw new BusinessException(ErrorCode.IN_USE,
+					("아직 공급처에 나가지 않은 발주입니다. (%s) 낼 생각이 없으면 "
+							+ "삭제하세요.").formatted(order.getOrderNo()));
+		}
+		if (order.isCanceled() || order.isShortClosed()) {
+			throw new BusinessException(ErrorCode.IN_USE,
+					"이미 끝난 발주입니다. (%s, %s)".formatted(
+							order.getOrderNo(), statusLabel(order.getOrderStatus())));
+		}
+		if (order.isClosed() || order.remainQty() <= 0) {
+			throw new BusinessException(ErrorCode.IN_USE,
+					("발주수량이 다 들어온 발주입니다. (%s) 미입고가 없으니 종결할 것이 "
+							+ "없습니다.").formatted(order.getOrderNo()));
+		}
+		if (nz(order.getTotalReceivedQty()) == 0) {
+			throw new BusinessException(ErrorCode.IN_USE,
+					("한 개도 안 들어온 발주입니다. (%s) 이건 미납종결이 아니라 취소입니다 — "
+							+ "받은 것이 없으면 약속을 통째로 거둬들이는 것이 맞습니다.")
+							.formatted(order.getOrderNo()));
+		}
+
+		/*
+		 * 진행 중인 입고가 있으면 막는다.
+		 *
+		 * 입고예정을 새로 만드는 것은 isOpen() 이 이미 막는다 — 미납종결은
+		 * ISSUED 도 PARTIAL 도 아니다. 그런데 <b>종결하기 전에 이미 만들어
+		 * 둔</b> 예정은 그대로 살아 있다. 그게 검수까지 가면 종결해 둔 발주에
+		 * 기입고수량이 더 붙고, 상태는 미납종결 그대로라 '안 온다고 했는데
+		 * 들어온' 행이 남는다.
+		 *
+		 * 그 예정을 먼저 정리하는 것이 맞다 — 공급처가 안 보낸다고 한 물건을
+		 * 창고가 계속 기다리게 둘 이유가 없다.
+		 */
+		int openInbounds = orderDao.countOpenInbounds(order.getOrderSeq());
+		if (openInbounds > 0) {
+			throw new BusinessException(ErrorCode.IN_USE,
+					("아직 끝나지 않은 입고가 %d 건 있습니다. (%s) 먼저 그 입고를 "
+							+ "취소하거나 끝내세요 — 안 들어온다고 확정하면서 받을 준비를 "
+							+ "남겨 두면, 창고는 오지 않을 물건을 계속 기다립니다.")
+							.formatted(openInbounds, order.getOrderNo()));
+		}
 	}
 
 	/* ------------------------------------------------------------------ */
@@ -646,6 +748,7 @@ public class OrderService {
 			case PurchaseOrder.ISSUED -> "발주";
 			case PurchaseOrder.PARTIAL -> "부분입고";
 			case PurchaseOrder.CLOSED -> "입고완료";
+			case PurchaseOrder.SHORT_CLOSED -> "미납종결";
 			case PurchaseOrder.CANCELED -> "취소";
 			default -> status;
 		};

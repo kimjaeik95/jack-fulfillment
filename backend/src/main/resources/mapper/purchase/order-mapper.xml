@@ -21,6 +21,9 @@
         <result property="canceledBy"       column="canceled_by"/>
         <result property="canceledAt"       column="canceled_at"/>
         <result property="cancelReason"     column="cancel_reason"/>
+        <result property="closedBy"         column="closed_by"/>
+        <result property="closedAt"         column="closed_at"/>
+        <result property="closeReason"      column="close_reason"/>
         <result property="createdBy"        column="created_by"/>
         <result property="createdAt"        column="created_at"/>
         <result property="updatedBy"        column="updated_by"/>
@@ -75,6 +78,7 @@
         o.order_seq, o.order_no, o.supplier_seq, o.plant_seq, o.request_seq,
         o.order_status, o.order_date, o.due_date, o.pay_term, o.remark,
         o.issued_by, o.issued_at, o.canceled_by, o.canceled_at, o.cancel_reason,
+        o.closed_by, o.closed_at, o.close_reason,
         o.created_by, o.created_at, o.updated_by, o.updated_at,
         s.partner_id       AS supplier_id,
         s.partner_name     AS supplier_name,
@@ -317,6 +321,15 @@
                canceled_at   = CURRENT_TIMESTAMP,
                cancel_reason = #{cancelReason},
             </when>
+            <!--
+              미납종결 (PUR-PG-004). 취소와 칸을 나눠 둔다 — 목록에서 그 값이
+              취소 사유인지 종결 사유인지를 상태로 되짚지 않아도 되게.
+            -->
+            <when test='toStatus == "SHORT_CLOSED"'>
+               closed_by    = #{actor},
+               closed_at    = CURRENT_TIMESTAMP,
+               close_reason = #{cancelReason},
+            </when>
         </choose>
                updated_by   = #{actor},
                updated_at   = CURRENT_TIMESTAMP
@@ -336,6 +349,19 @@
       낼 수 있어야 한다. 수정할 때는 자기 자신도 뺀다. 안 그러면 고칠 때마다
       자기 수량을 두 번 세어 늘 초과로 판정한다.
     -->
+    <!--
+      아직 안 끝난 입고 건수 (PUR-PG-004 미납종결).
+
+      입고완료 · 취소는 끝난 것이라 세지 않는다. 나머지(예정 · 입하 ·
+      검수중 · 적치중)는 물건이 들어오는 길이 아직 열려 있다는 뜻이다.
+    -->
+    <select id="countOpenInbounds" resultType="int">
+        SELECT COUNT(*)
+          FROM tb_inbound i
+         WHERE i.order_seq = #{orderSeq}
+           AND i.inbound_status NOT IN ('DONE','CANCELED')
+    </select>
+
     <select id="sumOrderedByRequestLine" resultType="int">
         SELECT COALESCE(SUM(l.order_qty), 0)
           FROM tb_purchase_order_line l
