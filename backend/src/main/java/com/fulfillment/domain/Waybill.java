@@ -49,6 +49,26 @@ public class Waybill {
 	private String cancelReason;
 	private String remark;
 
+	/* ── 배송 (6차) ─────────────────────────────────────────── */
+
+	/**
+	 * 어디까지 갔나. 코드그룹 DELIVERY_STATUS.
+	 *
+	 * waybillStatus(발급 · 취소)와 <b>다른 축</b>이다. 취소된 송장은 배송이
+	 * 시작조차 안 된 것이고, 이 값은 살아 있는 송장이 지금 어디 있나 이다.
+	 */
+	private String deliveryStatus;
+
+	/** 고객이 받은 시각. 운송중 재고에서 빠지는 시점이다 */
+	private LocalDateTime deliveredAt;
+
+	/** 마지막으로 상태를 찍은 사람과 시각 */
+	private LocalDateTime statusAt;
+	private String statusBy;
+
+	/** 재배송이면 실패한 원 송장. 라벨 재발행(reissuedFrom)과 다르다 */
+	private Long redeliveryOf;
+
 	/* ── 조인해서 채우는 값 ─────────────────────────────────── */
 
 	private String courierName;
@@ -70,6 +90,17 @@ public class Waybill {
 	private String plantName;
 	private Integer totalPackedQty;
 
+	/** 배송 화면이 쓰는 값 */
+	private String statusByName;
+	private String redeliveryOfNo;
+	private LocalDateTime handedOverAt;
+	/** 인계한 지 며칠 됐나. 지연 판정에 쓴다 */
+	private Integer daysInTransit;
+	/** 마지막 사건의 사유 — 왜 멈춰 있나 */
+	private String lastReasonCode;
+	private String lastReasonName;
+	private String lastRemark;
+
 	public static final String ISSUED = "ISSUED";
 	public static final String CANCELED = "CANCELED";
 
@@ -84,5 +115,26 @@ public class Waybill {
 	/** 다시 뽑은 것인가 */
 	public boolean isReissued() {
 		return reissuedFrom != null;
+	}
+
+	/** 다시 보내는 것인가 — 실패한 송장을 대신한다 */
+	public boolean isRedelivery() {
+		return redeliveryOf != null;
+	}
+
+	/** 고객이 받았나 */
+	public boolean isDelivered() {
+		return DeliveryEvent.DELIVERED.equals(deliveryStatus);
+	}
+
+	/**
+	 * 아직 길 위에 있나.
+	 *
+	 * 살아 있는 송장인데 배송완료도 분실도 아니면 운송중이다. 실패 · 반송도
+	 * 여기 든다 — 물건이 어딘가에 있고 우리 창고에도 고객에게도 없는 것은
+	 * 마찬가지라서, 재고 관점에서는 똑같이 떠 있는 수량이다.
+	 */
+	public boolean isInTransit() {
+		return isIssued() && !DeliveryEvent.isTerminal(deliveryStatus);
 	}
 }

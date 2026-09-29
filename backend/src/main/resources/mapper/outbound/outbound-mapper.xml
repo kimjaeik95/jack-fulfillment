@@ -1278,4 +1278,311 @@
                               AND w.waybill_status = 'ISSUED')
     </select>
 
+    <!--
+      ════════════════════════════════════════════════════════════════
+      출고확정 · 인계 · 수량 체인 (PAC-PG-005, 006, OUT-PG-007)
+      ════════════════════════════════════════════════════════════════
+    -->
+
+    <!--
+      출고확정이 재고에서 뺄 것 — 빈별로 모은다.
+
+      피킹 실적을 (지시줄, 빈, 할당) 으로 묶어 합친다. 한 줄이 여러 빈에서
+      나뉘어 잡히고 되돌림(음수)까지 섞이므로, 합쳐야 '이 빈에서 몇 개' 가
+      나온다. 합이 0 인 것은 집었다 되돌린 것이라 뺀다.
+    -->
+    <select id="selectPicksToShip" resultType="com.fulfillment.domain.OutboundPick">
+        SELECT p.line_seq              AS lineSeq,
+               p.stock_seq             AS stockSeq,
+               MIN(p.alloc_seq)        AS allocSeq,
+               SUM(p.picked_qty)::int  AS pickedQty,
+               MIN(lo.location_id)     AS locationId,
+               MIN(k.sku_id)           AS skuId
+          FROM tb_outbound_pick p
+          JOIN tb_stock    s  ON s.stock_seq     = p.stock_seq
+          JOIN tb_location lo ON lo.location_seq = s.location_seq
+          JOIN tb_sku      k  ON k.sku_seq       = s.sku_seq
+         WHERE p.outbound_seq = #{outboundSeq}
+         GROUP BY p.line_seq, p.stock_seq, p.alloc_seq
+        HAVING SUM(p.picked_qty) &gt; 0
+         ORDER BY MIN(lo.location_id)
+    </select>
+
+    <!--
+      확정하려는 지시를 잠근다.
+
+      두 사람이 동시에 확정을 누르면 재고가 두 번 빠진다. 헤더를 먼저 잠가
+      뒤에 온 쪽이 기다리게 하고, 깨어나서 상태를 다시 보면 이미 나간 것을
+      알게 된다.
+    -->
+    <select id="selectForShip" resultMap="outboundMap">
+        SELECT o.outbound_seq, o.outbound_no, o.outbound_status, o.plant_seq,
+               o.single_pack, o.shipped_by, o.shipped_at
+          FROM tb_outbound o
+         WHERE o.outbound_seq = #{outboundSeq}
+           FOR UPDATE
+    </select>
+
+    <!--
+      할당을 출고소진으로.
+
+      재고에서 빠졌으니 이 할당은 끝났다. 살아 있는 것만 바꾼다 — 이미
+      해제된 할당을 소진으로 덮으면 '왜 풀렸나' 가 사라진다.
+    -->
+    <update id="markAllocPicked">
+        UPDATE tb_stock_alloc
+           SET alloc_status = 'PICKED',
+               updated_by   = #{actor},
+               updated_at   = CURRENT_TIMESTAMP
+         WHERE alloc_seq    = #{allocSeq}
+           AND alloc_status = 'ALLOCATED'
+    </update>
+
+
+    <!-- 인계 (PAC-PG-006) -->
+
+    <!--
+      송장번호로 박스를 찾는다.
+
+      집화 스캔이 찍는 것은 송장번호다 — 박스번호는 우리 안에서만 쓰는
+      이름이라 기사 손에는 없다. 취소된 송장은 안 본다.
+    -->
+    <select id="selectBoxByWaybillNo" resultMap="boxMap">
+        SELECT <include refid="boxColumns"/>
+          FROM tb_pack_box b
+          LEFT JOIN tb_user cu ON cu.user_id = b.closed_by
+          JOIN tb_waybill w ON w.box_seq        = b.box_seq
+                           AND w.waybill_status = 'ISSUED'
+         WHERE w.waybill_no = #{waybillNo}
+    </select>
+
+    <update id="markHandedOver">
+        UPDATE tb_pack_box
+           SET handed_over_by = #{actor},
+               handed_over_at = CURRENT_TIMESTAMP,
+               updated_by     = #{actor},
+               updated_at     = CURRENT_TIMESTAMP
+         WHERE box_seq        = #{boxSeq}
+           AND handed_over_at IS NULL
+    </update>
+
+    <!--
+      인계가 곧 배송의 시작이다 (6차 · DLV-PG-002).
+
+      택배사가 실어 간 순간부터 물건은 길 위에 있다. 여기서 배송중으로
+      세워 두지 않으면 CS 가 인계된 박스를 하나하나 다시 찍어야 하고,
+      운송중 재고도 그때까지 비어 있는다.
+    -->
+    <update id="startDelivery">
+        UPDATE tb_waybill
+           SET delivery_status = 'IN_TRANSIT',
+               status_by       = #{actor},
+               status_at       = CURRENT_TIMESTAMP
+         WHERE box_seq         = #{boxSeq}
+           AND waybill_status  = 'ISSUED'
+           AND delivery_status = 'READY'
+    </update>
+
+    <!--
+      인계는 배송 자취의 <b>첫 줄</b>이다.
+
+      상태만 세우고 사건을 안 남기면, 나중에 자취를 펼쳤을 때 '배달출발'
+      부터 시작한다 — 언제 택배사가 실어 갔는지가 사라지고, 지연을 따질 때
+      기준이 되는 그 시각을 자취에서 못 찾는다.
+
+      출고(4차)가 배송(6차) 표에 쓰는 유일한 곳이다. 인계라는 한 사건이
+      두 섹터의 경계라서, 그 사건을 아는 쪽이 적는 것이 맞다.
+    -->
+    <insert id="insertDeliveryStartEvent">
+        INSERT INTO tb_delivery_event (
+            waybill_seq, event_status, remark, occurred_at, source, created_by
+        )
+        SELECT w.waybill_seq, 'IN_TRANSIT', '택배 인계', CURRENT_TIMESTAMP, 'MANUAL', #{actor}
+          FROM tb_waybill w
+         WHERE w.box_seq         = #{boxSeq}
+           AND w.waybill_status  = 'ISSUED'
+           AND w.delivery_status = 'IN_TRANSIT'
+           AND NOT EXISTS (
+               SELECT 1 FROM tb_delivery_event e
+                WHERE e.waybill_seq  = w.waybill_seq
+                  AND e.event_status = 'IN_TRANSIT')
+    </insert>
+
+    <select id="countBoxesNotHandedOver" resultType="int">
+        SELECT COUNT(*)
+          FROM tb_pack_box b
+         WHERE b.outbound_seq   = #{outboundSeq}
+           AND b.handed_over_at IS NULL
+    </select>
+
+
+    <!--
+      이 주문의 아직 안 나간 지시 수.
+
+      취소된 지시는 세지 않는다 — 거둬들인 지시는 나갈 일이 없다.
+    -->
+    <select id="countUnshippedOfOrder" resultType="int">
+        SELECT COUNT(DISTINCT ob.outbound_seq)
+          FROM tb_outbound_line ol
+          JOIN tb_outbound      ob ON ob.outbound_seq = ol.outbound_seq
+          JOIN tb_order_line    l  ON l.line_seq      = ol.order_line_seq
+         WHERE l.order_seq        = #{orderSeq}
+           AND ob.outbound_status NOT IN ('SHIPPED','CANCELED')
+    </select>
+
+    <!--
+      수량 체인 (OUT-PG-007).
+
+      지시 -> 집음 -> 검수 -> 담음 -> 출고 를 한 줄에 세운다. 각 단계가 앞
+      단계를 넘을 수 없게 막아 뒀으므로 이 줄은 늘 내림차순이고, 어디서
+      꺾이는지가 곧 어디서 틀어졌나 이다.
+
+      출고수량은 재고이력에서 가져온다. 지시 라인에 '나간 수량' 칸을 따로
+      두지 않은 것은, 실제로 재고에서 빠진 값과 우리가 적어 둔 값이 어긋날
+      수 있기 때문이다 — 대사하는 화면이 그 둘을 같은 데서 가져오면 대사가
+      아니다.
+
+      unexplained 는 '지시 − 집음 − 결품' 이다. 결품은 사유가 남아 있으니
+      0 이어야 정상이고, 0 이 아니면 아무도 설명하지 못한 수량이다.
+    -->
+    <sql id="chainFrom">
+        FROM tb_outbound_line ol
+        JOIN tb_outbound   o  ON o.outbound_seq  = ol.outbound_seq
+        JOIN tb_plant      pl ON pl.plant_seq    = o.plant_seq
+        JOIN tb_sku        k  ON k.sku_seq       = ol.sku_seq
+        JOIN tb_product    pr ON pr.product_seq  = k.product_seq
+        JOIN tb_order_line l  ON l.line_seq      = ol.order_line_seq
+        JOIN tb_order      so ON so.order_seq    = l.order_seq
+        LEFT JOIN LATERAL (
+            SELECT COALESCE(SUM(bl.packed_qty), 0)::int AS packed
+              FROM tb_pack_box_line bl
+             WHERE bl.line_seq = ol.line_seq
+        ) pk ON TRUE
+        LEFT JOIN LATERAL (
+            SELECT COALESCE(SUM(-h.qty_delta), 0)::int AS shipped
+              FROM tb_stock_history h
+              JOIN tb_stock        s2 ON s2.stock_seq = h.stock_seq
+             WHERE h.ref_type  = 'OUTBOUND'
+               AND h.ref_no    = o.outbound_no
+               AND h.qty_field = 'ON_HAND'
+               AND s2.sku_seq  = ol.sku_seq
+        ) sh ON TRUE
+    </sql>
+
+    <!--
+      틀어졌나.
+
+      목록을 거르는 데도 쓰고 줄마다 표시하는 데도 쓴다. 두 곳에 따로 적어
+      두면 한쪽만 고쳐져서, 목록에는 안 뜨는데 열어 보면 빨간 줄이거나 그
+      반대가 된다. 한 군데서만 정의한다.
+
+      네 가지가 '틀어진 것' 이다.
+        설명 안 되는 차이가 있다 (지시 != 집음 + 결품)
+        센 것이 집은 것보다 적다
+        담은 것이 센 것보다 적다
+        나간 것이 담은 것과 다르다
+
+      전부 <b>그 단계가 끝난 뒤에만</b> 본다. 숫자만으로는 '아직 안 했다' 와
+      '하다가 없어졌다' 를 구분할 수 없어서다 — 집음 5 · 검수 0 은 아직 안 센
+      것일 수도 있고 카트에서 사라진 것일 수도 있는데, 둘의 숫자가 같다.
+      구분해 주는 것은 상태뿐이다.
+
+      이 조건이 없으면 지시를 낼 때마다 한 건씩 쌓인다. 오늘 30 건 냈으면
+      30 건이 사고로 떠 있고, 그 사이에 낀 진짜 사고 한 건은 아무도 못 찾는다.
+      경보가 늘 울리면 경보가 아니다.
+
+      검수를 PACKED 부터 보는 이유: 패킹 중에는 세고 담고 또 세고 담을 수
+      있어서 검수 &lt; 집음 이 정상이다. 패킹이 끝났는데도 센 것이 집은 것보다
+      적으면 그때는 설명이 필요하다.
+
+      CANCELED 는 어느 가지에도 안 걸린다. 거둔 지시는 지시 5 · 집음 0 이
+      정상이라 여기 뜨면 안 된다.
+    -->
+    <sql id="chainBroken">
+        ( (o.outbound_status IN ('PICKED','PACKING','PACKED','SHIPPED')
+           AND ol.instructed_qty &lt;&gt; ol.picked_qty + ol.shortage_qty)
+       OR (o.outbound_status IN ('PACKED','SHIPPED')
+           AND ol.inspected_qty &lt;&gt; ol.picked_qty)
+       OR (o.outbound_status IN ('PACKED','SHIPPED')
+           AND pk.packed &lt;&gt; ol.inspected_qty)
+       OR (o.outbound_status = 'SHIPPED'
+           AND sh.shipped &lt;&gt; pk.packed) )
+    </sql>
+
+    <sql id="chainWhere">
+        <where>
+            <if test="keyword != null">
+                AND (o.outbound_no   ILIKE '%' || #{keyword} || '%'
+                  OR so.order_no     ILIKE '%' || #{keyword} || '%'
+                  OR k.sku_id        ILIKE '%' || #{keyword} || '%'
+                  OR pr.product_name ILIKE '%' || #{keyword} || '%')
+            </if>
+            <if test="plantId != null">
+                AND pl.plant_id = #{plantId}
+            </if>
+            <if test='brokenOnly == "Y"'>
+                AND <include refid="chainBroken"/>
+            </if>
+            <if test="fromDate != null">
+                AND o.instructed_at &gt;= #{fromDate}
+            </if>
+            <if test="toDate != null">
+                AND o.instructed_at &lt; (#{toDate}::date + 1)
+            </if>
+
+            <if test="!scope.unrestricted">
+                <choose>
+                    <when test="scope.hasNoOrg">
+                        AND o.instructed_by = #{scope.ownerId}
+                    </when>
+                    <otherwise>
+                        AND ( pl.org_seq IN
+                              <foreach collection="scope.orgSeqs" item="org" open="(" separator="," close=")">
+                                  #{org}
+                              </foreach>
+                              OR o.instructed_by = #{scope.ownerId} )
+                    </otherwise>
+                </choose>
+            </if>
+        </where>
+    </sql>
+
+    <select id="selectChainRows" resultType="com.fulfillment.outbound.dto.ChainRowResponse">
+        SELECT o.outbound_seq    AS outboundSeq,
+               o.outbound_no     AS outboundNo,
+               o.outbound_status AS outboundStatus,
+               so.order_no       AS orderNo,
+               so.receiver_name  AS receiverName,
+               pl.plant_name     AS plantName,
+               ol.line_seq       AS lineSeq,
+               ol.line_no        AS lineNo,
+               k.sku_id          AS skuId,
+               k.color_code      AS colorCode,
+               k.size_code       AS sizeCode,
+               pr.product_name   AS productName,
+               ol.instructed_qty AS instructedQty,
+               ol.picked_qty     AS pickedQty,
+               ol.shortage_qty   AS shortageQty,
+               ol.shortage_reason AS shortageReason,
+               ol.inspected_qty  AS inspectedQty,
+               pk.packed         AS packedQty,
+               sh.shipped        AS shippedQty,
+               (ol.instructed_qty - ol.picked_qty - ol.shortage_qty) AS unexplained,
+               <include refid="chainBroken"/> AS broken,
+               o.instructed_at   AS instructedAt,
+               o.shipped_at      AS shippedAt
+        <include refid="chainFrom"/>
+        <include refid="chainWhere"/>
+         ORDER BY o.instructed_at DESC, ol.line_no
+        <if test="size > 0">
+            LIMIT #{size} OFFSET #{offset}
+        </if>
+    </select>
+
+    <select id="countChainRows" resultType="long">
+        SELECT COUNT(*)
+        <include refid="chainFrom"/>
+        <include refid="chainWhere"/>
+    </select>
+
 </mapper>

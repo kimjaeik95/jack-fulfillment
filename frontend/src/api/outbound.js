@@ -254,3 +254,45 @@ export async function reissueWaybill(waybillSeq, body) {
   const { data } = await post(`/outbounds/waybills/${waybillSeq}/reissue`, body)
   return data
 }
+
+/* ── 출고확정 · 인계 · 체인 (PAC-PG-005, 006, OUT-PG-007) ───── */
+
+/**
+ * 출고확정 — 여기서 재고가 줄어든다.
+ *
+ * 보유와 할당을 같이 줄인다. 되돌릴 수 없다: 물건이 창고에 없는데 전산만
+ * 돌려놓으면 팔 수 있다고 표시된 수량이 실제로는 없는 상태가 된다.
+ */
+export async function ship(outboundSeq) {
+  const { data } = await post(`/outbounds/${outboundSeq}/ship`, {})
+  return data
+}
+
+/**
+ * 집화 스캔 — 택배사가 실어 갔다.
+ *
+ * 찍는 것은 송장번호다. 박스번호는 우리 안에서만 쓰는 이름이라 기사
+ * 손에는 없다. 한 건이 실패해도 나머지는 처리한다.
+ */
+export async function handOver(waybillNos) {
+  const { data } = await post(`/outbounds/handover`, { waybillNos })
+  return data
+}
+
+/**
+ * 수량 체인 — 지시 → 집음 → 검수 → 담음 → 출고.
+ *
+ * 기본은 틀어진 것만. 정상 건까지 보여 주면 찾으려던 것이 묻힌다.
+ */
+export async function chain(params = {}) {
+  const { data } = await get(`/outbounds/chain`, {
+    keyword: params.keyword,
+    plantId: params.plantId,
+    brokenOnly: params.brokenOnly,
+    fromDate: params.fromDate,
+    toDate: params.toDate,
+    page: params.page,
+    size: params.size,
+  })
+  return data
+}

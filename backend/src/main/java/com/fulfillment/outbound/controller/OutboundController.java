@@ -23,6 +23,9 @@ import com.fulfillment.outbound.dto.WaybillIssueRequest;
 import com.fulfillment.outbound.dto.WaybillReissueRequest;
 import com.fulfillment.outbound.dto.WaybillResponse;
 import com.fulfillment.outbound.dto.WaybillSearch;
+import com.fulfillment.outbound.dto.ChainRowResponse;
+import com.fulfillment.outbound.dto.ChainSearch;
+import com.fulfillment.outbound.dto.HandoverRequest;
 import com.fulfillment.outbound.dto.PickShortageLineResponse;
 import com.fulfillment.outbound.dto.PickShortageSearch;
 import com.fulfillment.domain.OutboundPick;
@@ -280,6 +283,37 @@ public class OutboundController {
 			@Valid @RequestBody WaybillReissueRequest request) {
 		return ApiResponse.ok(
 				outboundService.reissueWaybill(CurrentUser.require(), waybillSeq, request));
+	}
+
+	/* ── 출고확정 · 인계 · 체인 (PAC-PG-005, 006, OUT-PG-007) ─ */
+
+	/**
+	 * 수량 체인 — 지시 → 집음 → 검수 → 담음 → 출고.
+	 *
+	 * '/{outboundSeq}' 보다 위에 둔다 — 아래에 두면 'chain' 이 지시 순번으로
+	 * 해석되어 숫자가 아니라는 오류부터 난다.
+	 */
+	@GetMapping("/chain")
+	public ApiResponse<PageResponse<ChainRowResponse>> chain(@ModelAttribute ChainSearch search) {
+		return ApiResponse.ok(outboundService.chain(CurrentUser.require(), search));
+	}
+
+	/**
+	 * 출고확정 — 여기서 재고가 줄어든다.
+	 *
+	 * 되돌릴 수 없다. 재고가 이미 줄었고 물건이 창고에 없어서, 전산만
+	 * 돌려놓으면 팔 수 있다고 표시된 수량이 실제로는 없는 상태가 된다.
+	 */
+	@PostMapping("/{outboundSeq}/ship")
+	public ApiResponse<OutboundResponse> ship(@PathVariable Long outboundSeq) {
+		return ApiResponse.ok(outboundService.ship(CurrentUser.require(), outboundSeq));
+	}
+
+	/** 집화 스캔 — 송장번호를 찍는다. 한 건이 실패해도 나머지는 처리한다 */
+	@PostMapping("/handover")
+	public ApiResponse<OutboundService.HandoverResult> handOver(
+			@Valid @RequestBody HandoverRequest request) {
+		return ApiResponse.ok(outboundService.handOver(CurrentUser.require(), request));
 	}
 
 	/**

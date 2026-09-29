@@ -12,6 +12,8 @@ import com.fulfillment.outbound.dto.OutboundTargetSearch;
 import com.fulfillment.outbound.dto.PickTaskResponse;
 import com.fulfillment.outbound.dto.OutInspectTaskResponse;
 import com.fulfillment.outbound.dto.WaybillSearch;
+import com.fulfillment.outbound.dto.ChainRowResponse;
+import com.fulfillment.outbound.dto.ChainSearch;
 import com.fulfillment.outbound.dto.PickShortageLineResponse;
 import com.fulfillment.outbound.dto.PickShortageSearch;
 import org.apache.ibatis.annotations.Param;
@@ -211,4 +213,62 @@ public interface OutboundDao {
 
 	/** 아직 송장이 안 붙은 박스 수. 0 이어야 인계할 수 있다 (E섹터) */
 	int countBoxesWithoutWaybill(@Param("outboundSeq") Long outboundSeq);
+
+	/* ── 출고확정 · 인계 · 체인 (PAC-PG-005, 006, OUT-PG-007) ─ */
+
+	/**
+	 * 출고확정이 재고에서 뺄 것 — 빈별로 모은다.
+	 *
+	 * 피킹 실적을 (지시줄, 빈, 할당) 으로 묶어 합친다. 한 줄이 여러 빈에서
+	 * 나뉘어 잡히고 되돌림(음수)까지 섞이므로, 합쳐야 '이 빈에서 몇 개' 가
+	 * 나온다. 합이 0 인 것은 집었다 되돌린 것이라 뺀다.
+	 */
+	List<OutboundPick> selectPicksToShip(@Param("outboundSeq") Long outboundSeq);
+
+	/** 이 지시가 이미 나갔나 — 두 번 확정하면 재고가 두 번 빠진다 */
+	Outbound selectForShip(@Param("outboundSeq") Long outboundSeq);
+
+	/** 할당을 출고소진으로 바꾼다. 살아 있는 것만 */
+	int markAllocPicked(@Param("allocSeq") Long allocSeq, @Param("actor") String actor);
+
+	/* 인계 */
+
+	/** 송장번호로 박스를 찾는다. 집화 스캔이 번호를 찍는다 */
+	PackBox selectBoxByWaybillNo(@Param("waybillNo") String waybillNo);
+
+	int markHandedOver(@Param("boxSeq") Long boxSeq, @Param("actor") String actor);
+
+	/**
+	 * 인계와 함께 배송을 시작한다 (6차 · DLV-PG-002).
+	 *
+	 * 택배사가 실어 간 순간부터 물건은 길 위에 있다. 여기서 세워 두지 않으면
+	 * CS 가 인계된 박스를 하나하나 다시 찍어야 한다.
+	 */
+	int startDelivery(@Param("boxSeq") Long boxSeq, @Param("actor") String actor);
+
+	/**
+	 * 인계를 배송 자취의 첫 줄로 남긴다 (6차 · DLV-PG-002).
+	 *
+	 * 상태만 세우고 사건을 안 남기면 자취가 '배달출발' 부터 시작한다 —
+	 * 언제 실어 갔는지가 사라지고, 지연을 따질 기준 시각을 자취에서 못 찾는다.
+	 */
+	int insertDeliveryStartEvent(@Param("boxSeq") Long boxSeq, @Param("actor") String actor);
+
+	/** 아직 안 넘어간 박스 수. 0 이면 이 지시는 전부 실려 갔다 */
+	int countBoxesNotHandedOver(@Param("outboundSeq") Long outboundSeq);
+
+	/**
+	 * 이 주문의 아직 안 나간 지시 수.
+	 *
+	 * 한 주문이 여러 지시로 나뉘어 나갈 수 있어(결품으로 6 개 먼저, 4 개
+	 * 나중) 지시 하나가 끝났다고 주문이 끝난 것은 아니다. 취소된 지시는
+	 * 세지 않는다 — 거둬들인 지시는 나갈 일이 없다.
+	 */
+	int countUnshippedOfOrder(@Param("orderSeq") Long orderSeq);
+
+	/* 수량 체인 (OUT-PG-007) */
+
+	List<ChainRowResponse> selectChainRows(ChainSearch search);
+
+	long countChainRows(ChainSearch search);
 }

@@ -1,8 +1,8 @@
 /**
  * outbound 모듈 — 출고 · 패킹 (4차).
  *
- * A섹터(출고대상 · 출고지시) · B섹터(피킹) · C섹터(검수 · 박스 · 패킹) ·
- * D섹터(송장)까지다. 출고확정 · 택배인계 · 수량체인 검증(E섹터)이 뒤에 붙는다.
+ * 4차 전부 — 출고대상 · 출고지시(A), 피킹(B), 검수 · 박스 · 패킹(C),
+ * 송장(D), 출고확정 · 택배인계 · 수량체인 검증(E).
  *
  * meta.title  브라우저 탭 / 헤더에 표시되는 화면명
  * meta.perm   화면 진입에 필요한 권한코드
@@ -43,6 +43,18 @@ export const routes = [
     name: 'outbound-waybills',
     component: () => import('./views/OutboundWaybillView.vue'),
     meta: { title: '송장', perm: 'OUT_WAYBILL' },
+  },
+  {
+    path: '/outbound-ship',
+    name: 'outbound-ship',
+    component: () => import('./views/OutboundShipView.vue'),
+    meta: { title: '출고확정 · 인계', perm: 'OUT_APPROVE' },
+  },
+  {
+    path: '/outbound-chain',
+    name: 'outbound-chain',
+    component: () => import('./views/OutboundChainView.vue'),
+    meta: { title: '수량 체인 검증', perm: 'OUT_TARGET' },
   },
   {
     path: '/outbounds',

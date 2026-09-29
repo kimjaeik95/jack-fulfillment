@@ -16,6 +16,7 @@ import com.fulfillment.domain.OutboundPick;
 import com.fulfillment.domain.PackBox;
 import com.fulfillment.domain.PackBoxLine;
 import com.fulfillment.domain.Waybill;
+import com.fulfillment.inventory.stock.service.StockLedger;
 import com.fulfillment.order.dao.SalesOrderDao;
 import com.fulfillment.outbound.dao.OutboundDao;
 import com.fulfillment.outbound.dto.OutboundCancelRequest;
@@ -38,6 +39,9 @@ import com.fulfillment.outbound.dto.WaybillIssueRequest;
 import com.fulfillment.outbound.dto.WaybillReissueRequest;
 import com.fulfillment.outbound.dto.WaybillResponse;
 import com.fulfillment.outbound.dto.WaybillSearch;
+import com.fulfillment.outbound.dto.ChainRowResponse;
+import com.fulfillment.outbound.dto.ChainSearch;
+import com.fulfillment.outbound.dto.HandoverRequest;
 import com.fulfillment.outbound.dto.PickShortageLineResponse;
 import com.fulfillment.outbound.dto.PickShortageSearch;
 import com.fulfillment.system.user.dao.UserDao;
@@ -84,11 +88,22 @@ public class OutboundService {
 	private static final String COURIER = "COURIER";
 	private static final String REASON_WB_CANCEL = "REASON_WB_CANCEL";
 	private static final String TABLE_WAYBILL = "tb_waybill";
+	/**
+	 * 출고확정 · 인계.
+	 *
+	 * V4 가 '출고 승인'(OUT_APPROVE)으로 깔아 둔 권한을 쓴다. 재고를 줄이고
+	 * 문서를 닫는 마지막 결정이라 피킹 · 패킹과 무게가 다르다.
+	 */
+	private static final String PERM_SHIP = "OUT_APPROVE";
+	/** 코드그룹 STOCK_MOVE · STOCK_REF */
+	private static final String MOVE_ISSUE = "ISSUE";
+	private static final String REF_OUTBOUND = "OUTBOUND";
 	private static final String TABLE = "tb_outbound";
 
 	private final OutboundDao outboundDao;
 	private final SalesOrderDao orderDao;
 	private final UserDao userDao;
+	private final StockLedger stockLedger;
 	private final CodeValues codeValues;
 	private final DocNumbers docNumbers;
 	private final PermissionChecker permissionChecker;
@@ -96,12 +111,14 @@ public class OutboundService {
 	private final AuditRecorder auditRecorder;
 
 	public OutboundService(OutboundDao outboundDao, SalesOrderDao orderDao,
-			UserDao userDao, CodeValues codeValues, DocNumbers docNumbers,
+			UserDao userDao, StockLedger stockLedger,
+			CodeValues codeValues, DocNumbers docNumbers,
 			PermissionChecker permissionChecker, DataScopeResolver dataScopes,
 			AuditRecorder auditRecorder) {
 		this.outboundDao = outboundDao;
 		this.orderDao = orderDao;
 		this.userDao = userDao;
+		this.stockLedger = stockLedger;
 		this.codeValues = codeValues;
 		this.docNumbers = docNumbers;
 		this.permissionChecker = permissionChecker;
@@ -1181,6 +1198,243 @@ public class OutboundService {
 					"송장을 찾을 수 없습니다. (순번 %d)".formatted(waybillSeq));
 		}
 		return waybill;
+	}
+
+	/* ------------------------------------------------------------------ */
+	/* 출고확정 (PAC-PG-005)                                               */
+	/* ------------------------------------------------------------------ */
+
+	/**
+	 * 출고확정 — <b>여기서 재고가 줄어든다.</b>
+	 *
+	 * 지금까지는 아무것도 줄지 않았다. 할당이 qty_allocated 를 올렸을 뿐,
+	 * 피킹 · 검수 · 패킹 · 송장은 물건을 옮기고 세고 적었을 뿐이다 (P-01).
+	 *
+	 * <b>보유와 할당을 같이 줄인다.</b> 따로 하면 그 사이에 판매가능
+	 * (= 보유 − 할당 − 판매불가)이 그만큼 늘어 보이고, 그 순간 다른 주문이
+	 * 없는 재고를 잡는다. StockLedger.apply() 가 한 트랜잭션 안에서 잠그고
+	 * 이력까지 남기므로 두 번 부르되 같은 트랜잭션에 둔다.
+	 *
+	 * 어느 빈에서 뺄지는 피킹 실적이 말해 준다. '지시 줄에 3 개' 만으로는
+	 * 한 줄이 여러 빈에서 나뉘어 잡혔을 때 어디서 뺄지 모른다 — 그래서
+	 * B섹터에서 stock_seq 와 alloc_seq 를 남겨 뒀다.
+	 *
+	 * 되돌릴 수 없다. 재고가 이미 줄었고 물건이 창고에 없어서, 전산만
+	 * 돌려놓으면 팔 수 있다고 표시된 수량이 실제로는 없는 상태가 된다.
+	 * 잘못 내보냈으면 반품으로 처리한다 (6차).
+	 */
+	@Transactional
+	public OutboundResponse ship(LoginUser actor, Long outboundSeq) {
+		permissionChecker.require(actor, PERM_SHIP, "C");
+
+		// 헤더를 먼저 잠근다. 두 사람이 동시에 누르면 재고가 두 번 빠진다.
+		Outbound locked = outboundDao.selectForShip(outboundSeq);
+		if (locked == null) {
+			throw new BusinessException(ErrorCode.NOT_FOUND,
+					"출고지시를 찾을 수 없습니다. (순번 %d)".formatted(outboundSeq));
+		}
+		Outbound outbound = mustFind(outboundSeq);
+		requireShippable(outbound);
+
+		List<OutboundPick> picks = outboundDao.selectPicksToShip(outboundSeq);
+		if (picks.isEmpty()) {
+			throw new BusinessException(ErrorCode.INVALID_INPUT,
+					("%s 은(는) 집은 것이 없습니다. 내보낼 물건이 없는 지시는 확정할 수 "
+							+ "없습니다.").formatted(outbound.getOutboundNo()));
+		}
+
+		int shipped = 0;
+		for (OutboundPick p : picks) {
+			int qty = nz(p.getPickedQty());
+
+			/*
+			 * 보유를 줄이고, 잡아 둔 할당을 같이 푼다.
+			 *
+			 * 순서는 중요하지 않다 — 같은 트랜잭션 안이라 밖에서는 둘이
+			 * 동시에 일어난 것으로 보인다. 중요한 것은 <b>따로 커밋되지
+			 * 않는다</b>는 것이다.
+			 */
+			stockLedger.apply(actor, p.getStockSeq(), StockLedger.Movement.of(
+					MOVE_ISSUE, StockLedger.ON_HAND, -qty,
+					REF_OUTBOUND, outbound.getOutboundNo()));
+			stockLedger.apply(actor, p.getStockSeq(), StockLedger.Movement.of(
+					MOVE_ISSUE, StockLedger.ALLOCATED, -qty,
+					REF_OUTBOUND, outbound.getOutboundNo()));
+
+			// 이 할당은 출고로 소진됐다. 해제된 것과 구분해 둔다 —
+			// '왜 풀렸나' 가 다르다.
+			if (p.getAllocSeq() != null) {
+				outboundDao.markAllocPicked(p.getAllocSeq(), actorId(actor));
+			}
+			shipped += qty;
+		}
+
+		int changed = outboundDao.updateStatus(outboundSeq, outbound.getOutboundStatus(),
+				Outbound.SHIPPED, actorId(actor), null);
+		if (changed == 0) {
+			throw new BusinessException(ErrorCode.IN_USE,
+					("다른 사람이 먼저 처리했습니다. (%s) 화면을 새로 고치세요.")
+							.formatted(outbound.getOutboundNo()));
+		}
+
+		// 주문도 나간 것으로 옮긴다. 이 지시가 그 주문의 마지막 몫이었는지는
+		// 주문 쪽이 판정한다 — 한 주문이 여러 지시로 나뉘어 나갈 수 있다.
+		syncOrderShipped(actor, outboundSeq);
+
+		Outbound after = mustFind(outboundSeq);
+		auditRecorder.recordAction(actor, "UPDATE", TABLE, after.getOutboundNo(),
+				"출고확정 %d 개 — 보유 · 할당에서 차감".formatted(shipped));
+		return OutboundResponse.of(after, outboundDao.selectLines(outboundSeq));
+	}
+
+	/**
+	 * 확정할 수 있는 지시인가.
+	 *
+	 * 패킹이 끝나고 모든 박스에 송장이 붙어야 한다. 송장 없는 박스가 있으면
+	 * 그 박스는 나갈 수 없는데 재고만 먼저 빠지게 된다.
+	 */
+	private void requireShippable(Outbound outbound) {
+		if (outbound.isShipped()) {
+			throw new BusinessException(ErrorCode.IN_USE,
+					("%s 은(는) 이미 나갔습니다. 되돌리려면 반품으로 처리하세요 — "
+							+ "재고가 이미 줄었고 물건이 창고에 없습니다.")
+							.formatted(outbound.getOutboundNo()));
+		}
+		if (outbound.isCanceled()) {
+			throw new BusinessException(ErrorCode.IN_USE,
+					"%s 은(는) 거둬들인 지시입니다.".formatted(outbound.getOutboundNo()));
+		}
+		if (!Outbound.PACKED.equals(outbound.getOutboundStatus())) {
+			throw new BusinessException(ErrorCode.IN_USE,
+					("%s 은(는) 아직 패킹이 안 끝났습니다. (현재 %s) 담은 것을 다 담고 "
+							+ "박스를 모두 닫아야 내보낼 수 있습니다.")
+							.formatted(outbound.getOutboundNo(),
+									statusLabel(outbound.getOutboundStatus())));
+		}
+		int noWaybill = outboundDao.countBoxesWithoutWaybill(outbound.getOutboundSeq());
+		if (noWaybill > 0) {
+			throw new BusinessException(ErrorCode.INVALID_INPUT,
+					("송장이 안 붙은 박스가 %d 개 있습니다. (%s) 그 박스는 나갈 수 "
+							+ "없는데 재고만 먼저 빠집니다.")
+							.formatted(noWaybill, outbound.getOutboundNo()));
+		}
+	}
+
+	/**
+	 * 주문을 나간 것으로 옮긴다.
+	 *
+	 * 한 주문이 여러 지시로 나뉘어 나갈 수 있다(결품으로 6 개 먼저, 4 개
+	 * 나중). 그래서 이 지시 하나가 끝났다고 주문이 끝난 것은 아니다 —
+	 * 그 주문의 <b>살아 있는 지시가 전부 나갔을 때</b>만 옮긴다.
+	 */
+	private void syncOrderShipped(LoginUser actor, Long outboundSeq) {
+		for (OutboundLine l : outboundDao.selectLines(outboundSeq)) {
+			Long orderSeq = l.getOrderSeq();
+			if (orderSeq == null) {
+				continue;
+			}
+			if (outboundDao.countUnshippedOfOrder(orderSeq) == 0) {
+				orderDao.updateStatus(orderSeq, Order.ALLOCATED, Order.SHIPPED, actorId(actor));
+			}
+			break;   // 지금은 한 지시에 주문이 하나뿐이다
+		}
+	}
+
+	/* ------------------------------------------------------------------ */
+	/* 택배 인계 (PAC-PG-006)                                              */
+	/* ------------------------------------------------------------------ */
+
+	/**
+	 * 집화 스캔 — 택배사가 실어 갔다.
+	 *
+	 * 출고확정과 나누는 이유는 둘이 다른 사건이라서다. 출고확정은 우리가
+	 * '나갔다' 고 장부를 닫는 것이고, 인계는 택배사가 '받았다' 고 확인하는
+	 * 것이다. 대개 같은 날이지만 확정한 물건이 집화 차를 놓쳐 하루 밀리는
+	 * 일이 있고, 그때 배송 지연을 누구 탓으로 볼지가 갈린다.
+	 *
+	 * 찍는 것은 <b>송장번호</b>다. 박스번호는 우리 안에서만 쓰는 이름이라
+	 * 기사 손에는 없다.
+	 *
+	 * 한 건이 실패해도 나머지는 처리한다. 기사가 쌓인 박스를 다 찍은 뒤
+	 * 하나 때문에 전부 막히면, 그 하나를 찾아 빼고 다시 찍어야 한다.
+	 */
+	@Transactional
+	public HandoverResult handOver(LoginUser actor, HandoverRequest request) {
+		permissionChecker.require(actor, PERM_SHIP, "C");
+
+		List<String> done = new ArrayList<>();
+		List<String> failed = new ArrayList<>();
+
+		for (String raw : request.waybillNos()) {
+			// 발급 때와 같은 규칙으로 다듬는다 — 스캐너가 하이픈을 섞어
+			// 보내면 못 찾는다.
+			String no = raw == null ? "" : raw.replaceAll("[^0-9A-Za-z]", "");
+			if (no.isBlank()) {
+				continue;
+			}
+			PackBox box = outboundDao.selectBoxByWaybillNo(no);
+			if (box == null) {
+				failed.add("%s — 그 송장이 없습니다. 취소된 번호는 아닌지 확인하세요.".formatted(no));
+				continue;
+			}
+			Outbound outbound = mustFind(box.getOutboundSeq());
+			if (!outbound.isShipped()) {
+				failed.add("%s — %s 은(는) 아직 출고확정 전입니다. (%s)".formatted(
+						no, outbound.getOutboundNo(),
+						statusLabel(outbound.getOutboundStatus())));
+				continue;
+			}
+			if (outboundDao.markHandedOver(box.getBoxSeq(), actorId(actor)) == 0) {
+				failed.add("%s — 이미 넘긴 박스입니다.".formatted(no));
+				continue;
+			}
+			// 넘긴 순간부터 배송중이다 (6차 · DLV-PG-002). 여기서 안 세우면
+			// CS 가 인계된 박스를 하나하나 다시 찍어야 하고, 그때까지
+			// 운송중 재고가 비어 있는다.
+			//
+			// 사건도 같이 남긴다 — 인계는 배송 자취의 첫 줄이다. 안 남기면
+			// 자취가 '배달출발' 부터 시작해서, 언제 실어 갔는지가 사라진다.
+			outboundDao.startDelivery(box.getBoxSeq(), actorId(actor));
+			outboundDao.insertDeliveryStartEvent(box.getBoxSeq(), actorId(actor));
+			done.add(no);
+		}
+
+		if (done.isEmpty()) {
+			throw new BusinessException(ErrorCode.INVALID_INPUT,
+					"하나도 넘기지 못했습니다. — " + String.join(" / ", failed));
+		}
+		auditRecorder.recordAction(actor, "UPDATE", TABLE, done.get(0),
+				"택배 인계 %d 개".formatted(done.size()));
+		return new HandoverResult(done, failed);
+	}
+
+	/* ------------------------------------------------------------------ */
+	/* 수량 체인 (OUT-PG-007)                                              */
+	/* ------------------------------------------------------------------ */
+
+	/**
+	 * 지시 → 집음 → 검수 → 담음 → 출고 를 한 줄에 세운다.
+	 *
+	 * 각 단계가 앞 단계를 넘을 수 없게 막아 뒀으므로 이 줄은 늘 내림차순이고,
+	 * <b>어디서 꺾이는지가 곧 어디서 틀어졌나</b> 이다.
+	 *
+	 * 출고수량만 재고이력에서 가져온다. 지시 라인에 '나간 수량' 칸을 따로
+	 * 두지 않은 것은, 실제로 재고에서 빠진 값과 우리가 적어 둔 값이 어긋날
+	 * 수 있기 때문이다 — 대사하는 화면이 그 둘을 같은 데서 가져오면 대사가
+	 * 아니라 복사다.
+	 */
+	@Transactional(readOnly = true)
+	public PageResponse<ChainRowResponse> chain(LoginUser actor, ChainSearch search) {
+		permissionChecker.require(actor, PERM_TARGET, "R");
+		search.applyScope(dataScopes.forRead(actor, PERM_TARGET));
+
+		List<ChainRowResponse> rows = outboundDao.selectChainRows(search);
+		long total = search.getSize() <= 0 ? rows.size() : outboundDao.countChainRows(search);
+		return PageResponse.of(rows, total, search.getPage(), search.getSize());
+	}
+
+	/** 넘긴 것과 못 넘긴 이유 */
+	public record HandoverResult(List<String> done, List<String> failed) {
 	}
 
 	/* ------------------------------------------------------------------ */
