@@ -74,7 +74,7 @@ export async function delivery(waybillSeq) {
   return data
 }
 
-/** 이 송장이 지나온 자취 */
+/** 이 송장의 배송이력 — 상태가 바뀔 때마다 한 줄 */
 export async function deliveryEvents(waybillSeq) {
   const { data } = await get(`/deliveries/${waybillSeq}/events`)
   return data

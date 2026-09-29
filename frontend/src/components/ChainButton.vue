@@ -1,18 +1,18 @@
 <script setup>
 /**
- * 이 줄이 지나온 길 (COM-PG-013).
+ * 이 건의 진행이력 (COM-PG-013).
  *
- * 목록의 줄 옆에 붙는 작은 버튼이다. 누르면 그 자리에서 길이 펼쳐진다.
+ * 목록의 줄 옆에 붙는 작은 버튼이다. 누르면 그 자리에서 이력이 펼쳐진다.
  *
  * <b>왜 통합검색 화면만으로는 부족한가.</b> 주문 화면에 있는 사람이 그
- * 주문의 길을 보려면 번호를 복사해서 검색 화면으로 가서 붙여넣고 눌러야
+ * 주문의 진행이력을 보려면 번호를 복사해서 검색 화면으로 가서 붙여넣고 눌러야
  * 한다 — 화면 왕복을 줄이려고 만든 것이 왕복을 하나 더 늘린다.
  *
  * 검색 화면이 맞는 경우는 <b>손에 번호만 있고 아무 화면에도 없을 때</b>다.
  * CS 가 전화를 받아 "쿠팡 주문번호가 이거예요" 를 들었을 때. 이미 그
  * 문서를 보고 있는 사람에게는 이 버튼이 맞다.
  *
- * 화면을 옮기지 않고 겹쳐 띄우는 이유도 같다. 길을 보고 나서 하던 일로
+ * 화면을 옮기지 않고 겹쳐 띄우는 이유도 같다. 이력을 보고 나서 하던 일로
  * 돌아가는 것이 대부분이라, 옮겨 버리면 뒤로 가기를 눌러야 한다.
  */
 import { ref } from 'vue'
@@ -28,8 +28,8 @@ const props = defineProps({
   seq: { type: [Number, String], required: true },
   /** 창 제목에 쓸 번호 */
   no: { type: String, default: '' },
-  /** 버튼 글자. 좁은 목록에서는 '길' 하나로 줄인다 */
-  label: { type: String, default: '길' },
+  /** 버튼 글자. 좁은 목록에서는 '이력' 으로 줄인다 */
+  label: { type: String, default: '진행이력' },
 })
 
 const router = useRouter()
@@ -56,7 +56,7 @@ async function show() {
   }
 }
 
-/** 길의 한 칸을 누르면 그 문서 화면으로 */
+/** 한 칸을 누르면 그 문서 화면으로 */
 function goTo(step) {
   if (!step.route) return
   open.value = false
@@ -72,7 +72,7 @@ const dt = (v) => (v ? String(v).replace('T', ' ').slice(0, 16) : '')
   <button
     class="btn btn-sm"
     :disabled="!!denyReason()"
-    :title="denyReason() ?? '이 건이 지나온 길을 봅니다'"
+    :title="denyReason() ?? '주문부터 배송까지 어디까지 갔는지 봅니다'"
     @click.stop="show()"
   >
     {{ label }}
@@ -80,7 +80,7 @@ const dt = (v) => (v ? String(v).replace('T', ' ').slice(0, 16) : '')
 
   <ModalDialog
     v-if="open"
-    title="지나온 길"
+    title="진행이력"
     :subtitle="no"
     @close="open = false"
   >
@@ -119,7 +119,7 @@ const dt = (v) => (v ? String(v).replace('T', ' ').slice(0, 16) : '')
       </ol>
 
       <!--
-        사슬이 둘로 끊긴 것을 숨기지 않는다. 구매와 판매를 잇는 것은
+        구매와 판매가 안 이어지는 것을 숨기지 않는다. 둘을 잇는 것은
         재고인데 재고는 수량이지 문서가 아니라, '그 물건' 을 가리킬
         방법이 없다.
       -->

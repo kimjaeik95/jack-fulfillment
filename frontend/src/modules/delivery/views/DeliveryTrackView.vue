@@ -181,7 +181,7 @@ async function submitStatus() {
   }
 }
 
-/* ── 자취 ─────────────────────────────────────────────────── */
+/* ── 배송이력 ─────────────────────────────────────────────── */
 
 const eventDlg = ref(null)
 const events = ref([])
@@ -386,14 +386,14 @@ const columns = [
         </template>
 
         <!--
-          '자취' 는 이 송장이 지나온 배송 사건이고, '길' 은 이 건이 주문부터
-          지나온 문서다. 둘은 다른 것을 답한다 — 배송이 왜 늦나 와 이 주문이
-          어디까지 갔나.
+          '배송이력' 은 이 송장의 상태 변화(배송중 → 배달출발 → 실패)고,
+          '진행이력' 은 이 건이 주문부터 지나온 문서다. 둘은 다른 것을 답한다 —
+          배송이 왜 늦나 와 이 주문이 어디까지 갔나.
         -->
         <template #cell-_act="{ row }">
           <div class="btn-row" style="justify-content: flex-end">
             <ChainButton kind="WAYBILL" :seq="row.waybillSeq" :no="row.waybillNo" />
-            <button class="btn btn-sm" @click="openEvents(row)">자취</button>
+            <button class="btn btn-sm" @click="openEvents(row)">배송이력</button>
           </div>
         </template>
       </DataTable>
@@ -491,10 +491,10 @@ const columns = [
       </template>
     </ModalDialog>
 
-    <!-- ── 자취 ─────────────────────────────────────────────── -->
+    <!-- ── 배송이력 ─────────────────────────────────────────── -->
     <ModalDialog
       v-if="eventDlg"
-      title="배송 자취"
+      title="배송이력"
       :subtitle="`${eventDlg.waybillNo} · ${eventDlg.courierName}`"
       @close="eventDlg = null"
     >
