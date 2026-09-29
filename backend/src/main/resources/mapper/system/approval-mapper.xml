@@ -1,0 +1,166 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<!--
+  승인 작업함 (COM-PG-008).
+
+  ※ ApprovalItem 은 record 다. MyBatis 의 생성자 자동매핑은 <b>순서로</b>
+    붙으므로 SELECT 칼럼 순서가 선언 순서와 같아야 한다. 가운데에 칼럼을
+    하나 끼우면 그 뒤가 통째로 밀려서 오류 없이 엉뚱한 값이 들어간다.
+
+      kind, kindLabel, no, seq, label, reasonCode, reasonName,
+      lineCount, totalQty, requestedBy, requestedByName, requestedAt,
+      waitingDays, plantName, approvePerm, route
+-->
+<mapper namespace="com.fulfillment.system.approval.dao.ApprovalDao">
+
+    <!--
+      결재를 기다리는 구매요청.
+
+      올린 사람 이름을 같이 가져온다 — 자기가 올린 것은 자기가 결재할 수
+      없어서(P004), 목록에서 바로 알아야 열어 보고 나서 막히지 않는다.
+    -->
+    <select id="pendingPurchaseRequests" resultType="com.fulfillment.system.approval.dto.ApprovalItem">
+        SELECT 'PUR_REQUEST'                AS kind,
+               '구매요청'                   AS kind_label,
+               r.request_no                 AS no,
+               r.request_seq                AS seq,
+               COALESCE(pl.plant_name, '')  AS label,
+               r.reason_code                AS reason_code,
+               c.code_name                  AS reason_name,
+               (SELECT COUNT(*)::int FROM tb_purchase_request_line l
+                 WHERE l.request_seq = r.request_seq)          AS line_count,
+               (SELECT COALESCE(SUM(l.request_qty), 0)::int FROM tb_purchase_request_line l
+                 WHERE l.request_seq = r.request_seq)          AS total_qty,
+               r.requested_by               AS requested_by,
+               COALESCE(u.user_name, r.requested_by) AS requested_by_name,
+               r.requested_at               AS requested_at,
+               DATE_PART('day', CURRENT_TIMESTAMP - r.requested_at)::int AS waiting_days,
+               pl.plant_name                AS plant_name,
+               'PUR_REQ_APPROVE'            AS approve_perm,
+               'purchase-requests'          AS route
+          FROM tb_purchase_request r
+          LEFT JOIN tb_plant pl ON pl.plant_seq = r.plant_seq
+          LEFT JOIN tb_user  u  ON u.user_id    = r.requested_by
+          LEFT JOIN tb_code_group cg ON cg.code_group_id = 'REASON_PURCHASE'
+          LEFT JOIN tb_code       c  ON c.code_group_seq = cg.code_group_seq
+                                    AND c.code_id        = r.reason_code
+         WHERE r.request_status = 'REQUESTED'
+        <if test="keyword != null and keyword != ''">
+            AND ( r.request_no ILIKE '%' || #{keyword} || '%'
+               OR pl.plant_name ILIKE '%' || #{keyword} || '%'
+               OR u.user_name   ILIKE '%' || #{keyword} || '%' )
+        </if>
+         ORDER BY r.requested_at
+    </select>
+
+    <select id="pendingStockAdjusts" resultType="com.fulfillment.system.approval.dto.ApprovalItem">
+        SELECT 'INV_ADJUST'                 AS kind,
+               '재고조정'                   AS kind_label,
+               a.adjust_no                  AS no,
+               a.adjust_seq                 AS seq,
+               COALESCE(w.warehouse_name, '') AS label,
+               a.reason_code                AS reason_code,
+               c.code_name                  AS reason_name,
+               (SELECT COUNT(*)::int FROM tb_stock_adjust_line l
+                 WHERE l.adjust_seq = a.adjust_seq)            AS line_count,
+               (SELECT COALESCE(SUM(ABS(l.qty_delta)), 0)::int FROM tb_stock_adjust_line l
+                 WHERE l.adjust_seq = a.adjust_seq)            AS total_qty,
+               a.requested_by               AS requested_by,
+               COALESCE(u.user_name, a.requested_by) AS requested_by_name,
+               a.requested_at               AS requested_at,
+               DATE_PART('day', CURRENT_TIMESTAMP - a.requested_at)::int AS waiting_days,
+               pl.plant_name                AS plant_name,
+               'INV_ADJ_APPROVE'            AS approve_perm,
+               'stock-adjusts'              AS route
+          FROM tb_stock_adjust a
+          LEFT JOIN tb_warehouse w  ON w.warehouse_seq = a.warehouse_seq
+          LEFT JOIN tb_plant     pl ON pl.plant_seq    = w.plant_seq
+          LEFT JOIN tb_user      u  ON u.user_id       = a.requested_by
+          LEFT JOIN tb_code_group cg ON cg.code_group_id = 'REASON_ADJUST'
+          LEFT JOIN tb_code       c  ON c.code_group_seq = cg.code_group_seq
+                                    AND c.code_id        = a.reason_code
+         WHERE a.adjust_status = 'REQUESTED'
+        <if test="keyword != null and keyword != ''">
+            AND ( a.adjust_no ILIKE '%' || #{keyword} || '%'
+               OR w.warehouse_name ILIKE '%' || #{keyword} || '%'
+               OR u.user_name      ILIKE '%' || #{keyword} || '%' )
+        </if>
+         ORDER BY a.requested_at
+    </select>
+
+    <select id="pendingInboundCorrects" resultType="com.fulfillment.system.approval.dto.ApprovalItem">
+        SELECT 'INB_CORRECT'                AS kind,
+               '입고정정'                   AS kind_label,
+               ic.correct_no                AS no,
+               ic.correct_seq               AS seq,
+               COALESCE(i.inbound_no, '')   AS label,
+               ic.reason_code               AS reason_code,
+               c.code_name                  AS reason_name,
+               (SELECT COUNT(*)::int FROM tb_inbound_correct_line l
+                 WHERE l.correct_seq = ic.correct_seq)         AS line_count,
+               (SELECT COALESCE(SUM(ABS(l.qty_delta)), 0)::int
+                  FROM tb_inbound_correct_line l
+                 WHERE l.correct_seq = ic.correct_seq)         AS total_qty,
+               ic.requested_by              AS requested_by,
+               COALESCE(u.user_name, ic.requested_by) AS requested_by_name,
+               ic.requested_at              AS requested_at,
+               DATE_PART('day', CURRENT_TIMESTAMP - ic.requested_at)::int AS waiting_days,
+               pl.plant_name                AS plant_name,
+               'INB_CORRECTION'             AS approve_perm,
+               'inbound-corrects'           AS route
+          FROM tb_inbound_correct ic
+          LEFT JOIN tb_inbound i  ON i.inbound_seq = ic.inbound_seq
+          LEFT JOIN tb_plant   pl ON pl.plant_seq  = i.plant_seq
+          LEFT JOIN tb_user    u  ON u.user_id     = ic.requested_by
+          LEFT JOIN tb_code_group cg ON cg.code_group_id = 'REASON_CORRECT'
+          LEFT JOIN tb_code       c  ON c.code_group_seq = cg.code_group_seq
+                                    AND c.code_id        = ic.reason_code
+         WHERE ic.correct_status = 'REQUESTED'
+        <if test="keyword != null and keyword != ''">
+            AND ( ic.correct_no ILIKE '%' || #{keyword} || '%'
+               OR i.inbound_no   ILIKE '%' || #{keyword} || '%'
+               OR u.user_name    ILIKE '%' || #{keyword} || '%' )
+        </if>
+         ORDER BY ic.requested_at
+    </select>
+
+    <!--
+      반려가 쓴다. 구매요청은 '모든 줄을 0 으로 승인' 하는 것이 반려라서
+      줄이 무엇인지 알아야 한다. 결재 판정은 decide 가 하므로 여기서 줄
+      순번만 읽는 것은 문을 여는 것이 아니다.
+    -->
+    <select id="purchaseRequestLineSeqs" resultType="java.lang.Long">
+        SELECT l.line_seq
+          FROM tb_purchase_request_line l
+         WHERE l.request_seq = #{requestSeq}
+         ORDER BY l.line_no
+    </select>
+
+    <!--
+      처리이력은 감사로그를 읽는다.
+
+      결재는 이미 거기에 다 적히고 있다. 이력용 표를 따로 두면 같은 사실이
+      두 군데 쌓이고, 둘이 어긋나는 날이 온다.
+    -->
+    <select id="recentDecisions"
+            resultType="com.fulfillment.system.approval.dao.ApprovalDao$ApprovalHistoryRow">
+        SELECT a.target_table AS target_table,
+               a.target_key   AS target_key,
+               a.action_type  AS action_type,
+               a.reason       AS reason,
+               a.actor_user_id AS actor_id,
+               a.actor_name   AS actor_name,
+               a.occurred_at  AS when
+          FROM tb_audit_log a
+         WHERE a.target_table IN ('tb_purchase_request','tb_stock_adjust','tb_inbound_correct')
+           AND a.action_type IN ('APPROVE','REJECT','UPDATE')
+        <if test="mineOnly">
+            AND a.actor_user_id = #{actorId}
+        </if>
+         ORDER BY a.occurred_at DESC
+         LIMIT #{limit}
+    </select>
+
+</mapper>

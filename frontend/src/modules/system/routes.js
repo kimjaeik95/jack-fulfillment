@@ -8,6 +8,24 @@
  * meta.perm   화면 진입에 필요한 권한코드 (사이드바에서 권한 없는 메뉴는 흐리게 표시)
  */
 export const routes = [
+  /*
+   * 통합검색 · 승인 작업함 (0차 · COM-PG-013, COM-PG-008).
+   *
+   * 업무 모듈 어디에도 속하지 않는다 — 검색은 여섯 모듈을 가로지르고
+   * 작업함은 세 모듈을 가로지른다. 그래서 공통 기반인 system 에 둔다.
+   */
+  {
+    path: '/search',
+    name: 'search',
+    component: () => import('./views/SearchView.vue'),
+    meta: { title: '통합검색', perm: 'SYS_SEARCH' },
+  },
+  {
+    path: '/approval-box',
+    name: 'approval-box',
+    component: () => import('./views/ApprovalBoxView.vue'),
+    meta: { title: '승인 작업함', perm: 'SYS_APPROVAL' },
+  },
   {
     path: '/',
     name: 'dashboard',
