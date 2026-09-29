@@ -1,0 +1,157 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.fulfillment.delivery.courier.dao.CourierDao">
+
+    <resultMap id="courierMap" type="com.fulfillment.domain.Courier">
+        <id     property="courierSeq"   column="courier_seq"/>
+        <result property="courierCode"  column="courier_code"/>
+        <result property="courierName"  column="courier_name"/>
+        <result property="contractNo"   column="contract_no"/>
+        <result property="contractFrom" column="contract_from"/>
+        <result property="contractTo"   column="contract_to"/>
+        <result property="boxFee"       column="box_fee"/>
+        <result property="pickupCutoff" column="pickup_cutoff"/>
+        <result property="trackingUrl"  column="tracking_url"/>
+        <result property="contactName"  column="contact_name"/>
+        <result property="contactPhone" column="contact_phone"/>
+        <result property="remark"       column="remark"/>
+        <result property="sortOrder"    column="sort_order"/>
+        <result property="useYn"        column="use_yn"/>
+        <result property="createdBy"    column="created_by"/>
+        <result property="createdAt"    column="created_at"/>
+        <result property="updatedBy"    column="updated_by"/>
+        <result property="updatedAt"    column="updated_at"/>
+        <result property="waybillCount" column="waybill_count"/>
+    </resultMap>
+
+    <sql id="courierColumns">
+        c.courier_seq, c.courier_code, c.courier_name,
+        c.contract_no, c.contract_from, c.contract_to,
+        c.box_fee, c.pickup_cutoff, c.tracking_url,
+        c.contact_name, c.contact_phone, c.remark,
+        c.sort_order, c.use_yn,
+        c.created_by, c.created_at, c.updated_by, c.updated_at
+    </sql>
+
+    <sql id="courierWhere">
+        <where>
+            <if test="keyword != null and keyword != ''">
+                AND ( c.courier_code ILIKE '%' || #{keyword} || '%'
+                   OR c.courier_name ILIKE '%' || #{keyword} || '%'
+                   OR c.contract_no  ILIKE '%' || #{keyword} || '%'
+                   OR c.contact_name ILIKE '%' || #{keyword} || '%' )
+            </if>
+            <if test="useYn != null and useYn != ''">
+                AND c.use_yn = #{useYn}
+            </if>
+            <!--
+              계약이 지난 것만. 종료일이 없는 곳은 안 걸린다 — 계약서 없이
+              쓰는 곳도 있어서, 모르는 것을 만료로 단정하면 멀쩡한 택배사가
+              이 목록에 끌려 나온다.
+            -->
+            <if test='expiredOnly == "Y"'>
+                AND c.contract_to IS NOT NULL
+                AND c.contract_to &lt; CURRENT_DATE
+            </if>
+        </where>
+    </sql>
+
+    <select id="selectList" resultMap="courierMap">
+        SELECT <include refid="courierColumns"/>,
+               ( SELECT COUNT(*)
+                   FROM tb_waybill w
+                  WHERE w.courier_code   = c.courier_code
+                    AND w.waybill_status = 'ISSUED' ) AS waybill_count
+          FROM tb_courier c
+        <include refid="courierWhere"/>
+         ORDER BY ${sortColumn} ${sortDirection}, c.courier_code
+        <if test="size > 0">
+            LIMIT #{size} OFFSET #{offset}
+        </if>
+    </select>
+
+    <select id="countList" resultType="long">
+        SELECT COUNT(*) FROM tb_courier c
+        <include refid="courierWhere"/>
+    </select>
+
+    <select id="selectByCode" resultMap="courierMap">
+        SELECT <include refid="courierColumns"/>,
+               ( SELECT COUNT(*)
+                   FROM tb_waybill w
+                  WHERE w.courier_code   = c.courier_code
+                    AND w.waybill_status = 'ISSUED' ) AS waybill_count
+          FROM tb_courier c
+         WHERE c.courier_code = #{courierCode}
+    </select>
+
+    <select id="selectBySeq" resultMap="courierMap">
+        SELECT <include refid="courierColumns"/>,
+               ( SELECT COUNT(*)
+                   FROM tb_waybill w
+                  WHERE w.courier_code   = c.courier_code
+                    AND w.waybill_status = 'ISSUED' ) AS waybill_count
+          FROM tb_courier c
+         WHERE c.courier_seq = #{courierSeq}
+    </select>
+
+    <select id="countByCode" resultType="int">
+        SELECT COUNT(*) FROM tb_courier WHERE courier_code = #{courierCode}
+    </select>
+
+    <select id="countByName" resultType="int">
+        SELECT COUNT(*) FROM tb_courier
+         WHERE courier_name = #{courierName}
+        <if test="exceptSeq != null">
+            AND courier_seq &lt;&gt; #{exceptSeq}
+        </if>
+    </select>
+
+    <select id="countLiveWaybills" resultType="int">
+        SELECT COUNT(*) FROM tb_waybill
+         WHERE courier_code   = #{courierCode}
+           AND waybill_status = 'ISSUED'
+    </select>
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="courierSeq" keyColumn="courier_seq">
+        INSERT INTO tb_courier (
+            courier_code, courier_name, contract_no, contract_from, contract_to,
+            box_fee, pickup_cutoff, tracking_url, contact_name, contact_phone,
+            remark, sort_order, use_yn, created_by
+        ) VALUES (
+            #{courierCode}, #{courierName}, #{contractNo}, #{contractFrom}, #{contractTo},
+            #{boxFee}, #{pickupCutoff}, #{trackingUrl}, #{contactName}, #{contactPhone},
+            #{remark}, #{sortOrder}, #{useYn}, #{createdBy}
+        )
+    </insert>
+
+    <!--
+      courier_code 는 고치지 않는다. 이미 발급된 송장이 값으로 들고 있어서,
+      여기서 바꾸면 그 송장들의 택배사가 어디에도 없는 코드를 가리키게 된다.
+    -->
+    <update id="update">
+        UPDATE tb_courier
+           SET courier_name  = #{courierName},
+               contract_no   = #{contractNo},
+               contract_from = #{contractFrom},
+               contract_to   = #{contractTo},
+               box_fee       = #{boxFee},
+               pickup_cutoff = #{pickupCutoff},
+               tracking_url  = #{trackingUrl},
+               contact_name  = #{contactName},
+               contact_phone = #{contactPhone},
+               remark        = #{remark},
+               sort_order    = #{sortOrder},
+               use_yn        = #{useYn},
+               updated_by    = #{updatedBy},
+               updated_at    = CURRENT_TIMESTAMP
+         WHERE courier_seq = #{courierSeq}
+    </update>
+
+    <delete id="delete">
+        DELETE FROM tb_courier WHERE courier_seq = #{courierSeq}
+    </delete>
+
+</mapper>
