@@ -24,6 +24,7 @@ import DataTable from '@/components/DataTable.vue'
 import FormField from '@/components/FormField.vue'
 import ModalDialog from '@/components/ModalDialog.vue'
 import CodeBadge from '@/components/CodeBadge.vue'
+import ChainButton from '@/components/ChainButton.vue'
 
 const router = useRouter()
 const session = useSessionStore()
@@ -159,7 +160,7 @@ const columns = [
   { key: 'totalInstructedQty', label: '지시 / 집음', width: '104px', align: 'right' },
   { key: 'outboundStatus', label: '상태', width: '90px', align: 'center' },
   { key: 'instructedAt', label: '지시일시', width: '140px' },
-  { key: '_act', label: '', width: '70px', align: 'right' },
+  { key: '_act', label: '', width: '112px', align: 'right' },
 ]
 </script>
 
@@ -282,6 +283,7 @@ const columns = [
       </template>
 
       <template #cell-_act="{ row }">
+        <ChainButton kind="OUTBOUND" :seq="row.outboundSeq" :no="row.outboundNo" />
         <!--
           아직 아무도 안 잡은 지시만 거둔다. 집기 시작한 뒤에는 집어 둔
           물건을 어디에 놓을지부터 정해야 해서 피킹이 다룬다.

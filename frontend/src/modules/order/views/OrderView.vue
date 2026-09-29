@@ -27,6 +27,7 @@ import ModalDialog from '@/components/ModalDialog.vue'
 import FormField from '@/components/FormField.vue'
 import CodeBadge from '@/components/CodeBadge.vue'
 import SkuPicker from '@/components/SkuPicker.vue'
+import ChainButton from '@/components/ChainButton.vue'
 
 const session = useSessionStore()
 const router = useRouter()
@@ -559,6 +560,8 @@ async function submit() {
 
       <template #cell-_act="{ row }">
         <div class="btn-row" style="justify-content: flex-end">
+          <!-- 번호를 복사해 검색 화면으로 가는 왕복을 없앤다 -->
+          <ChainButton kind="ORDER" :seq="row.orderSeq" :no="row.orderNo" />
           <button
             v-if="row.orderStatus === 'RECEIVED'"
             class="btn btn-sm btn-primary"

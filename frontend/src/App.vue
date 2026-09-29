@@ -13,6 +13,7 @@ import { useToastStore } from '@/stores/toast.js'
 import ToastHost from '@/components/ToastHost.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import NavNode from '@/components/NavNode.vue'
+import GlobalSearch from '@/components/GlobalSearch.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -369,6 +370,12 @@ async function doReset() {
       </span>
 
       <div class="appbar-spacer"></div>
+
+      <!--
+        어디서든 여는 검색창 (Ctrl+K). 검색 화면으로 '가는 것' 자체가
+        왕복이라, 상단에 둬서 지금 보던 화면을 떠나지 않고 찾게 한다.
+      -->
+      <GlobalSearch />
 
       <div class="me" :title="`${session.currentUser?.userId} · ${session.currentUser?.orgName ?? ''}`">
         <span class="me-avatar">{{ session.currentUser?.userName?.[0] ?? '?' }}</span>

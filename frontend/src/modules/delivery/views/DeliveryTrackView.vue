@@ -24,6 +24,7 @@ import DataTable from '@/components/DataTable.vue'
 import ModalDialog from '@/components/ModalDialog.vue'
 import FormField from '@/components/FormField.vue'
 import CodeBadge from '@/components/CodeBadge.vue'
+import ChainButton from '@/components/ChainButton.vue'
 
 const session = useSessionStore()
 const hierarchy = useHierarchyStore()
@@ -210,7 +211,7 @@ const columns = [
   { key: 'totalPackedQty', label: '수량', width: '60px', align: 'right' },
   { key: 'daysInTransit', label: '경과', width: '66px', align: 'right' },
   { key: 'handedOverAt', label: '인계', width: '124px' },
-  { key: '_act', label: '', width: '76px', align: 'right' },
+  { key: '_act', label: '', width: '118px', align: 'right' },
 ]
 </script>
 
@@ -384,8 +385,16 @@ const columns = [
           <span v-else class="small dim">아직 안 넘김</span>
         </template>
 
+        <!--
+          '자취' 는 이 송장이 지나온 배송 사건이고, '길' 은 이 건이 주문부터
+          지나온 문서다. 둘은 다른 것을 답한다 — 배송이 왜 늦나 와 이 주문이
+          어디까지 갔나.
+        -->
         <template #cell-_act="{ row }">
-          <button class="btn btn-sm" @click="openEvents(row)">자취</button>
+          <div class="btn-row" style="justify-content: flex-end">
+            <ChainButton kind="WAYBILL" :seq="row.waybillSeq" :no="row.waybillNo" />
+            <button class="btn btn-sm" @click="openEvents(row)">자취</button>
+          </div>
         </template>
       </DataTable>
 
