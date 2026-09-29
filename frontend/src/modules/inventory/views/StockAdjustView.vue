@@ -8,7 +8,7 @@
  * 한 전표에 여러 품목을 담는다. 낱개로 올리면 승인자가 같은 창고의 조정을
  * 수십 건 따로 열어 봐야 하고, 그러다 보면 읽지 않고 누른다.
  *
- * 목표수량만 입력받는다. 변동량은 요청 시점 장부수량과의 차이라 서버가
+ * 조정후 수량만 입력받는다. 변동량은 요청 시점 장부수량과의 차이라 서버가
  * 계산한다 — 화면이 보낸 변동량을 믿으면 화면이 낡은 수량을 보고 있었을 때
  * 엉뚱한 값이 반영된다. 화면은 미리보기만 한다.
  */
@@ -134,7 +134,7 @@ function addLine(row) {
     {
       stock: row,
       qtyField: 'ON_HAND',
-      // 목표의 출발점을 현재 수량으로 둔다. 0 으로 두면 저장할 때마다
+      // 조정후의 출발점을 현재 수량으로 둔다. 0 으로 두면 저장할 때마다
       // "전량 없앨 뻔했다" 는 실수가 난다.
       qtyAfter: row.qtyOnHand,
       reasonCode: '',
@@ -151,7 +151,7 @@ function removeLine(i) {
   }
 }
 
-/** 수량항목을 바꾸면 목표의 출발점도 그 항목의 현재값으로 옮긴다 */
+/** 수량항목을 바꾸면 조정후의 출발점도 그 항목의 현재값으로 옮긴다 */
 function onFieldChange(line) {
   line.qtyAfter =
     line.qtyField === 'ON_HAND' ? line.stock.qtyOnHand : line.stock.qtyUnsellable
@@ -163,7 +163,7 @@ const currentOf = (line) =>
 const deltaOf = (line) => Number(line.qtyAfter) - currentOf(line)
 
 const lineError = (line) => {
-  if (line.qtyAfter === '' || line.qtyAfter === null) return '목표수량을 입력하세요.'
+  if (line.qtyAfter === '' || line.qtyAfter === null) return '조정후 수량을 입력하세요.'
   if (Number(line.qtyAfter) < 0) return '0 이상이어야 합니다.'
   if (deltaOf(line) === 0) return '바뀌는 것이 없습니다.'
   return ''
@@ -245,7 +245,7 @@ async function openEdit(row) {
         productName: l.productName,
         plantId: full.plantId,
         warehouseId: full.warehouseId,
-        // 목표의 기준은 '지금' 장부수량이다. 요청 시점 값을 쓰면 그 사이의
+        // 조정후의 기준은 '지금' 장부수량이다. 요청 시점 값을 쓰면 그 사이의
         // 변동을 모르는 채로 다시 올리게 된다.
         qtyOnHand: l.qtyField === 'ON_HAND' ? l.qtyCurrent : 0,
         qtyUnsellable: l.qtyField === 'UNSELLABLE' ? l.qtyCurrent : 0,
@@ -429,6 +429,20 @@ const QTY_FIELD_OPTIONS = [
           :options="codeOptions('REASON_ADJUST')"
           help="줄마다 다른 사유를 넣을 수도 있습니다. 비우면 이 사유를 따릅니다."
         />
+        <!--
+          실사 차이는 마감이 이미 반영했다. 그 결과를 여기서 또 올리면 같은
+          차이가 두 번 반영되는데, 화면이 그것을 막을 수가 없다 — '지금 장부
+          48 을 46 으로' 는 그 자체로 정상 요청이라서.
+        -->
+        <div v-if="form.reasonCode === 'STOCKTAKE'" class="alert alert-warn span-2">
+          <span class="alert-icon">⚠</span>
+          <span>
+            실사 차이는 <strong>실사를 마감할 때 이미 장부에 반영</strong>됐습니다.
+            실사 결과를 그대로 다시 올리면 <strong>같은 차이가 두 번 반영</strong>됩니다.
+            <strong>실사 자체가 잘못됐을 때</strong>만 쓰세요.
+          </span>
+        </div>
+
         <FormField
           :model-value="form.warehouseId ? `${form.plantId} · ${form.warehouseId}` : ''"
           label="창고"
@@ -455,7 +469,7 @@ const QTY_FIELD_OPTIONS = [
             <th style="width: 150px">SKU</th>
             <th style="width: 100px">수량항목</th>
             <th style="width: 80px" class="right">현재</th>
-            <th style="width: 100px">목표</th>
+            <th style="width: 100px">조정후</th>
             <th style="width: 76px" class="right">변동</th>
             <th style="width: 120px">사유</th>
             <th style="width: 40px"></th>
@@ -564,7 +578,8 @@ const QTY_FIELD_OPTIONS = [
         <span class="alert-icon">ℹ</span>
         <span>
           요청한 뒤 장부가 움직인 품목이 <strong>{{ detail.staleLineCount }}개</strong> 있습니다.
-          승인하면 반영되는 것은 목표수량이 아니라 변동량이라, 결과가 목표와 다를 수 있습니다.
+          승인하면 <strong>적어 넣은 수량이 아니라 요청 당시의 차이(±)</strong> 가
+          반영되어, 결과가 적어 넣은 값과 다를 수 있습니다.
         </span>
       </div>
 
@@ -577,7 +592,7 @@ const QTY_FIELD_OPTIONS = [
             <th style="width: 84px">수량항목</th>
             <th style="width: 80px" class="right">요청시점</th>
             <th style="width: 80px" class="right">현재</th>
-            <th style="width: 80px" class="right">목표</th>
+            <th style="width: 80px" class="right">조정후</th>
             <th style="width: 70px" class="right">변동</th>
             <th style="width: 110px">사유</th>
           </tr>

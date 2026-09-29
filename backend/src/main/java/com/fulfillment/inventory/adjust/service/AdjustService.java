@@ -47,7 +47,7 @@ import java.util.Set;
  *     혼자 올리고 혼자 승인하면 통제가 아니라 절차다. 역할 표의
  *     '자기 요청 자기 승인 금지' 가 이것을 말한다.
  *
- *   2 승인은 목표수량이 아니라 변동량을 반영한다
+ *   2 승인은 조정후 수량이 아니라 변동량을 반영한다
  *     요청과 승인 사이에 재고가 움직일 수 있다. 요청자가 "3 개 모자라더라"
  *     고 했으면 승인 시점에도 3 개를 빼는 것이 맞지, 그 사이 입고된 것까지
  *     없애는 것은 요청한 적 없는 일이다.
@@ -231,8 +231,8 @@ public class AdjustService {
 	 * 한 줄이라도 실패하면 트랜잭션 전체가 되돌아간다 — 전표의 절반만
 	 * 반영된 상태가 남으면 무엇이 반영됐는지 아무도 모른다.
 	 *
-	 * 반영되는 값은 목표수량이 아니라 변동량이다. 요청과 승인 사이에 재고가
-	 * 움직였을 수 있어서, 승인 후 수량은 요청자가 적은 목표와 다를 수 있다.
+	 * 반영되는 값은 조정후 수량이 아니라 변동량이다. 요청과 승인 사이에 재고가
+	 * 움직였을 수 있어서, 승인 후 수량은 요청자가 적은 조정후 수량과 다를 수 있다.
 	 * 그 사실을 응답의 warning 으로 알린다 — 막지는 않는다.
 	 */
 	@Transactional
@@ -319,7 +319,7 @@ public class AdjustService {
 	 *   1 재고가 이 전표의 창고 안에 있나  — 다른 창고 재고를 끼워 넣으면
 	 *                                        데이터 범위 판정이 헐거워진다
 	 *   2 수량항목이 ON_HAND / UNSELLABLE 인가
-	 *   3 목표수량이 지금과 다른가        — 같으면 승인자가 읽을 것이 없다
+	 *   3 조정후 수량이 지금과 다른가      — 같으면 승인자가 읽을 것이 없다
 	 *   4 같은 재고 · 같은 항목이 두 번 오지 않았나
 	 *
 	 * qtyBefore 는 화면이 보낸 값을 쓰지 않고 서버가 지금 읽은 장부수량을
@@ -353,7 +353,7 @@ public class AdjustService {
 			if (!seen.add(rl.stockSeq() + "/" + rl.qtyField())) {
 				throw new BusinessException(ErrorCode.DUPLICATE,
 						("같은 재고의 같은 수량항목이 두 번 있습니다. (%s / %s) 두 줄이 서로 "
-								+ "다른 목표를 말하면 어느 쪽이 맞는지 정할 수 없습니다.")
+								+ "다른 수량을 말하면 어느 쪽이 맞는지 정할 수 없습니다.")
 								.formatted(stock.locationFullCode(), fieldLabel(rl.qtyField())));
 			}
 
@@ -471,7 +471,7 @@ public class AdjustService {
 		if (drifted.isEmpty()) {
 			return null;
 		}
-		return ("요청 뒤에 장부가 움직인 줄이 %d 개 있어 승인 후 수량이 요청자가 적은 목표와 "
+		return ("요청 뒤에 장부가 움직인 줄이 %d 개 있어 승인 후 수량이 요청자가 적은 조정후 수량과 "
 				+ "다를 수 있습니다. 반영된 것은 변동량입니다. — %s")
 				.formatted(drifted.size(), String.join(", ", drifted));
 	}
@@ -556,7 +556,7 @@ public class AdjustService {
 	 *
 	 * 요청 뒤 장부가 움직인 경우를 막지 않고 알린다 ("막지 않고 알린다").
 	 * 재고가 움직였다고 조정 요청이 무효가 되는 것은 아니지만, 승인자는
-	 * 결과가 요청자의 목표와 다를 수 있다는 것을 알아야 한다.
+	 * 결과가 요청자의 조정후 수량과 다를 수 있다는 것을 알아야 한다.
 	 */
 	public record Result(AdjustResponse adjust, String warning) {
 	}
