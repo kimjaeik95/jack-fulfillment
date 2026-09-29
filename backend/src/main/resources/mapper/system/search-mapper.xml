@@ -186,18 +186,34 @@
          그때는 발주를 머리로 잡는다.
          ══════════════════════════════════════════════════════ -->
 
+    <!--
+      근거 구매요청은 <b>헤더가 아니라 줄</b>에 있다.
+
+      tb_purchase_order.request_seq 는 안 채워진다 — 한 발주가 여러 요청을
+      모아 담을 수 있어서(그것이 발주를 따로 두는 이유다) 머리에 하나만
+      적을 수가 없다. 그래서 줄의 request_line_seq 로 거슬러 올라간다.
+      발주 화면의 '근거 구매요청' 도 같은 길로 구한다.
+
+      여러 요청에서 모았으면 그중 하나로 편다. 지금은 화면이 사슬 하나만
+      그릴 수 있어서인데, 그때는 그 요청의 다른 발주까지 같이 보여야 맞다 —
+      합쳐 담는 발주가 실제로 생기면 그때 손봐야 할 자리다.
+    -->
     <select id="resolvePurchaseRequestSeq" resultType="java.lang.Long">
         <choose>
             <when test='kind == "PUR_REQUEST"'>
                 SELECT #{seq}
             </when>
             <when test='kind == "PUR_ORDER"'>
-                SELECT o.request_seq FROM tb_purchase_order o WHERE o.order_seq = #{seq}
+                SELECT MIN(rl.request_seq)
+                  FROM tb_purchase_order_line l
+                  JOIN tb_purchase_request_line rl ON rl.line_seq = l.request_line_seq
+                 WHERE l.order_seq = #{seq}
             </when>
             <when test='kind == "INBOUND"'>
-                SELECT o.request_seq
+                SELECT MIN(rl.request_seq)
                   FROM tb_inbound i
-                  JOIN tb_purchase_order o ON o.order_seq = i.order_seq
+                  JOIN tb_purchase_order_line l ON l.order_seq = i.order_seq
+                  JOIN tb_purchase_request_line rl ON rl.line_seq = l.request_line_seq
                  WHERE i.inbound_seq = #{seq}
             </when>
             <otherwise>
@@ -225,6 +241,11 @@
 
         UNION ALL
 
+        <!--
+          발주는 줄로 이어진다. 헤더의 request_seq 는 안 채워진다 — 한
+          발주가 여러 요청을 모아 담을 수 있어서 머리에 하나만 적을 수가
+          없다. 그것이 발주를 따로 두는 이유다.
+        -->
         SELECT 'PUR_ORDER', '발주', o.order_no, o.order_seq,
                o.order_status, 'PO_STATUS',
                COALESCE(pt.partner_name, ''),
@@ -233,7 +254,11 @@
                o.created_at, 'purchase-orders', TRUE
           FROM tb_purchase_order o
           LEFT JOIN tb_partner pt ON pt.partner_seq = o.supplier_seq
-         WHERE o.request_seq = #{requestSeq}
+         WHERE EXISTS (
+               SELECT 1 FROM tb_purchase_order_line l
+                 JOIN tb_purchase_request_line rl ON rl.line_seq = l.request_line_seq
+                WHERE l.order_seq   = o.order_seq
+                  AND rl.request_seq = #{requestSeq})
 
         UNION ALL
 
@@ -244,9 +269,12 @@
                  WHERE l.inbound_seq = i.inbound_seq),
                i.created_at, 'inbound-plans', TRUE
           FROM tb_inbound i
-          JOIN tb_purchase_order o2 ON o2.order_seq = i.order_seq
           LEFT JOIN tb_plant pl2 ON pl2.plant_seq = i.plant_seq
-         WHERE o2.request_seq = #{requestSeq}
+         WHERE EXISTS (
+               SELECT 1 FROM tb_purchase_order_line l
+                 JOIN tb_purchase_request_line rl ON rl.line_seq = l.request_line_seq
+                WHERE l.order_seq   = i.order_seq
+                  AND rl.request_seq = #{requestSeq})
 
          ORDER BY 9, 4
     </select>
