@@ -1,0 +1,350 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<!--
+  통합검색 (COM-PG-013).
+
+  ※ SearchHit · ChainStep 은 record 다. MyBatis 의 생성자 자동매핑은
+    <b>순서로</b> 붙으므로 SELECT 칼럼 순서가 record 선언 순서와 같아야
+    한다. 칼럼 하나를 가운데 끼워 넣으면 그 뒤 값이 통째로 밀려서, 오류
+    없이 엉뚱한 값이 들어간다.
+
+      SearchHit  kind, kindLabel, no, seq, label, status, statusGroup,
+                 when, plantName, route
+      ChainStep  kind, kindLabel, no, seq, status, statusGroup, label,
+                 qty, when, route, reached
+-->
+<mapper namespace="com.fulfillment.system.search.dao.SearchDao">
+
+    <!-- ══════════════════════════════════════════════════════
+         무엇이 걸리나
+         ══════════════════════════════════════════════════════ -->
+
+    <select id="findPurchaseRequests" resultType="com.fulfillment.system.search.dto.SearchHit">
+        SELECT 'PUR_REQUEST'                AS kind,
+               '구매요청'                   AS kind_label,
+               r.request_no                 AS no,
+               r.request_seq                AS seq,
+               COALESCE(pl.plant_name, '')  AS label,
+               r.request_status             AS status,
+               'REQUEST_STATUS'             AS status_group,
+               r.requested_at               AS when,
+               pl.plant_name                AS plant_name,
+               'purchase-requests'          AS route
+          FROM tb_purchase_request r
+          LEFT JOIN tb_plant pl ON pl.plant_seq = r.plant_seq
+         WHERE r.request_no ILIKE '%' || #{q} || '%'
+         ORDER BY r.request_seq DESC
+         LIMIT #{limit}
+    </select>
+
+    <select id="findPurchaseOrders" resultType="com.fulfillment.system.search.dto.SearchHit">
+        SELECT 'PUR_ORDER'                  AS kind,
+               '발주'                       AS kind_label,
+               o.order_no                   AS no,
+               o.order_seq                  AS seq,
+               COALESCE(pt.partner_name, '') AS label,
+               o.order_status               AS status,
+               'PO_STATUS'                  AS status_group,
+               o.created_at                 AS when,
+               pl.plant_name                AS plant_name,
+               'purchase-orders'            AS route
+          FROM tb_purchase_order o
+          LEFT JOIN tb_plant   pl ON pl.plant_seq   = o.plant_seq
+          LEFT JOIN tb_partner pt ON pt.partner_seq = o.supplier_seq
+         WHERE o.order_no ILIKE '%' || #{q} || '%'
+         ORDER BY o.order_seq DESC
+         LIMIT #{limit}
+    </select>
+
+    <select id="findInbounds" resultType="com.fulfillment.system.search.dto.SearchHit">
+        SELECT 'INBOUND'                    AS kind,
+               '입고'                       AS kind_label,
+               i.inbound_no                 AS no,
+               i.inbound_seq                AS seq,
+               COALESCE(pt.partner_name, '') AS label,
+               i.inbound_status             AS status,
+               'INBOUND_STATUS'             AS status_group,
+               i.created_at                 AS when,
+               pl.plant_name                AS plant_name,
+               'inbound-plans'              AS route
+          FROM tb_inbound i
+          LEFT JOIN tb_plant   pl ON pl.plant_seq   = i.plant_seq
+          LEFT JOIN tb_partner pt ON pt.partner_seq = i.supplier_seq
+         WHERE i.inbound_no ILIKE '%' || #{q} || '%'
+         ORDER BY i.inbound_seq DESC
+         LIMIT #{limit}
+    </select>
+
+    <!--
+      주문은 번호가 둘이다 — 우리 번호(ORD-…)와 채널이 준 번호(ext_order_no).
+      CS 가 손에 든 것은 대개 채널 번호라서 둘 다 찾는다. 수령인과 연락처도
+      본다. 고객이 주문번호를 모른 채 전화하는 일이 흔하다.
+    -->
+    <select id="findOrders" resultType="com.fulfillment.system.search.dto.SearchHit">
+        SELECT 'ORDER'                      AS kind,
+               '주문'                       AS kind_label,
+               o.order_no                   AS no,
+               o.order_seq                  AS seq,
+               TRIM(BOTH ' · ' FROM
+                    COALESCE(o.receiver_name, '') || ' · ' ||
+                    COALESCE(o.ext_order_no, '')) AS label,
+               o.order_status               AS status,
+               'ORDER_STATUS'               AS status_group,
+               o.ordered_at                 AS when,
+               NULL                         AS plant_name,
+               'orders'                     AS route
+          FROM tb_order o
+         WHERE o.order_no       ILIKE '%' || #{q} || '%'
+            OR o.ext_order_no   ILIKE '%' || #{q} || '%'
+            OR o.receiver_name  ILIKE '%' || #{q} || '%'
+            OR REPLACE(o.receiver_phone, '-', '') ILIKE '%' || REPLACE(#{q}, '-', '') || '%'
+         ORDER BY o.order_seq DESC
+         LIMIT #{limit}
+    </select>
+
+    <select id="findOutbounds" resultType="com.fulfillment.system.search.dto.SearchHit">
+        SELECT 'OUTBOUND'                   AS kind,
+               '출고지시'                   AS kind_label,
+               o.outbound_no                AS no,
+               o.outbound_seq               AS seq,
+               COALESCE(pl.plant_name, '')  AS label,
+               o.outbound_status            AS status,
+               'OUTBOUND_STATUS'            AS status_group,
+               o.instructed_at              AS when,
+               pl.plant_name                AS plant_name,
+               'outbounds'                  AS route
+          FROM tb_outbound o
+          LEFT JOIN tb_plant pl ON pl.plant_seq = o.plant_seq
+         WHERE o.outbound_no ILIKE '%' || #{q} || '%'
+         ORDER BY o.outbound_seq DESC
+         LIMIT #{limit}
+    </select>
+
+    <!--
+      취소된 송장도 찾는다. '그 번호는 취소됐고 재배송 송장이 따로 있다'
+      가 답인 경우가 많아서, 안 보여 주면 '없는 번호' 로 잘못 답하게 된다.
+    -->
+    <select id="findWaybills" resultType="com.fulfillment.system.search.dto.SearchHit">
+        SELECT 'WAYBILL'                    AS kind,
+               '송장'                       AS kind_label,
+               w.waybill_no                 AS no,
+               w.waybill_seq                AS seq,
+               COALESCE(cr.courier_name, w.courier_code) AS label,
+               CASE WHEN w.waybill_status = 'CANCELED' THEN 'CANCELED'
+                    ELSE w.delivery_status END AS status,
+               CASE WHEN w.waybill_status = 'CANCELED' THEN 'WAYBILL_STATUS'
+                    ELSE 'DELIVERY_STATUS' END AS status_group,
+               w.issued_at                  AS when,
+               pl.plant_name                AS plant_name,
+               'delivery-track'             AS route
+          FROM tb_waybill w
+          LEFT JOIN tb_courier  cr ON cr.courier_code = w.courier_code
+          LEFT JOIN tb_pack_box b  ON b.box_seq       = w.box_seq
+          LEFT JOIN tb_outbound o  ON o.outbound_seq  = b.outbound_seq
+          LEFT JOIN tb_plant    pl ON pl.plant_seq    = o.plant_seq
+         WHERE REPLACE(w.waybill_no, '-', '') ILIKE '%' || REPLACE(#{q}, '-', '') || '%'
+         ORDER BY w.waybill_seq DESC
+         LIMIT #{limit}
+    </select>
+
+    <!--
+      SKU 는 사슬이 없다. 문서가 아니라 물건이라서, 지나온 길이 아니라
+      '지금 어디 몇 개 있나' 가 답이다 — 재고 화면으로 보낸다.
+    -->
+    <select id="findSkus" resultType="com.fulfillment.system.search.dto.SearchHit">
+        SELECT 'SKU'                        AS kind,
+               'SKU'                        AS kind_label,
+               k.sku_id                     AS no,
+               k.sku_seq                    AS seq,
+               TRIM(BOTH ' / ' FROM
+                    COALESCE(pr.product_name, '') || ' / ' ||
+                    COALESCE(k.color_code, '') || ' ' ||
+                    COALESCE(k.size_code, '')) AS label,
+               k.status                     AS status,
+               'SKU_STATUS'                 AS status_group,
+               k.created_at                 AS when,
+               NULL                         AS plant_name,
+               'stocks'                     AS route
+          FROM tb_sku k
+          LEFT JOIN tb_product pr ON pr.product_seq = k.product_seq
+         WHERE k.sku_id       ILIKE '%' || #{q} || '%'
+            OR k.barcode      ILIKE '%' || #{q} || '%'
+            OR pr.product_id  ILIKE '%' || #{q} || '%'
+            OR pr.product_name ILIKE '%' || #{q} || '%'
+         ORDER BY k.sku_seq DESC
+         LIMIT #{limit}
+    </select>
+
+
+    <!-- ══════════════════════════════════════════════════════
+         구매 사슬 — 구매요청 → 발주 → 입고
+
+         어느 문서로 시작하든 구매요청까지 거슬러 올라간 뒤 내려온다.
+         요청 없이 낸 발주(PUR-005)가 있어서 요청이 없을 수도 있는데,
+         그때는 발주를 머리로 잡는다.
+         ══════════════════════════════════════════════════════ -->
+
+    <select id="resolvePurchaseRequestSeq" resultType="java.lang.Long">
+        <choose>
+            <when test='kind == "PUR_REQUEST"'>
+                SELECT #{seq}
+            </when>
+            <when test='kind == "PUR_ORDER"'>
+                SELECT o.request_seq FROM tb_purchase_order o WHERE o.order_seq = #{seq}
+            </when>
+            <when test='kind == "INBOUND"'>
+                SELECT o.request_seq
+                  FROM tb_inbound i
+                  JOIN tb_purchase_order o ON o.order_seq = i.order_seq
+                 WHERE i.inbound_seq = #{seq}
+            </when>
+            <otherwise>
+                SELECT NULL::bigint
+            </otherwise>
+        </choose>
+    </select>
+
+    <select id="purchaseChain" resultType="com.fulfillment.system.search.dto.SearchResponse$ChainStep">
+        SELECT 'PUR_REQUEST'  AS kind,
+               '구매요청'     AS kind_label,
+               r.request_no   AS no,
+               r.request_seq  AS seq,
+               r.request_status AS status,
+               'REQUEST_STATUS' AS status_group,
+               COALESCE(pl.plant_name, '') AS label,
+               (SELECT SUM(l.request_qty)::int FROM tb_purchase_request_line l
+                 WHERE l.request_seq = r.request_seq) AS qty,
+               r.requested_at AS when,
+               'purchase-requests' AS route,
+               TRUE           AS reached
+          FROM tb_purchase_request r
+          LEFT JOIN tb_plant pl ON pl.plant_seq = r.plant_seq
+         WHERE r.request_seq = #{requestSeq}
+
+        UNION ALL
+
+        SELECT 'PUR_ORDER', '발주', o.order_no, o.order_seq,
+               o.order_status, 'PO_STATUS',
+               COALESCE(pt.partner_name, ''),
+               (SELECT SUM(l.order_qty)::int FROM tb_purchase_order_line l
+                 WHERE l.order_seq = o.order_seq),
+               o.created_at, 'purchase-orders', TRUE
+          FROM tb_purchase_order o
+          LEFT JOIN tb_partner pt ON pt.partner_seq = o.supplier_seq
+         WHERE o.request_seq = #{requestSeq}
+
+        UNION ALL
+
+        SELECT 'INBOUND', '입고', i.inbound_no, i.inbound_seq,
+               i.inbound_status, 'INBOUND_STATUS',
+               COALESCE(pl2.plant_name, ''),
+               (SELECT SUM(l.planned_qty)::int FROM tb_inbound_line l
+                 WHERE l.inbound_seq = i.inbound_seq),
+               i.created_at, 'inbound-plans', TRUE
+          FROM tb_inbound i
+          JOIN tb_purchase_order o2 ON o2.order_seq = i.order_seq
+          LEFT JOIN tb_plant pl2 ON pl2.plant_seq = i.plant_seq
+         WHERE o2.request_seq = #{requestSeq}
+
+         ORDER BY 9, 4
+    </select>
+
+
+    <!-- ══════════════════════════════════════════════════════
+         판매 사슬 — 주문 → 출고지시 → 박스 · 송장 → 배송
+
+         한 주문이 여러 지시로 나뉘어 나갈 수 있고 (결품으로 6 개 먼저,
+         4 개 나중), 한 지시가 여러 박스로 나갈 수 있다. 그래서 칸이
+         하나씩이 아니라 여러 줄이 될 수 있다.
+         ══════════════════════════════════════════════════════ -->
+
+    <select id="resolveOrderSeq" resultType="java.lang.Long">
+        <choose>
+            <when test='kind == "ORDER"'>
+                SELECT #{seq}
+            </when>
+            <when test='kind == "OUTBOUND"'>
+                SELECT MIN(l.order_seq)
+                  FROM tb_outbound_line ol
+                  JOIN tb_order_line l ON l.line_seq = ol.order_line_seq
+                 WHERE ol.outbound_seq = #{seq}
+            </when>
+            <when test='kind == "WAYBILL"'>
+                SELECT MIN(l.order_seq)
+                  FROM tb_waybill w
+                  JOIN tb_pack_box b      ON b.box_seq       = w.box_seq
+                  JOIN tb_outbound_line ol ON ol.outbound_seq = b.outbound_seq
+                  JOIN tb_order_line l    ON l.line_seq      = ol.order_line_seq
+                 WHERE w.waybill_seq = #{seq}
+            </when>
+            <otherwise>
+                SELECT NULL::bigint
+            </otherwise>
+        </choose>
+    </select>
+
+    <select id="salesChain" resultType="com.fulfillment.system.search.dto.SearchResponse$ChainStep">
+        SELECT 'ORDER'        AS kind,
+               '주문'         AS kind_label,
+               o.order_no     AS no,
+               o.order_seq    AS seq,
+               o.order_status AS status,
+               'ORDER_STATUS' AS status_group,
+               TRIM(BOTH ' · ' FROM
+                    COALESCE(o.receiver_name, '') || ' · ' ||
+                    COALESCE(o.ext_order_no, '')) AS label,
+               (SELECT SUM(l.order_qty)::int FROM tb_order_line l
+                 WHERE l.order_seq = o.order_seq) AS qty,
+               o.ordered_at   AS when,
+               'orders'       AS route,
+               TRUE           AS reached
+          FROM tb_order o
+         WHERE o.order_seq = #{orderSeq}
+
+        UNION ALL
+
+        SELECT 'OUTBOUND', '출고지시', ob.outbound_no, ob.outbound_seq,
+               ob.outbound_status, 'OUTBOUND_STATUS',
+               COALESCE(pl.plant_name, ''),
+               (SELECT SUM(x.instructed_qty)::int FROM tb_outbound_line x
+                 WHERE x.outbound_seq = ob.outbound_seq),
+               ob.instructed_at, 'outbounds', TRUE
+          FROM tb_outbound ob
+          LEFT JOIN tb_plant pl ON pl.plant_seq = ob.plant_seq
+         WHERE EXISTS (
+               SELECT 1 FROM tb_outbound_line ol
+                 JOIN tb_order_line l ON l.line_seq = ol.order_line_seq
+                WHERE ol.outbound_seq = ob.outbound_seq
+                  AND l.order_seq     = #{orderSeq})
+
+        UNION ALL
+
+        <!--
+          박스와 송장을 한 칸으로 묶는다. 박스번호는 우리 안에서만 쓰는
+          이름이고 밖에서 그 박스를 부르는 이름은 송장번호라, 나누면
+          '3번 박스' 라는 아무에게도 안 통하는 칸이 하나 더 생긴다.
+        -->
+        SELECT 'WAYBILL', '박스 · 송장', w.waybill_no, w.waybill_seq,
+               CASE WHEN w.waybill_status = 'CANCELED' THEN 'CANCELED'
+                    ELSE w.delivery_status END,
+               CASE WHEN w.waybill_status = 'CANCELED' THEN 'WAYBILL_STATUS'
+                    ELSE 'DELIVERY_STATUS' END,
+               COALESCE(cr.courier_name, w.courier_code) || ' · ' || b.box_no || '번 박스',
+               (SELECT SUM(bl.packed_qty)::int FROM tb_pack_box_line bl
+                 WHERE bl.box_seq = b.box_seq),
+               COALESCE(b.handed_over_at, w.issued_at), 'delivery-track', TRUE
+          FROM tb_waybill w
+          JOIN tb_pack_box b ON b.box_seq = w.box_seq
+          LEFT JOIN tb_courier cr ON cr.courier_code = w.courier_code
+         WHERE EXISTS (
+               SELECT 1 FROM tb_outbound_line ol
+                 JOIN tb_order_line l ON l.line_seq = ol.order_line_seq
+                WHERE ol.outbound_seq = b.outbound_seq
+                  AND l.order_seq     = #{orderSeq})
+
+         ORDER BY 9, 4
+    </select>
+
+</mapper>
