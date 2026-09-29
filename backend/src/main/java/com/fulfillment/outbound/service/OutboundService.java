@@ -1,6 +1,7 @@
 package com.fulfillment.outbound.service;
 
 import com.fulfillment.common.audit.AuditRecorder;
+import com.fulfillment.common.notify.Notifier;
 import com.fulfillment.common.code.CodeValues;
 import com.fulfillment.common.doc.DocNumbers;
 import com.fulfillment.common.exception.BusinessException;
@@ -10,6 +11,7 @@ import com.fulfillment.common.security.LoginUser;
 import com.fulfillment.common.security.PermissionChecker;
 import com.fulfillment.common.web.PageResponse;
 import com.fulfillment.domain.Order;
+import com.fulfillment.domain.Notification;
 import com.fulfillment.domain.Outbound;
 import com.fulfillment.domain.OutboundLine;
 import com.fulfillment.domain.OutboundPick;
@@ -109,12 +111,13 @@ public class OutboundService {
 	private final PermissionChecker permissionChecker;
 	private final DataScopeResolver dataScopes;
 	private final AuditRecorder auditRecorder;
+	private final Notifier notifier;
 
 	public OutboundService(OutboundDao outboundDao, SalesOrderDao orderDao,
 			UserDao userDao, StockLedger stockLedger,
 			CodeValues codeValues, DocNumbers docNumbers,
 			PermissionChecker permissionChecker, DataScopeResolver dataScopes,
-			AuditRecorder auditRecorder) {
+			AuditRecorder auditRecorder, Notifier notifier) {
 		this.outboundDao = outboundDao;
 		this.orderDao = orderDao;
 		this.userDao = userDao;
@@ -124,6 +127,7 @@ public class OutboundService {
 		this.permissionChecker = permissionChecker;
 		this.dataScopes = dataScopes;
 		this.auditRecorder = auditRecorder;
+		this.notifier = notifier;
 	}
 
 	/* ------------------------------------------------------------------ */
@@ -537,6 +541,25 @@ public class OutboundService {
 		Outbound after = mustFind(outboundSeq);
 		auditRecorder.recordAction(actor, "UPDATE", TABLE, after.getOutboundNo(),
 				"피킹 결품 %s %d 개 — %s".formatted(line.getSkuId(), request.qty(), reason));
+
+		/*
+		 * 알린다 (COM-PG-015).
+		 *
+		 * 여덟 가지 알림 중 가장 무겁다. 전산엔 있는데 빈에 없다는 것은
+		 * <b>재고가 틀렸다</b>는 뜻이고, 그 수량은 실사 · 조정으로 맞추기
+		 * 전까지 팔 수도 내보낼 수도 없는 채로 묶여 있다 (할당을 안 푸는
+		 * 이유가 그것이다).
+		 *
+		 * 이것만은 배치에 맡기지 않는다. 다음 새벽까지 기다리면 그사이에
+		 * 같은 빈을 또 집으러 간다.
+		 */
+		notifier.raise(Notification.PICK_SHORT, Notification.ALERT,
+				"CENTER_MGR", after.getPlantSeq(),
+				"OUTBOUND", after.getOutboundNo(),
+				"%s 피킹 결품 — 전산엔 있는데 빈에 없습니다".formatted(after.getOutboundNo()),
+				"%s %d개 · %s — 실사 · 조정으로 재고를 맞춰야 합니다"
+						.formatted(line.getSkuId(), request.qty(), reason));
+
 		return OutboundResponse.of(after, outboundDao.selectLines(outboundSeq));
 	}
 

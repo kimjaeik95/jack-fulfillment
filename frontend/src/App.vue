@@ -14,6 +14,7 @@ import ToastHost from '@/components/ToastHost.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import NavNode from '@/components/NavNode.vue'
 import GlobalSearch from '@/components/GlobalSearch.vue'
+import NotificationBell from '@/components/NotificationBell.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -376,6 +377,7 @@ async function doReset() {
         왕복이라, 상단에 둬서 지금 보던 화면을 떠나지 않고 찾게 한다.
       -->
       <GlobalSearch />
+      <NotificationBell />
 
       <div class="me" :title="`${session.currentUser?.userId} · ${session.currentUser?.orgName ?? ''}`">
         <span class="me-avatar">{{ session.currentUser?.userName?.[0] ?? '?' }}</span>

@@ -1,6 +1,7 @@
 package com.fulfillment.delivery.track.service;
 
 import com.fulfillment.common.audit.AuditRecorder;
+import com.fulfillment.common.notify.Notifier;
 import com.fulfillment.common.exception.BusinessException;
 import com.fulfillment.common.exception.ErrorCode;
 import com.fulfillment.common.security.DataScopeResolver;
@@ -18,6 +19,7 @@ import com.fulfillment.delivery.track.dto.TransitRowResponse;
 import com.fulfillment.delivery.track.dto.TransitSearch;
 import com.fulfillment.domain.Courier;
 import com.fulfillment.domain.DeliveryEvent;
+import com.fulfillment.domain.Notification;
 import com.fulfillment.domain.Waybill;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -54,15 +56,17 @@ public class DeliveryService {
 	private final PermissionChecker permissionChecker;
 	private final DataScopeResolver dataScopes;
 	private final AuditRecorder auditRecorder;
+	private final Notifier notifier;
 
 	public DeliveryService(DeliveryDao deliveryDao, CourierDao courierDao,
 			PermissionChecker permissionChecker, DataScopeResolver dataScopes,
-			AuditRecorder auditRecorder) {
+			AuditRecorder auditRecorder, Notifier notifier) {
 		this.deliveryDao = deliveryDao;
 		this.courierDao = courierDao;
 		this.permissionChecker = permissionChecker;
 		this.dataScopes = dataScopes;
 		this.auditRecorder = auditRecorder;
+		this.notifier = notifier;
 	}
 
 	/* ================================================================== */
@@ -204,6 +208,24 @@ public class DeliveryService {
 					"다른 사람이 먼저 처리했습니다. 화면을 새로 고치세요.");
 		}
 
+		/*
+		 * 알린다 (COM-PG-015).
+		 *
+		 * 못 간 것은 누가 다시 보내야 하는 일이다. 다시 굴러가면(배송중 ·
+		 * 배달출발 · 배송완료) 그 알림은 닫는다 — 할 일이 끝났는데 목록에
+		 * 남아 있으면 다음부터 목록을 안 믿는다.
+		 */
+		if (DeliveryEvent.needsReason(status)) {
+			notifier.raise(Notification.DELIVERY_FAILED, Notification.WARN,
+					"CS_VIEWER", null, "WAYBILL", row.getWaybillNo(),
+					"%s %s — %s".formatted(row.getWaybillNo(), statusLabel(status),
+							row.getReceiverName() == null ? "" : row.getReceiverName()),
+					"%s · %s".formatted(row.getOutboundNo(),
+							blankToNull(remark) == null ? statusLabel(status) : remark));
+		} else {
+			notifier.close(Notification.DELIVERY_FAILED, "WAYBILL", row.getWaybillNo());
+		}
+
 		deliveryDao.insertEvent(DeliveryEvent.builder()
 				.waybillSeq(locked.getWaybillSeq())
 				.eventStatus(status)
@@ -322,6 +344,9 @@ public class DeliveryService {
 				.source(DeliveryEvent.MANUAL)
 				.createdBy(actorId(actor))
 				.build());
+
+		// 다시 보냈으니 원 송장의 '배송 실패' 는 할 일이 끝났다
+		notifier.close(Notification.DELIVERY_FAILED, "WAYBILL", origin.getWaybillNo());
 
 		auditRecorder.recordAction(actor, "UPDATE", TABLE, newNo,
 				"재배송 %s → %s (%s)".formatted(origin.getWaybillNo(), newNo,

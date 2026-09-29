@@ -1,0 +1,477 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<!--
+  알림 (COM-PG-015).
+
+  배치가 찾는 셋(발주 납기 초과 · 운송중 지연 · 수량체인 꺾임)은 여기서
+  <b>알림 모양 그대로</b> 뽑는다. 서비스가 다시 조립하지 않도록.
+-->
+<mapper namespace="com.fulfillment.system.notification.dao.NotificationDao">
+
+    <resultMap id="notiMap" type="com.fulfillment.domain.Notification">
+        <id     property="notificationSeq" column="notification_seq"/>
+        <result property="kind"         column="kind"/>
+        <result property="roleSeq"      column="role_seq"/>
+        <result property="roleId"       column="role_id"/>
+        <result property="roleName"     column="role_name"/>
+        <result property="plantSeq"     column="plant_seq"/>
+        <result property="plantName"    column="plant_name"/>
+        <result property="refType"      column="ref_type"/>
+        <result property="refNo"        column="ref_no"/>
+        <result property="title"        column="title"/>
+        <result property="body"         column="body"/>
+        <result property="level"        column="level"/>
+        <result property="closedYn"     column="closed_yn"/>
+        <result property="closedAt"     column="closed_at"/>
+        <result property="closedReason" column="closed_reason"/>
+        <result property="occurredAt"   column="occurred_at"/>
+        <result property="createdBy"    column="created_by"/>
+        <result property="createdAt"    column="created_at"/>
+        <result property="readYn"       column="read_yn"/>
+        <result property="agingDays"    column="aging_days"/>
+    </resultMap>
+
+
+    <!-- ══════════════════════════════════════════════════════
+         남기기 · 닫기
+         ══════════════════════════════════════════════════════ -->
+
+    <!--
+      같은 것이 이미 열려 있으면 아무것도 안 한다.
+
+      ux_noti_open 이 (kind, ref_type, ref_no) 를 열린 것에 한해 유일하게
+      묶어 두므로, 여기서 흘려보내면 배치가 매일 돌아도 알림은 하나다.
+    -->
+    <insert id="insertIfAbsent">
+        INSERT INTO tb_notification (
+            kind, role_seq, plant_seq, ref_type, ref_no,
+            title, body, level, occurred_at, created_by
+        )
+        SELECT #{kind}, #{roleSeq}, #{plantSeq}, #{refType}, #{refNo},
+               #{title}, #{body}, COALESCE(#{level}, 'INFO'),
+               COALESCE(#{occurredAt}, CURRENT_TIMESTAMP), #{createdBy}
+        ON CONFLICT (kind, ref_type, ref_no) WHERE closed_yn = 'N'
+        DO NOTHING
+    </insert>
+
+    <update id="close">
+        UPDATE tb_notification
+           SET closed_yn     = 'Y',
+               closed_at     = CURRENT_TIMESTAMP,
+               closed_reason = COALESCE(#{reason}, 'DONE')
+         WHERE kind      = #{kind}
+           AND ref_type  = #{refType}
+           AND ref_no    = #{refNo}
+           AND closed_yn = 'N'
+    </update>
+
+    <!--
+      배치가 다시 훑은 뒤 이번에 안 걸린 것을 닫는다.
+
+      납기 지난 발주가 들어왔거나 미납종결됐으면 조건이 사라진 것이다.
+      배치가 만든 알림은 배치가 거둬야 한다 — 안 그러면 해결된 문제가
+      영영 목록에 남고, 그러면 목록을 안 믿게 된다.
+    -->
+    <update id="closeMissing">
+        UPDATE tb_notification
+           SET closed_yn     = 'Y',
+               closed_at     = CURRENT_TIMESTAMP,
+               closed_reason = 'GONE'
+         WHERE kind      = #{kind}
+           AND closed_yn = 'N'
+        <if test="aliveRefNos != null and aliveRefNos.size() > 0">
+            AND ref_no NOT IN
+            <foreach collection="aliveRefNos" item="no" open="(" separator="," close=")">
+                #{no}
+            </foreach>
+        </if>
+    </update>
+
+
+    <!-- ══════════════════════════════════════════════════════
+         보기
+
+         내 역할 · 내 센터에 온 것만. 알림은 수신자가 이미 정해져 있는
+         자료라, 데이터 범위로 거르는 것이 아니라 내 것을 찾는 것이다.
+         ══════════════════════════════════════════════════════ -->
+
+    <sql id="inboxWhere">
+        <where>
+            <!--
+              역할이 없는 알림(전사 공지)은 모두에게 보인다. 지금 그런
+              알림은 없지만 칸이 열려 있어서 규칙을 먼저 정해 둔다.
+            -->
+            AND ( n.role_seq IS NULL
+            <if test="roleIds != null and roleIds.size() > 0">
+                  OR r.role_id IN
+                  <foreach collection="roleIds" item="rid" open="(" separator="," close=")">
+                      #{rid}
+                  </foreach>
+            </if>
+                )
+
+            <!--
+              센터를 안 가리는 알림은 모두에게. 가리는 알림은 내 센터 것만 —
+              이천센터 사람에게 김해센터 결품을 알리면 소음이다.
+            -->
+            AND ( n.plant_seq IS NULL
+            <if test="orgSeqs != null and orgSeqs.size() > 0">
+                  OR pl.org_seq IN
+                  <foreach collection="orgSeqs" item="o" open="(" separator="," close=")">
+                      #{o}
+                  </foreach>
+            </if>
+                )
+
+            <if test='includeClosed != "Y"'>
+                AND n.closed_yn = 'N'
+            </if>
+            <if test="kind != null and kind != ''">
+                AND n.kind = #{kind}
+            </if>
+            <if test="level != null and level != ''">
+                AND n.level = #{level}
+            </if>
+            <if test="keyword != null and keyword != ''">
+                AND ( n.title  ILIKE '%' || #{keyword} || '%'
+                   OR n.ref_no ILIKE '%' || #{keyword} || '%'
+                   OR n.body   ILIKE '%' || #{keyword} || '%' )
+            </if>
+            <if test='unreadOnly == "Y"'>
+                AND NOT EXISTS (SELECT 1 FROM tb_notification_read x
+                                 WHERE x.notification_seq = n.notification_seq
+                                   AND x.user_seq = #{userSeq})
+            </if>
+        </where>
+    </sql>
+
+    <select id="selectInbox" resultMap="notiMap">
+        SELECT n.notification_seq, n.kind, n.role_seq, n.plant_seq,
+               n.ref_type, n.ref_no, n.title, n.body, n.level,
+               n.closed_yn, n.closed_at, n.closed_reason,
+               n.occurred_at, n.created_by, n.created_at,
+               r.role_id, r.role_name, pl.plant_name,
+               EXISTS (SELECT 1 FROM tb_notification_read x
+                        WHERE x.notification_seq = n.notification_seq
+                          AND x.user_seq = #{userSeq}) AS read_yn,
+               DATE_PART('day', CURRENT_TIMESTAMP - n.occurred_at)::int AS aging_days
+          FROM tb_notification n
+          LEFT JOIN tb_role  r  ON r.role_seq   = n.role_seq
+          LEFT JOIN tb_plant pl ON pl.plant_seq = n.plant_seq
+        <include refid="inboxWhere"/>
+        <!--
+          급한 것이 위로, 그다음 오래된 것이 위로. 새것이 위로 오면 오래
+          묵은 경고가 아래로 밀려 영영 안 보인다.
+        -->
+         ORDER BY CASE n.level WHEN 'ALERT' THEN 0 WHEN 'WARN' THEN 1 ELSE 2 END,
+                  n.occurred_at
+        <if test="size > 0">
+            LIMIT #{size} OFFSET #{offset}
+        </if>
+    </select>
+
+    <select id="countInbox" resultType="long">
+        SELECT COUNT(*)
+          FROM tb_notification n
+          LEFT JOIN tb_role  r  ON r.role_seq   = n.role_seq
+          LEFT JOIN tb_plant pl ON pl.plant_seq = n.plant_seq
+        <include refid="inboxWhere"/>
+    </select>
+
+    <!-- 헤더 뱃지. 열려 있고 안 읽은 것만 -->
+    <select id="countUnread" resultType="int">
+        SELECT COUNT(*)
+          FROM tb_notification n
+         WHERE n.closed_yn = 'N'
+           AND ( n.role_seq IS NULL
+        <if test="roleIds != null and roleIds.size() > 0">
+                 OR EXISTS (SELECT 1 FROM tb_role r2
+                             WHERE r2.role_seq = n.role_seq
+                               AND r2.role_id IN
+                 <foreach collection="roleIds" item="rid" open="(" separator="," close=")">
+                     #{rid}
+                 </foreach>
+                           )
+        </if>
+               )
+           AND ( n.plant_seq IS NULL
+        <if test="orgSeqs != null and orgSeqs.size() > 0">
+                 OR EXISTS (SELECT 1 FROM tb_plant p2
+                             WHERE p2.plant_seq = n.plant_seq
+                               AND p2.org_seq IN
+                 <foreach collection="orgSeqs" item="o" open="(" separator="," close=")">
+                     #{o}
+                 </foreach>
+                           )
+        </if>
+               )
+           AND NOT EXISTS (SELECT 1 FROM tb_notification_read x
+                            WHERE x.notification_seq = n.notification_seq
+                              AND x.user_seq = #{userSeq})
+    </select>
+
+    <select id="selectOne" resultMap="notiMap">
+        SELECT n.*, r.role_id, r.role_name, pl.plant_name,
+               NULL::boolean AS read_yn, NULL::int AS aging_days
+          FROM tb_notification n
+          LEFT JOIN tb_role  r  ON r.role_seq   = n.role_seq
+          LEFT JOIN tb_plant pl ON pl.plant_seq = n.plant_seq
+         WHERE n.notification_seq = #{notificationSeq}
+    </select>
+
+
+    <!-- ══════════════════════════════════════════════════════
+         읽음 — 뱃지 숫자용이다. 사라지는 것은 닫힘이지 읽음이 아니다
+         ══════════════════════════════════════════════════════ -->
+
+    <insert id="markRead">
+        INSERT INTO tb_notification_read (notification_seq, user_seq)
+        VALUES (#{notificationSeq}, #{userSeq})
+        ON CONFLICT (notification_seq, user_seq) DO NOTHING
+    </insert>
+
+    <insert id="markAllRead">
+        INSERT INTO tb_notification_read (notification_seq, user_seq)
+        SELECT n.notification_seq, #{userSeq}
+          FROM tb_notification n
+         WHERE n.closed_yn = 'N'
+           AND ( n.role_seq IS NULL
+        <if test="roleIds != null and roleIds.size() > 0">
+                 OR EXISTS (SELECT 1 FROM tb_role r2
+                             WHERE r2.role_seq = n.role_seq
+                               AND r2.role_id IN
+                 <foreach collection="roleIds" item="rid" open="(" separator="," close=")">
+                     #{rid}
+                 </foreach>
+                           )
+        </if>
+               )
+           AND ( n.plant_seq IS NULL
+        <if test="orgSeqs != null and orgSeqs.size() > 0">
+                 OR EXISTS (SELECT 1 FROM tb_plant p2
+                             WHERE p2.plant_seq = n.plant_seq
+                               AND p2.org_seq IN
+                 <foreach collection="orgSeqs" item="o" open="(" separator="," close=")">
+                     #{o}
+                 </foreach>
+                           )
+        </if>
+               )
+        ON CONFLICT (notification_seq, user_seq) DO NOTHING
+    </insert>
+
+
+    <!-- ══════════════════════════════════════════════════════
+         배치가 찾는 것들
+
+         여기엔 사건이 없다. <b>아무도 안 한 것</b>이 문제라서 트리거할
+         자리가 없고, 그래서 하루 한 번 훑는다.
+         ══════════════════════════════════════════════════════ -->
+
+    <!--
+      납기가 지났는데 안 들어온 발주.
+
+      살아 있는 발주만 본다 — 취소 · 미납종결된 것은 '안 들어온' 것이
+      아니라 '안 받기로 한' 것이다.
+    -->
+    <select id="findOverduePurchaseOrders" resultMap="notiMap">
+        SELECT 'PO_OVERDUE'   AS kind,
+               r.role_seq     AS role_seq,
+               o.plant_seq    AS plant_seq,
+               'PUR_ORDER'    AS ref_type,
+               o.order_no     AS ref_no,
+               <!-- date - date 는 이미 정수다. DATE_PART 를 쓰면 타입이 안 맞는다 -->
+               o.order_no || ' 납기 초과 ' ||
+                   (CURRENT_DATE - o.due_date) || '일' AS title,
+               COALESCE(pt.partner_name, '') || ' · 미입고 ' ||
+                   (SELECT COALESCE(SUM(l.order_qty - COALESCE(l.received_qty, 0)), 0)::int
+                      FROM tb_purchase_order_line l WHERE l.order_seq = o.order_seq)
+                   || '개' AS body,
+               'WARN'         AS level,
+               (o.due_date + 1)::timestamp AS occurred_at
+          FROM tb_purchase_order o
+          LEFT JOIN tb_partner pt ON pt.partner_seq = o.supplier_seq
+          JOIN tb_role r ON r.role_id = 'PURCHASER'
+         WHERE o.order_status IN ('ISSUED','PARTIAL')
+           AND o.due_date IS NOT NULL
+           AND o.due_date &lt; CURRENT_DATE
+    </select>
+
+    <!--
+      오래 길 위에 떠 있는 송장.
+
+      셋 중 하나다 — 택배사가 늦거나, 실패했는데 아무도 안 적었거나,
+      배송완료를 안 찍었거나. 마지막이 가장 흔하다.
+    -->
+    <select id="findStuckTransit" resultMap="notiMap">
+        SELECT 'TRANSIT_STUCK' AS kind,
+               r.role_seq      AS role_seq,
+               o.plant_seq     AS plant_seq,
+               'WAYBILL'       AS ref_type,
+               w.waybill_no    AS ref_no,
+               w.waybill_no || ' 운송중 ' ||
+                   DATE_PART('day', CURRENT_TIMESTAMP - b.handed_over_at)::int || '일' AS title,
+               COALESCE(cr.courier_name, w.courier_code) || ' · ' || o.outbound_no ||
+                   ' · ' || (SELECT COALESCE(SUM(bl.packed_qty), 0)::int
+                               FROM tb_pack_box_line bl WHERE bl.box_seq = b.box_seq)
+                   || '개가 떠 있습니다' AS body,
+               'WARN'          AS level,
+               b.handed_over_at AS occurred_at
+          FROM tb_waybill w
+          JOIN tb_pack_box b  ON b.box_seq      = w.box_seq
+          JOIN tb_outbound o  ON o.outbound_seq = b.outbound_seq
+          LEFT JOIN tb_courier cr ON cr.courier_code = w.courier_code
+          JOIN tb_role r ON r.role_id = 'CS_VIEWER'
+         WHERE w.waybill_status  = 'ISSUED'
+           AND w.delivery_status NOT IN ('DELIVERED','LOST')
+           AND b.handed_over_at IS NOT NULL
+           AND b.handed_over_at &lt; CURRENT_TIMESTAMP - (#{days} || ' days')::interval
+    </select>
+
+    <!--
+      수량 체인이 꺾인 지시.
+
+      OUT-PG-007 의 판정을 그대로 쓴다 — 단계가 끝난 뒤에만 보고, 결품은
+      설명된 차이라 빼고, 설명 없는 차이만 잡는다. 재고가 틀어졌다는 뜻이라
+      ALERT 다.
+    -->
+    <select id="findBrokenChains" resultMap="notiMap">
+        SELECT 'CHAIN_BROKEN' AS kind,
+               r.role_seq     AS role_seq,
+               o.plant_seq    AS plant_seq,
+               'CHAIN'        AS ref_type,
+               o.outbound_no  AS ref_no,
+               o.outbound_no || ' 수량이 맞지 않습니다' AS title,
+               k.sku_id || ' · 지시 ' || ol.instructed_qty ||
+                   ' 집음 ' || ol.picked_qty ||
+                   ' 검수 ' || ol.inspected_qty ||
+                   ' 담음 ' || COALESCE(pk.packed, 0) AS body,
+               'ALERT'        AS level,
+               COALESCE(o.shipped_at, o.instructed_at) AS occurred_at
+          FROM tb_outbound o
+          JOIN tb_outbound_line ol ON ol.outbound_seq = o.outbound_seq
+          JOIN tb_sku k ON k.sku_seq = ol.sku_seq
+          LEFT JOIN LATERAL (
+              SELECT COALESCE(SUM(bl.packed_qty), 0)::int AS packed
+                FROM tb_pack_box_line bl
+                JOIN tb_pack_box b2 ON b2.box_seq = bl.box_seq
+               WHERE bl.line_seq = ol.line_seq AND b2.outbound_seq = o.outbound_seq
+          ) pk ON TRUE
+          JOIN tb_role r ON r.role_id = 'CENTER_MGR'
+         WHERE ( (o.outbound_status IN ('PICKED','PACKING','PACKED','SHIPPED')
+                  AND ol.instructed_qty &lt;&gt; ol.picked_qty + ol.shortage_qty)
+              OR (o.outbound_status IN ('PACKED','SHIPPED')
+                  AND ol.inspected_qty &lt;&gt; ol.picked_qty)
+              OR (o.outbound_status IN ('PACKED','SHIPPED')
+                  AND COALESCE(pk.packed, 0) &lt;&gt; ol.inspected_qty) )
+    </select>
+
+    <!--
+      결재를 기다리는 문서.
+
+      승인 작업함(COM-PG-008)이 보는 것과 같은 셋이다 — 대기 상태가 전부
+      REQUESTED 라 한 질의로 모인다.
+
+      사건형으로 만들 수도 있었지만 <b>닫는 쪽</b>이 어렵다. 결재는 승인 ·
+      반려 · 취소 · 부분승인으로 끝나고 그 경로가 문서마다 달라서, 넷에 모두
+      close 를 달면 하나만 빠져도 알림이 영영 남는다. 배치는 '지금 REQUESTED
+      인 것' 을 그대로 비추므로 닫는 것을 잊을 수 없다.
+
+      수신 역할이 문서마다 다르다 — 구매요청은 구매담당, 나머지는 센터장.
+    -->
+    <select id="findPendingApprovals" resultMap="notiMap">
+        SELECT 'APPROVAL_WAIT' AS kind,
+               r.role_seq      AS role_seq,
+               x.plant_seq     AS plant_seq,
+               x.ref_type      AS ref_type,
+               x.ref_no        AS ref_no,
+               x.ref_no || ' 결재 대기 ' ||
+                   DATE_PART('day', CURRENT_TIMESTAMP - x.requested_at)::int || '일' AS title,
+               x.kind_label || ' · ' || COALESCE(u.user_name, x.requested_by) || ' 올림' AS body,
+               CASE WHEN x.requested_at &lt; CURRENT_TIMESTAMP - INTERVAL '3 days'
+                    THEN 'WARN' ELSE 'INFO' END AS level,
+               x.requested_at  AS occurred_at
+          FROM (
+              SELECT 'PUR_REQUEST' AS ref_type, '구매요청' AS kind_label,
+                     pr.request_no AS ref_no, pr.plant_seq,
+                     pr.requested_by, pr.requested_at, 'PURCHASER' AS approve_role
+                FROM tb_purchase_request pr
+               WHERE pr.request_status = 'REQUESTED'
+              UNION ALL
+              SELECT 'INV_ADJUST', '재고조정', a.adjust_no, w.plant_seq,
+                     a.requested_by, a.requested_at, 'CENTER_MGR'
+                FROM tb_stock_adjust a
+                LEFT JOIN tb_warehouse w ON w.warehouse_seq = a.warehouse_seq
+               WHERE a.adjust_status = 'REQUESTED'
+              UNION ALL
+              SELECT 'INB_CORRECT', '입고정정', ic.correct_no, i.plant_seq,
+                     ic.requested_by, ic.requested_at, 'CENTER_MGR'
+                FROM tb_inbound_correct ic
+                LEFT JOIN tb_inbound i ON i.inbound_seq = ic.inbound_seq
+               WHERE ic.correct_status = 'REQUESTED'
+          ) x
+          JOIN tb_role r ON r.role_id = x.approve_role
+          LEFT JOIN tb_user u ON u.user_id = x.requested_by
+    </select>
+
+    <!--
+      SKU 가 안 붙은 주문.
+
+      채널이 보낸 상품코드에 붙일 SKU 가 없다 — 주문은 들어왔는데 무엇을
+      보낼지 모른다. 기준정보를 덜 등록해서 생기는 유일한 알림이다.
+
+      주문 하나에 한 줄만 남긴다. 줄마다 띄우면 열 줄짜리 주문 하나가
+      목록을 덮는다.
+    -->
+    <select id="findUnmappedOrders" resultMap="notiMap">
+        SELECT 'ORDER_UNMAPPED' AS kind,
+               r.role_seq       AS role_seq,
+               NULL::bigint     AS plant_seq,
+               'ORDER'          AS ref_type,
+               o.order_no       AS ref_no,
+               o.order_no || ' 에 SKU 가 안 붙은 품목이 ' ||
+                   COUNT(*)::int || '개 있습니다' AS title,
+               COALESCE(ch.channel_name, '') || ' · ' ||
+                   STRING_AGG(DISTINCT COALESCE(l.ext_product_code, '?'), ', ') AS body,
+               'WARN'           AS level,
+               o.ordered_at     AS occurred_at
+          FROM tb_order o
+          JOIN tb_order_line l ON l.order_seq = o.order_seq
+          LEFT JOIN tb_channel ch ON ch.channel_seq = o.channel_seq
+          JOIN tb_role r ON r.role_id = 'ORDER_MGR'
+         WHERE o.order_status NOT IN ('CANCELED','SHIPPED')
+           AND l.sku_seq IS NULL
+           AND l.line_status &lt;&gt; 'CANCELED'
+         GROUP BY o.order_no, o.ordered_at, ch.channel_name, r.role_seq
+    </select>
+
+    <!--
+      재고가 모자라 못 잡은 주문.
+
+      미매핑과 다르다 — 이쪽은 SKU 는 붙었는데 물건이 없는 것이다. 입고가
+      들어오거나 재할당하면 저절로 풀리므로 배치가 맞다.
+    -->
+    <select id="findAllocShortOrders" resultMap="notiMap">
+        SELECT 'ALLOC_SHORT'  AS kind,
+               r.role_seq     AS role_seq,
+               NULL::bigint   AS plant_seq,
+               'ORDER'        AS ref_type,
+               o.order_no     AS ref_no,
+               o.order_no || ' 재고 부족 — ' || COUNT(*)::int || '개 품목' AS title,
+               COALESCE(ch.channel_name, '') || ' · ' ||
+                   STRING_AGG(DISTINCT k.sku_id, ', ') AS body,
+               'WARN'         AS level,
+               o.ordered_at   AS occurred_at
+          FROM tb_order o
+          JOIN tb_order_line l ON l.order_seq = o.order_seq
+          JOIN tb_sku k ON k.sku_seq = l.sku_seq
+          LEFT JOIN tb_channel ch ON ch.channel_seq = o.channel_seq
+          JOIN tb_role r ON r.role_id = 'ORDER_MGR'
+         WHERE o.order_status NOT IN ('CANCELED','SHIPPED')
+           AND l.line_status = 'SHORTAGE'
+         GROUP BY o.order_no, o.ordered_at, ch.channel_name, r.role_seq
+    </select>
+
+</mapper>

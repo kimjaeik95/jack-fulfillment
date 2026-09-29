@@ -21,6 +21,12 @@ export const routes = [
     meta: { title: '통합검색', perm: 'SYS_SEARCH' },
   },
   {
+    path: '/notifications',
+    name: 'notifications',
+    component: () => import('./views/NotificationView.vue'),
+    meta: { title: '알림함', perm: 'SYS_NOTIFICATION' },
+  },
+  {
     path: '/approval-box',
     name: 'approval-box',
     component: () => import('./views/ApprovalBoxView.vue'),
