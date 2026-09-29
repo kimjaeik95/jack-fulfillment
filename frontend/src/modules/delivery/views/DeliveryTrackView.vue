@@ -6,10 +6,10 @@
  * 그 답을 내려면 송장 · 박스 · 지시 · 주문 · 수령인 다섯 표를 돌아야 해서,
  * 화면을 다섯 번 여는 대신 한 줄에 이어 붙였다.
  *
- * <b>상태는 사람이 찍는다.</b> 택배사에서 받아오는 인터페이스(INT-IF-004)가
+ * <b>상태는 사람이 입력한다.</b> 택배사에서 받아오는 인터페이스(INT-IF-004)가
  * 개발취소라 자동으로 들어오는 길이 없다. 그래서 택배사 조회 화면을 옆에
  * 띄워 두고 옮겨 적는 것이 실제 동선이고, 화면도 그에 맞췄다 —
- * <b>여러 장을 골라 한 번에 찍는다.</b> 한 건씩 누르게 하면 열두 번 왕복한다.
+ * <b>여러 장을 골라 한 번에 바꾼다.</b> 한 건씩 누르게 하면 열두 번 왕복한다.
  *
  * 재고는 건드리지 않는다. 물건은 출고확정 때 이미 보유에서 빠졌다 (P-01).
  * 여기서 하는 일은 어디까지 갔는지를 적는 것뿐이고, 그 값으로 운송중 재고가
@@ -52,7 +52,7 @@ const filters = reactive({
   inTransitOnly: 'Y',
 })
 
-/** 고른 송장들. 상태를 한 번에 찍으려고 모은다 */
+/** 고른 송장들. 상태를 한 번에 바꾸려고 모은다 */
 const picked = ref(new Set())
 const pickedRows = computed(() => rows.value.filter((r) => picked.value.has(r.waybillSeq)))
 
@@ -63,7 +63,7 @@ function toggle(row) {
   picked.value = s
 }
 
-/** 지금 보이는 것 중 아직 길 위에 있는 것만 고른다 — 이미 받은 건 찍을 게 없다 */
+/** 지금 보이는 것 중 아직 배송 중인 것만 고른다 — 이미 받은 건 바꿀 게 없다 */
 function pickAllInTransit() {
   picked.value = new Set(rows.value.filter((r) => r.inTransit).map((r) => r.waybillSeq))
 }
@@ -91,7 +91,7 @@ async function fetchPage() {
     rows.value = data.rows
     total.value = data.total
     // 페이지가 바뀌면 고른 것을 비운다. 안 보이는 줄이 선택된 채 남아 있으면
-    // '열두 건 찍었는데 왜 스무 건이 바뀌었지' 가 된다.
+    // '열두 건 골랐는데 왜 스무 건이 바뀌었지' 가 된다.
     clearPicked()
   } catch (e) {
     loadError.value = e.message
@@ -129,7 +129,7 @@ const courierOptions = computed(() =>
   couriers.value.map((c) => ({ value: c.courierCode, label: c.courierName })),
 )
 
-/* ── 상태 찍기 ─────────────────────────────────────────────── */
+/* ── 배송상태 변경 ─────────────────────────────────────────── */
 
 const statusDlg = ref(false)
 const statusForm = reactive({ deliveryStatus: '', reasonCode: '', remark: '', occurredAt: '' })
@@ -222,7 +222,7 @@ const columns = [
         <h1 class="page-title">송장 · 배송 현황</h1>
         <p class="page-desc">
           택배사에 넘긴 박스가 어디까지 갔는지 봅니다. 택배사 연동이 없어
-          <strong>상태는 사람이 찍습니다</strong> — 택배사 조회 화면을 보고
+          <strong>상태는 사람이 입력합니다</strong> — 택배사 조회 화면을 보고
           여러 장을 골라 한 번에 바꾸세요. 재고는 출고확정 때 이미 빠졌으므로
           여기서는 바뀌지 않습니다.
         </p>
@@ -234,7 +234,7 @@ const columns = [
           :title="writeDenyReason ?? '고른 송장의 배송상태를 바꿉니다'"
           @click="openStatus()"
         >
-          배송상태 찍기{{ pickedRows.length ? ` (${pickedRows.length})` : '' }}
+          배송상태 변경{{ pickedRows.length ? ` (${pickedRows.length})` : '' }}
         </button>
       </div>
     </div>
@@ -330,7 +330,7 @@ const columns = [
             type="checkbox"
             :checked="picked.has(row.waybillSeq)"
             :disabled="row.canceled"
-            :title="row.canceled ? '취소된 송장에는 상태를 찍을 수 없습니다' : ''"
+            :title="row.canceled ? '취소된 송장은 배송상태를 바꿀 수 없습니다' : ''"
             @change="toggle(row)"
           />
         </template>
@@ -412,10 +412,10 @@ const columns = [
       </div>
     </div>
 
-    <!-- ── 배송상태 찍기 ────────────────────────────────────── -->
+    <!-- ── 배송상태 변경 ────────────────────────────────────── -->
     <ModalDialog
       v-if="statusDlg"
-      title="배송상태 찍기"
+      title="배송상태 변경"
       :subtitle="`${pickedRows.length}건`"
       @close="statusDlg = false"
     >
@@ -486,7 +486,7 @@ const columns = [
           @click="submitStatus()"
         >
           <span v-if="statusBusy" class="spinner"></span>
-          찍기
+          변경
         </button>
       </template>
     </ModalDialog>
@@ -500,7 +500,7 @@ const columns = [
     >
       <div v-if="eventsLoading" class="dim">불러오는 중…</div>
       <div v-else-if="!events.length" class="dim">
-        아직 아무 사건도 없습니다. 인계를 찍으면 배송중부터 쌓입니다.
+        아직 아무 기록이 없습니다. 택배 인계를 등록하면 배송중부터 쌓입니다.
       </div>
       <ol v-else class="trail">
         <li v-for="e in events" :key="e.eventSeq">

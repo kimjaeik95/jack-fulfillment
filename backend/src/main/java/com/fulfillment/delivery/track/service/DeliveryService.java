@@ -32,14 +32,14 @@ import java.util.List;
  * 배송 현황 · 실패 · 운송중 재고 (DLV-PG-002 · 003 · 004).
  *
  * <b>재고를 건드리지 않는다.</b> 물건은 출고확정 때 이미 보유에서 빠졌고
- * (P-01, PAC-PG-005), 배송은 그 뒤에 일어나는 일이다. 배송완료를 찍어도
+ * (P-01, PAC-PG-005), 배송은 그 뒤에 일어나는 일이다. 배송완료로 바꿔도
  * 재고는 그대로다 — 이미 우리 것이 아니라서 뺄 것이 없다.
  *
  * 그래서 이 섹터는 <b>어디까지 갔는지를 적는</b> 일만 한다. 적는 것이 전부인데,
  * 그 적은 값으로 운송중 재고가 계산되고 그것이 "장부에 30개인데 왜 40개를
  * 팔았지" 에 답한다.
  *
- * <b>값은 사람이 찍는다.</b> INT-IF-004(배송상태 수신)가 개발취소라 택배사에서
+ * <b>값은 사람이 입력한다.</b> INT-IF-004(배송상태 수신)가 개발취소라 택배사에서
  * 받아올 길이 없다. 그래서 상태를 바꾼 사건을 따로 쌓는다 — 자동으로 들어오는
  * 값이면 최신값만 있어도 되지만, 사람이 적는 값은 근거가 남아야 한다.
  */
@@ -102,11 +102,11 @@ public class DeliveryService {
 	}
 
 	/**
-	 * 배송상태를 찍는다.
+	 * 배송상태를 바꾼다.
 	 *
 	 * 한 건이 실패해도 나머지는 처리한다. CS 가 택배사 목록을 훑으며 열두
-	 * 건을 한 번에 찍는데, 하나 때문에 전부 막히면 그 하나를 찾아 빼고 다시
-	 * 찍어야 한다 (인계 PAC-PG-006 과 같은 이유다).
+	 * 건을 한 번에 바꾸는데, 하나 때문에 전부 막히면 그 하나를 찾아 빼고 다시
+	 * 해야 한다 (인계 PAC-PG-006 과 같은 이유다).
 	 */
 	@Transactional
 	public Result updateStatus(LoginUser actor, DeliveryStatusRequest request) {
@@ -162,30 +162,30 @@ public class DeliveryService {
 			throw new BusinessException(ErrorCode.NOT_FOUND,
 					"그 송장이 없습니다. 번호를 다시 확인하세요.");
 		}
-		// 잠근다. 두 사람이 같은 송장을 동시에 찍으면 사건은 둘 다 쌓이는데
+		// 잠근다. 두 사람이 같은 송장을 동시에 바꾸면 기록은 둘 다 쌓이는데
 		// 최종 상태가 나중 것이 아니라 아무거나 될 수 있다.
 		Waybill locked = deliveryDao.selectForUpdate(found.getWaybillSeq());
 
 		if (!Waybill.ISSUED.equals(locked.getWaybillStatus())) {
 			throw new BusinessException(ErrorCode.IN_USE,
-					"취소된 송장입니다. 재배송으로 새 송장을 뽑았다면 그 번호로 찍으세요.");
+					"취소된 송장입니다. 재배송으로 새 송장을 뽑았다면 그 번호로 바꾸세요.");
 		}
 		/*
-		 * 출고확정 전에는 못 찍는다.
+		 * 출고확정 전에는 못 바꾼다.
 		 *
 		 * 송장은 패킹이 끝나면 붙일 수 있어서, 확정 전에도 번호가 존재한다.
-		 * 그 상태에서 '배송중' 을 찍으면 아직 창고에 있는 물건이 운송중
+		 * 그 상태에서 '배송중' 으로 바꾸면 아직 창고에 있는 물건이 운송중
 		 * 재고로 잡혀, 실물은 선반에 있는데 장부는 길 위라고 말하게 된다.
 		 */
 		Waybill row = deliveryDao.selectRow(locked.getWaybillSeq());
 		if (row.getHandedOverAt() == null && !DeliveryEvent.READY.equals(status)) {
 			throw new BusinessException(ErrorCode.INVALID_INPUT,
-					("아직 택배사에 안 넘긴 박스입니다. (%s) 인계를 먼저 찍으세요 — "
+					("아직 택배사에 안 넘긴 박스입니다. (%s) 인계를 먼저 등록하세요 — "
 							+ "물건이 창고에 있는데 배송중으로 잡힙니다.")
 							.formatted(row.getOutboundNo()));
 		}
 
-		// 같은 상태를 또 찍는 것은 막는다. 사건만 늘고 달라지는 것이 없다.
+		// 같은 상태로 또 바꾸는 것은 막는다. 기록만 늘고 달라지는 것이 없다.
 		if (status.equals(locked.getDeliveryStatus())) {
 			throw new BusinessException(ErrorCode.IN_USE,
 					"이미 %s 입니다.".formatted(statusLabel(status)));
@@ -194,7 +194,7 @@ public class DeliveryService {
 		/*
 		 * 배송완료를 되돌리는 것은 막지 않는다.
 		 *
-		 * 잘못 찍는 일이 실제로 있고 (택배사 조회가 먼저 완료로 뜨는 경우가
+		 * 잘못 넣는 일이 실제로 있고 (택배사 조회가 먼저 완료로 뜨는 경우가
 		 * 있다), 막아 두면 틀린 값이 영영 남는다. 대신 사건으로 쌓여서
 		 * 누가 언제 뒤집었는지가 보인다.
 		 */
@@ -361,7 +361,7 @@ public class DeliveryService {
 	/**
 	 * 창고에도 없고 고객에게도 없는 수량.
 	 *
-	 * 출고확정으로 보유에서 빠졌는데 아직 배송완료가 안 찍힌 것이다. 재고
+	 * 출고확정으로 보유에서 빠졌는데 아직 배송완료가 안 된 것이다. 재고
 	 * 화면 어디에도 안 나오는 수량이라, "장부에 30개인데 왜 40개를 팔았지"
 	 * 같은 물음이 생겼을 때 그 차이가 여기 떠 있다.
 	 */
@@ -443,7 +443,7 @@ public class DeliveryService {
 		return actor == null ? "system" : actor.getUserId();
 	}
 
-	/** 찍은 것과 못 찍은 이유 */
+	/** 바꾼 것과 못 바꾼 이유 */
 	public record Result(List<String> done, List<String> failed) {
 	}
 

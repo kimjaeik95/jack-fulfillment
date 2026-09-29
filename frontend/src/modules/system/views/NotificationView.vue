@@ -116,10 +116,10 @@ async function readAll() {
 }
 
 /**
- * 지금 훑기.
+ * 지금 점검.
  *
  * 배치는 새벽에 도는데, 방금 고친 것이 목록에서 빠졌는지 바로 보고 싶을
- * 때가 있다. 훑는 것은 읽기와 닫기뿐이라 위험하지 않다.
+ * 때가 있다. 하는 일은 읽기와 닫기뿐이라 위험하지 않다.
  */
 async function sweep() {
   loading.value = true
@@ -166,9 +166,9 @@ const columns = [
       </div>
       <div class="page-head-actions">
         <button class="btn" :disabled="loading" @click="readAll()">모두 읽음</button>
-        <button class="btn" :disabled="loading" title="배치를 지금 한 번 돌립니다" @click="sweep()">
+        <button class="btn" :disabled="loading" title="새로 생긴 할 일이 있는지 지금 확인합니다" @click="sweep()">
           <span v-if="loading" class="spinner"></span>
-          지금 훑기
+          지금 점검
         </button>
       </div>
     </div>
@@ -180,7 +180,7 @@ const columns = [
       <span class="alert-icon">⛔</span><span>{{ loadError }}</span>
     </div>
     <div v-if="sweepMsg" class="alert alert-ok mb-2">
-      <span class="alert-icon">✅</span><span>훑었습니다 — {{ sweepMsg }}</span>
+      <span class="alert-icon">✅</span><span>확인했습니다 — {{ sweepMsg }}</span>
     </div>
 
     <div class="card">
@@ -218,7 +218,7 @@ const columns = [
         />
         <!--
           기본은 열린 것만. 닫힌 알림은 이미 끝난 일이라, 섞으면 할 일을
-          찾으러 온 사람이 끝난 일을 훑게 된다.
+          찾으러 온 사람이 끝난 일까지 보게 된다.
         -->
         <FormField
           v-model="filters.includeClosed"
