@@ -12,7 +12,7 @@
  * 빈코드는 바꿀 수 없다 — 이미 인쇄된 라벨이 현장에 붙어 있으므로
  * 코드를 바꾸면 그 라벨이 다른 곳을 가리킨다.
  */
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { codeOptions } from '@/api/codes.js'
 import * as locationApi from '@/api/location.js'
 import { useHierarchyStore } from '@/stores/hierarchy.js'
@@ -75,6 +75,8 @@ async function fetchPage() {
 /** 검색 조건이 바뀌면 1페이지부터 다시 읽는다 */
 async function search() {
   page.value = 1
+  // 조건이 바뀌면 짚어 둔 줄은 뜻을 잃는다
+  justMade.value = null
   await fetchPage()
 }
 
@@ -85,10 +87,27 @@ onMounted(async () => {
   await fetchPage()
 })
 
+/**
+ * 방금 등록한 빈. 목록에서 짚어 주기만 하고 다른 뜻은 없다.
+ *
+ * 창고 전체를 보여 주기 시작하면서 필요해졌다 — 한 줄만 남기던 때는
+ * 찾을 것이 없었다.
+ */
+const justMade = ref(null)
+
+/**
+ * 프로그램이 필터를 맞추는 중.
+ *
+ * 등록 직후에 플랜트와 창고를 같이 바꾸는데, 아래 감시자가 그 사이에
+ * 창고를 지워 버리면 창고 하나가 아니라 플랜트 전체가 뜬다.
+ */
+let syncingFilters = false
+
 /** 플랜트를 바꾸면 그 플랜트의 창고만 고를 수 있어야 한다 */
 watch(
   () => filters.plantId,
   () => {
+    if (syncingFilters) return
     filters.warehouseId = ''
     search()
   },
@@ -136,14 +155,35 @@ const {
     update: (locationSeq, payload) => locationApi.update(locationSeq, payload),
     remove: (locationSeq) => locationApi.remove(locationSeq, '빈 삭제'),
   },
-  // 서버 페이징이라 현재 페이지만 다시 읽는다. 등록한 행이 다른 페이지에
-  // 있을 수 있으므로, 코드로 찾아갈 수 있게 검색어에 넣어 주는 편이
-  // 페이지를 헤매는 것보다 낫다.
+  /**
+   * 등록하면 <b>그 빈이 있는 창고</b>로 목록을 맞춘다.
+   *
+   * 전에는 검색어에 빈코드를 넣어 한 줄만 남겼다. 등록한 것을 확인하기에는
+   * 확실하지만, 그 한 줄 말고는 아무것도 안 보여서 <b>방금 넣은 것이 옆
+   * 자리들과 어떻게 이어지는지</b>를 볼 수가 없었다. 1A-01-05 를 넣었으면
+   * 1A-01-04 와 06 이 같이 보여야 빠진 번호나 겹친 번호가 눈에 띈다.
+   *
+   * 빈은 대개 한 창고에 여러 개를 이어서 넣는다. 다음 것을 넣으려면 어차피
+   * 검색어를 지우고 창고를 골라야 했으니, 그 상태를 미리 만들어 두는 것이다.
+   *
+   * 방금 넣은 줄은 선택 표시로 짚어 준다 — 목록이 넓어진 만큼 어디 있는지
+   * 알려 주지 않으면 찾느라 훑게 된다.
+   */
   async afterChange({ action, result }) {
     if (action === 'create' && result?.location) {
-      filters.keyword = result.location.locationId
+      const made = result.location
+      // 플랜트 감시자가 창고를 지우지 않게 하고 한 번만 조회한다
+      syncingFilters = true
+      filters.keyword = ''
+      filters.plantId = made.plantId
+      filters.warehouseId = made.warehouseId
+      await nextTick()
+      syncingFilters = false
+
+      // 짚는 것은 조회 뒤에. search() 가 표시를 지우고 시작한다.
       await search()
-      toast.success(`등록한 빈 ${result.location.locationId} 을(를) 검색어에 넣었습니다.`)
+      justMade.value = made.locationSeq
+      toast.success(`${made.locationId} 을(를) 등록했습니다. ${made.warehouseName} 목록입니다.`)
     } else {
       await fetchPage()
     }
@@ -356,6 +396,7 @@ watch(
         :columns="columns"
         :rows="rows"
         row-key="locationSeq"
+        :selected-key="justMade"
         :page-size="0"
         :show-pager="false"
         :muted-when="(l) => l.useYn !== 'Y'"

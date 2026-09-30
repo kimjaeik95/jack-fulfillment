@@ -26,11 +26,11 @@ import java.util.List;
  */
 public record InboundSaveRequest(
 
-		/** 코드그룹 INBOUND_TYPE (PURCHASE/RETURN/TRANSFER) */
+		/** 코드그룹 INBOUND_TYPE (PURCHASE/DIRECT/RETURN/TRANSFER) */
 		@NotBlank(message = "입고 종류는 필수입니다.")
 		String inboundType,
 
-		/** 근거 발주번호. 구매입고면 필수다. */
+		/** 근거 발주번호. 구매입고면 필수고, 직납입고는 비운다. */
 		String orderNo,
 
 		@NotBlank(message = "플랜트는 필수입니다.")

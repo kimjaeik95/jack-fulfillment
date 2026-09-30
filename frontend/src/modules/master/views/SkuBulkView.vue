@@ -102,7 +102,19 @@ function addDraft() {
     colorCodes: [...draft.value.colorCodes],
     sizeCodes: [...draft.value.sizeCodes],
   }
-  draft.value = { ...draft.value, productId: '', colorCodes: [], sizeCodes: [] }
+  /*
+   * 제품은 남긴다.
+   *
+   * 한 제품에 색상을 나눠 담는 일이 잦다 — 기본 색을 먼저 담고 시즌 색을
+   * 나중에 떠올리는 식이다. 담을 때마다 제품을 비우면 같은 것을 드롭다운에서
+   * 다시 찾아야 하고, '이전과 동일' 도 색상·사이즈만 되살리는 것이라 두 번
+   * 일하게 된다.
+   *
+   * 다른 제품으로 넘어갈 때는 드롭다운을 바꾸면 되고, 그때 onProductChange
+   * 가 색상·사이즈를 비운다 — 상의 사이즈가 하의에 남는 것을 막는 장치는
+   * 그대로 돈다.
+   */
+  draft.value = { ...draft.value, colorCodes: [], sizeCodes: [] }
 }
 
 /**
@@ -257,6 +269,26 @@ async function doCreate() {
   }
 }
 
+/**
+ * 만든 뒤 다음 묶음을 시작한다.
+ *
+ * 만들고 나면 담은 목록이 그대로 남아, 미리보기가 전부 '이미 있습니다' 로
+ * 바뀐다 — 방금 만들었으니 당연하지만, 다음 것을 담으려면 그 목록을 먼저
+ * 치워야 한다.
+ *
+ * <b>자동으로 비우지는 않는다.</b> 무엇이 만들어졌는지 표에서 확인하는 것이
+ * 이 화면의 마지막 단계다. 치우는 시점은 사람이 정한다.
+ *
+ * 제품은 남긴다. 같은 제품에 이어서 담는 경우가 있고, 다른 제품이면
+ * 드롭다운을 바꾸면 된다.
+ */
+function startNext() {
+  items.value = []
+  result.value = null
+  reason.value = ''
+  draft.value = { ...draft.value, colorCodes: [], sizeCodes: [] }
+}
+
 /** 만든 SKU 를 확인하러 간다 */
 function openSkus(productId) {
   router.push({ name: 'skus', query: productId ? { productId } : {} })
@@ -380,6 +412,23 @@ const readDenyReason = computed(() => session.denyReason('MST_SKU', 'R'))
         <span class="alert-icon">⛔</span><span>{{ previewError }}</span>
       </div>
 
+      <!--
+        사이즈 공통코드에는 알파벳(S·M·L)과 인치(28·30·32)가 함께 있고,
+        서버는 그 값이 SIZE 목록에 있는지만 본다. 티셔츠에 30 을 걸어도
+        코드 규칙에 맞고, 중복도 아니고, 미리보기에도 '생성' 으로 보인다.
+
+        막을 수 없으니 <b>막지 않는다고 적어 둔다.</b> 아무 말이 없으면
+        사람은 시스템이 걸러 줄 것이라고 믿는다 — 없는 규칙보다 있다고
+        믿게 만드는 쪽이 나쁘다.
+      -->
+      <div class="alert alert-warn m-2">
+        <span class="alert-icon">⚠</span>
+        <span>
+          사이즈 체계가 섞이지 않았는지 미리보기의 SKU 코드를 확인하세요.
+          <strong>시스템은 제품과 사이즈가 맞는지 검사하지 않습니다.</strong>
+        </span>
+      </div>
+
       <!-- 항목마다 한 줄. 펴면 색상 × 사이즈 표가 나온다. -->
       <div v-for="(it, i) in items" :key="i" class="item">
         <div class="item-head">
@@ -499,6 +548,11 @@ const readDenyReason = computed(() => session.denyReason('MST_SKU', 'R'))
             {{ result.createdCount }}건 · 건너뜀 {{ result.skippedCount }}건
           </span>
         </div>
+        <!--
+          담은 목록을 치우고 다음 묶음으로. 자동으로 안 비우는 이유는
+          무엇이 만들어졌는지 여기서 확인하는 것이 마지막 단계라서다.
+        -->
+        <button class="btn btn-primary btn-sm" @click="startNext()">이어서 더 만들기</button>
       </div>
 
       <div v-for="r in result.items" :key="r.productId" class="item">

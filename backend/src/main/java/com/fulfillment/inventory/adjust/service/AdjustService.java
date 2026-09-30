@@ -11,6 +11,7 @@ import com.fulfillment.common.security.PermissionChecker;
 import com.fulfillment.common.security.ScopeFilter;
 import com.fulfillment.common.web.PageResponse;
 import com.fulfillment.domain.Plant;
+import com.fulfillment.domain.Policy;
 import com.fulfillment.domain.Stock;
 import com.fulfillment.domain.StockAdjust;
 import com.fulfillment.domain.StockAdjustLine;
@@ -248,6 +249,7 @@ public class AdjustService {
 			throw new BusinessException(ErrorCode.INVALID_INPUT,
 					"라인이 없는 전표는 승인할 수 없습니다. (%s)".formatted(adjust.getAdjustNo()));
 		}
+		requireWithinLimit(actor, adjust, lines);
 
 		// 상태를 먼저 옮긴다. 두 명이 동시에 승인을 눌렀을 때 한 쪽만
 		// 통과시키기 위해서다 — 재고를 먼저 바꾸면 둘 다 반영된다.
@@ -390,6 +392,45 @@ public class AdjustService {
 	 * 여기가 그 규칙이 사는 유일한 자리다. 엔진이 생기면 이 검사는 정책
 	 * 한 줄로 옮겨 간다.
 	 */
+	/**
+	 * 승인 한도 (P007).
+	 *
+	 * 승인할 수 있는 것과 <b>얼마까지</b> 승인해도 되는지는 다르다. 센터장이
+	 * 자기 센터 조정을 승인하는 것은 맞지만, 5만 개짜리를 혼자 승인하는 것까지
+	 * 맞지는 않다 — 그만한 양이 움직이면 센터 밖에서도 봐야 한다.
+	 *
+	 * <b>전표 전체로 잰다.</b> 줄마다 재면 5만 개를 500 개씩 100 줄로 쪼개
+	 * 그냥 지나간다. 방향은 안 본다 — 더하는 조정이든 빼는 조정이든 장부가
+	 * 그만큼 움직인 것이라, 절대값을 더한다.
+	 *
+	 * <b>한도가 없으면 무제한이다.</b> 한도는 거는 역할에만 있고, 안 걸린
+	 * 역할(본사 · 시스템 관리자)이 넘어온 건을 받는 구조다. 없는 것을 0 으로
+	 * 읽으면 아무도 승인을 못 한다.
+	 *
+	 * 막을 뿐 상태는 안 건드린다. 전표는 요청 상태로 남아 다른 승인자가
+	 * 그대로 처리할 수 있다 — 되돌릴 것이 없다.
+	 */
+	private void requireWithinLimit(LoginUser actor, StockAdjust adjust,
+			List<StockAdjustLine> lines) {
+		Policy limit = actor.limitOf(PERM_APPROVE).orElse(null);
+		if (limit == null || limit.getLimitQty() == null || limit.getLimitQty() <= 0) {
+			return;
+		}
+
+		int moved = lines.stream()
+				.mapToInt(l -> Math.abs(l.getQtyDelta() == null ? 0 : l.getQtyDelta()))
+				.sum();
+		if (moved <= limit.getLimitQty()) {
+			return;
+		}
+
+		throw new BusinessException(ErrorCode.POLICY_BLOCKED,
+				("승인 한도를 넘었습니다. (%s · 변동량 %,dEA, 한도 %,dEA) %s 전표는 그대로 "
+						+ "남아 있으니 한도가 없는 승인자에게 요청하세요.")
+						.formatted(adjust.getAdjustNo(), moved, limit.getLimitQty(),
+								limit.getAltProcess() == null ? "" : limit.getAltProcess() + "."));
+	}
+
 	private void requireNotSelfApproval(LoginUser actor, StockAdjust adjust) {
 		if (actorId(actor).equals(adjust.getRequestedBy())) {
 			throw new BusinessException(ErrorCode.SOD_VIOLATION,

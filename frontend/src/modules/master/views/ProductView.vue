@@ -53,11 +53,29 @@ function resetFilters() {
   })
 }
 
+/** 방금 만든 제품. 목록에서 짚어 주기만 하고 다른 뜻은 없다. */
+const justMade = ref(null)
+
+/**
+ * 정렬.
+ *
+ * 평소에는 코드순이다. 등록 직후에만 '최근 등록순' 으로 바꿔 방금 만든
+ * 것을 맨 위로 올린다 — 서버 페이징이라 코드순으로 두면 새 줄이 몇 번째
+ * 페이지에 떨어질지 알 수가 없다.
+ */
+const sortBy = ref('')
+
 async function fetchPage() {
   loading.value = true
   loadError.value = ''
   try {
-    const data = await productApi.list({ ...filters, page: page.value, size })
+    const data = await productApi.list({
+      ...filters,
+      sortBy: sortBy.value || undefined,
+      sortDir: sortBy.value ? 'desc' : undefined,
+      page: page.value,
+      size,
+    })
     rows.value = data.rows
     total.value = data.total
   } catch (e) {
@@ -71,6 +89,9 @@ async function fetchPage() {
 
 async function search() {
   page.value = 1
+  // 사람이 조건을 바꾸면 짚어 둔 줄과 임시 정렬은 뜻을 잃는다
+  justMade.value = null
+  sortBy.value = ''
   await fetchPage()
 }
 
@@ -142,12 +163,25 @@ const {
     update: (productId, payload) => productApi.update(productId, payload),
     remove: (productId) => productApi.remove(productId, '제품 삭제'),
   },
-  // 서버 페이징이라 등록한 행이 다른 페이지에 있을 수 있다. 코드로 찾아갈 수
-  // 있게 검색어에 넣어 주는 편이 페이지를 헤매는 것보다 낫다.
+  /**
+   * 등록하면 <b>목록을 그대로 두고</b> 방금 만든 것을 맨 위로 올린다.
+   *
+   * 전에는 검색어에 코드를 넣어 한 줄만 남겼다. 등록된 것을 확인하기에는
+   * 확실하지만, 그 한 줄 말고는 아무것도 안 보여서 <b>비슷한 제품이 이미
+   * 있는지</b>를 볼 수가 없었다 — 같은 옷이 코드 두 개로 생기는 것이
+   * 기준정보에서 가장 고치기 어려운 사고다.
+   *
+   * 서버 페이징이라 코드순으로 두면 새 줄이 몇 페이지에 떨어질지 모른다.
+   * 그래서 이때만 '최근 등록순' 으로 바꾼다 — 맨 위에 있으니 찾을 필요가
+   * 없다. 다음에 조회를 누르면 원래 정렬로 돌아간다.
+   */
   async afterChange({ action, result }) {
     if (action === 'create' && result?.product) {
-      filters.keyword = result.product.productId
-      await search()
+      filters.keyword = ''
+      sortBy.value = 'createdAt'
+      page.value = 1
+      await fetchPage()
+      justMade.value = result.product.productId
     } else {
       await fetchPage()
     }
@@ -325,6 +359,7 @@ const readDenyReason = computed(() => session.denyReason('MST_PRODUCT', 'R'))
         :columns="columns"
         :rows="rows"
         row-key="productId"
+        :selected-key="justMade"
         :page-size="0"
         :show-pager="false"
         :muted-when="(p) => p.useYn !== 'Y'"

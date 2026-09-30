@@ -80,7 +80,7 @@ public class AdjustController {
 	 *
 	 * 요청 뒤 장부가 움직였으면 warning 이 함께 온다 — 막지는 않는다.
 	 * 재고가 움직였다고 조정 요청이 무효가 되는 것은 아니지만, 결과가
-	 * 요청자의 목표와 다를 수 있다는 것은 알려야 한다.
+	 * 요청자의 조정후 수량과 다를 수 있다는 것은 알려야 한다.
 	 */
 	@PostMapping("/{adjustSeq}/approve")
 	public ApiResponse<AdjustResponse> approve(@PathVariable Long adjustSeq,

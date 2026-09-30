@@ -7,10 +7,12 @@ import lombok.Getter;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -119,5 +121,26 @@ public class LoginUser implements Serializable {
 	@JsonIgnore
 	public boolean isMasked() {
 		return policies.stream().anyMatch(p -> "MASKING".equals(p.getPolicyType()));
+	}
+
+	/**
+	 * 그 기능에 걸린 승인 한도 (LIMIT 정책).
+	 *
+	 * 승인 권한이 있어도 <b>얼마까지</b> 승인할 수 있는지는 따로다. 센터장이
+	 * 재고조정을 승인할 수 있다는 것과 5만 개짜리 조정을 혼자 승인해도 된다는
+	 * 것은 다른 이야기라서다.
+	 *
+	 * 여러 역할로 같은 기능을 받았으면 <b>넓은 쪽</b>을 돌려준다 — 데이터
+	 * 범위와 같은 원칙이다. 좁은 역할 하나 때문에 넓은 역할이 막히면, 역할을
+	 * 더 받을수록 할 수 있는 일이 줄어드는 이상한 일이 생긴다.
+	 *
+	 * 한도가 걸려 있지 않으면 비어 있다 — <b>무제한이라는 뜻</b>이다. 한도는
+	 * 있는 역할에만 거는 것이라, 없는 것을 0 으로 읽으면 아무도 승인을 못 한다.
+	 */
+	public Optional<Policy> limitOf(String permId) {
+		return policies.stream()
+				.filter(p -> "LIMIT".equals(p.getPolicyType()))
+				.filter(p -> permId.equals(p.getPermId()))
+				.max(Comparator.comparingInt(p -> p.getLimitQty() == null ? 0 : p.getLimitQty()));
 	}
 }

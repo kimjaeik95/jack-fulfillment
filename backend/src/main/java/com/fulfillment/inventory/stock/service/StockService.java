@@ -69,11 +69,15 @@ public class StockService {
 		permissionChecker.require(actor, PERM, "R");
 		search.applyScope(dataScopes.forRead(actor, PERM));
 
+		// 화면의 나오는 각 재고의 상세 행
 		List<StockResponse> rows = stockDao.selectList(search).stream()
 				.map(StockResponse::of)
 				.toList();
+
+		// 검색된 재고 전체 행 수
 		long total = search.getSize() <= 0 ? rows.size() : stockDao.countList(search);
 
+		// 검색된 전체 행의 수량 합계
 		// 목록은 페이징되므로 현재 페이지 합은 전체 합이 아니다. 따로 집계한다.
 		StockSummaryResponse summary =
 				StockSummaryResponse.of(stockDao.sumBySearch(search), total);

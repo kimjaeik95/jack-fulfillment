@@ -27,7 +27,7 @@ public record AdjustLineResponse(
 		String qtyField,
 		Integer qtyBefore,  // 조정 요청 당시의 장부수량
 		Integer qtyCurrent, //조회한 현재 장부수량
-		Integer qtyAfter, // 조정 후 만들고 싶은 목표수량
+		Integer qtyAfter, // 이렇게 맞추고 싶다는 조정후 수량
 		Integer qtyDelta, //요청 당시 기준 증가·감소 수량
 		boolean increase,
 		/** 요청 뒤 장부가 움직였나 */

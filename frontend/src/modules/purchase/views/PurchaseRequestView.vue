@@ -153,6 +153,26 @@ function addLine(sku) {
   ]
 }
 
+/**
+ * 고른 것을 한 번에 담는다.
+ *
+ * 한 건마다 창이 닫히면 색상 · 사이즈별로 여남은 건을 담을 때 같은 검색을
+ * 그만큼 반복하게 된다. 담고 나서도 창은 열어 둔다 — 다른 조건으로 더
+ * 담는 일이 잦고, 닫는 시점은 사람이 정한다.
+ *
+ * 이미 담은 것은 SkuPicker 가 걸러 주지만 여기서도 한 번 본다. 두 곳이
+ * 어긋나도 같은 SKU 가 두 줄로 들어가는 일은 없어야 한다.
+ */
+function addLines(skus) {
+  const have = new Set(lines.value.map((l) => l.sku.skuId))
+  const add = skus
+    .filter((s) => !have.has(s.skuId))
+    .map((sku) => ({ sku, requestQty: 1, prefSupplierId: '', remark: '' }))
+  if (!add.length) return
+  lines.value = [...lines.value, ...add]
+  toast.success(`${add.length}건을 담았습니다.`)
+}
+
 function removeLine(i) {
   lines.value = lines.value.filter((_, idx) => idx !== i)
 }
@@ -512,7 +532,9 @@ const mine = (row) => row.requestedBy === myId.value
       v-if="picking"
       title="요청할 SKU 담기"
       :picked-ids="pickedIds"
+      multi
       @pick="addLine"
+      @pick-many="addLines"
       @close="picking = false"
     />
 

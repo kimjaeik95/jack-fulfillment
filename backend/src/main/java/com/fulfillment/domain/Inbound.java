@@ -40,7 +40,7 @@ public class Inbound {
 
 	private Long inboundSeq;
 	private String inboundNo;
-	/** 코드그룹 INBOUND_TYPE (PURCHASE/RETURN/TRANSFER) */
+	/** 코드그룹 INBOUND_TYPE (PURCHASE/DIRECT/RETURN/TRANSFER) */
 	private String inboundType;
 	/** 근거 발주. 구매입고면 반드시 있다 (INB-001). */
 	private Long orderSeq;

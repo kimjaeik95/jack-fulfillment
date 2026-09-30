@@ -16,7 +16,7 @@ import java.util.List;
  * 한 전표에 여러 줄을 담는다. 실사 없이 낱개로 올리면 승인자가 같은 창고의
  * 조정을 수십 건 따로 열어 봐야 하고, 그러다 보면 읽지 않고 누른다.
  *
- * 목표수량(qtyAfter)만 받는다. 변동량은 요청 시점 장부수량과의 차이라서
+ * 조정후 수량(qtyAfter)만 받는다. 변동량은 요청 시점 장부수량과의 차이라서
  * 서버가 계산한다 — 화면이 보낸 변동량을 믿으면 화면이 낡은 수량을 보고
  * 있었을 때 엉뚱한 값이 반영된다.
  */
@@ -52,7 +52,7 @@ public record AdjustSaveRequest(
 	/**
 	 * 조정 한 줄.
 	 *
-	 * 목표수량이 현재와 같은 줄은 서버가 거부한다. 바뀌는 게 없는 줄은
+	 * 조정후 수량이 현재와 같은 줄은 서버가 거부한다. 바뀌는 게 없는 줄은
 	 * 승인자가 읽을 것이 없으면서 전표만 길게 만든다.
 	 */
 	public record Line(
@@ -64,8 +64,8 @@ public record AdjustSaveRequest(
 			@NotBlank(message = "수량항목은 필수입니다.")
 			String qtyField,
 
-			@NotNull(message = "목표수량은 필수입니다.")
-			@PositiveOrZero(message = "목표수량은 0 이상이어야 합니다.")
+			@NotNull(message = "조정후 수량은 필수입니다.")
+			@PositiveOrZero(message = "조정후 수량은 0 이상이어야 합니다.")
 			Integer qtyAfter,
 
 			/** 라인별 사유. 비우면 헤더 사유를 따른다. */

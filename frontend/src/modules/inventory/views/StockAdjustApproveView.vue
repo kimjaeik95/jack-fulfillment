@@ -7,14 +7,14 @@
  * 여기는 '승인 대기' 가 기본이고, 전표를 열지 않고도 무엇을 승인하는지
  * 보여야 한다.
  *
- * 승인은 <b>목표수량이 아니라 변동량</b>을 반영한다. 요청과 승인 사이에
+ * 승인은 <b>조정후 수량이 아니라 변동량</b>을 반영한다. 요청과 승인 사이에
  * 재고가 움직였을 수 있어서, 요청자가 "3 개 모자라더라" 고 했으면 승인
  * 시점에도 3 개를 빼는 것이 맞다. 그 사이 입고된 것까지 없애는 것은
  * 요청한 적 없는 일이다.
  *
  * 그래서 '요청 뒤 장부가 움직인 줄' 을 눈에 띄게 표시한다. 막지는 않는다 —
  * 재고가 움직였다고 요청이 무효가 되는 것은 아니지만, 결과가 요청자의
- * 목표와 다를 수 있다는 것은 승인자가 알고 눌러야 한다.
+ * 조정후 수량과 다를 수 있다는 것은 승인자가 알고 눌러야 한다.
  */
 import { computed, onMounted, reactive, ref } from 'vue'
 import { codeOptions } from '@/api/codes.js'
@@ -167,6 +167,31 @@ const approveDenyReason = computed(() => session.denyReason('INV_ADJ_APPROVE', '
 
 /** 대기 중인 건수 — 결재함에 얼마나 쌓여 있는지 */
 const pendingCount = computed(() => rows.value.filter((r) => r.pending).length)
+
+/**
+ * 승인 한도 (P007).
+ *
+ * 승인 권한이 있는 것과 <b>얼마까지</b> 승인해도 되는지는 다르다. 서버가
+ * 막지만 눌러 보고 나서 알면 늦다 — 결재함을 열었을 때 이 건을 내가
+ * 처리할 수 있는지가 먼저 보여야 한다.
+ *
+ * 한도가 안 걸린 역할(본사 · 시스템 관리자)은 비어 있다. 무제한이라는
+ * 뜻이지 0 이 아니다.
+ */
+const myLimit = computed(() =>
+  session.myPolicies.find(
+    (p) => p.policyType === 'LIMIT' && p.permId === 'INV_ADJ_APPROVE' && p.limitQty > 0,
+  ),
+)
+
+/** 전표 전체의 변동량. 줄마다 재면 쪼개서 지나가므로 합으로 본다 */
+const movedQty = computed(() =>
+  (detail.value?.lines ?? []).reduce((sum, l) => sum + Math.abs(l.qtyDelta ?? 0), 0),
+)
+
+const overLimit = computed(
+  () => !!myLimit.value && movedQty.value > myLimit.value.limitQty,
+)
 </script>
 
 <template>
@@ -319,12 +344,27 @@ const pendingCount = computed(() => rows.value.filter((r) => r.pending).length)
         </span>
       </div>
 
+      <!--
+        한도를 넘은 건. 막지만 막다른 길은 아니라서, 누가 처리할 수 있는지를
+        같이 적는다 — "안 됩니다" 만 있으면 사람이 갈 곳을 잃는다.
+      -->
+      <div v-if="overLimit" class="alert alert-danger mt-2">
+        <span class="alert-icon">⛔</span>
+        <span>
+          이 전표의 변동량 <strong>{{ num(movedQty) }}EA</strong> 는 내 승인 한도
+          <strong>{{ num(myLimit.limitQty) }}EA</strong> 를 넘습니다.
+          <template v-if="myLimit.altProcess">{{ myLimit.altProcess }}.</template>
+          전표는 그대로 남아 있으니 한도가 없는 승인자가 처리하면 됩니다.
+          <span class="small dim">반려는 할 수 있습니다.</span>
+        </span>
+      </div>
+
       <div v-if="detail.staleLineCount" class="alert alert-warn mt-2">
         <span class="alert-icon">⚠</span>
         <span>
           요청한 뒤 장부가 움직인 품목이 <strong>{{ detail.staleLineCount }}개</strong> 있습니다
           (아래 표에 표시). 승인하면 반영되는 것은 <strong>변동량</strong>이라, 결과가
-          요청자가 적은 목표와 다를 수 있습니다.
+          요청자가 적은 조정후 수량과 다를 수 있습니다.
         </span>
       </div>
 
@@ -358,11 +398,11 @@ const pendingCount = computed(() => rows.value.filter((r) => r.pending).length)
             <td class="num">
               <strong :class="l.increase ? 'ok' : 'danger'">{{ signed(l.qtyDelta) }}</strong>
             </td>
-            <!-- 승인하면 실제로 얼마가 되는지. 목표(qtyAfter)가 아니라
+            <!-- 승인하면 실제로 얼마가 되는지. 조정후(qtyAfter)가 아니라
                  '현재 + 변동' 이다 — 그 차이가 이 화면의 핵심이다. -->
             <td class="num">
               <strong>{{ num(l.qtyCurrent + l.qtyDelta) }}</strong>
-              <div v-if="l.stale" class="small warn">목표 {{ num(l.qtyAfter) }}</div>
+              <div v-if="l.stale" class="small warn">조정후 {{ num(l.qtyAfter) }}</div>
             </td>
             <td class="small">{{ l.reasonName ?? detail.reasonName }}</td>
           </tr>
@@ -408,8 +448,8 @@ const pendingCount = computed(() => rows.value.filter((r) => r.pending).length)
           </button>
           <button
             class="btn btn-primary"
-            :disabled="busy || rejecting || !canApprove"
-            :title="approveDenyReason ?? '승인'"
+            :disabled="busy || rejecting || !canApprove || overLimit"
+            :title="overLimit ? '승인 한도를 넘어 승인할 수 없습니다' : (approveDenyReason ?? '승인')"
             @click="approve()"
           >
             <span v-if="busy" class="spinner"></span>

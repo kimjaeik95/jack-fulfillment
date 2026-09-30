@@ -1,0 +1,77 @@
+# 테스트 프로파일 — DB 없이 스프링 컨텍스트만 확인한다.
+#
+# 전에는 테스트가 기본(local) 프로파일로 떠서 개발자 PC 의 PostgreSQL 을
+# 봤다. 두 가지가 문제였다.
+#
+#   1) DB_PASSWORD 가 없으면 빌드가 실패한다
+#      CI 나 처음 받은 사람이 gradlew build 를 돌리면 Flyway 가 접속을
+#      못 해 터진다. 코드가 멀쩡한데 빌드가 빨간 것은 나쁘다.
+#
+#   2) 테스트가 개발 DB 를 건드린다
+#      Flyway 가 실제로 돌아간다. 지금은 contextLoads() 하나뿐이라 티가
+#      안 나지만, 데이터를 쓰는 테스트가 생기면 개발 중인 자료를 망가뜨린다.
+#
+#
+# 【 H2 를 안 쓰는 이유 】
+#
+# 스키마가 PostgreSQL 전용이다 — GENERATED ALWAYS AS … STORED(qty_available),
+# 부분 유니크 인덱스, IS NOT DISTINCT FROM. H2 에서는 마이그레이션이 돌지
+# 않는다. 억지로 맞추면 <b>테스트가 통과하는 스키마와 운영 스키마가 달라져</b>
+# 테스트가 거짓말을 하게 된다.
+#
+#
+# 【 그래서 여기서 하는 일 】
+#
+# Flyway 를 끄고, 커넥션을 못 얻어도 뜨게 한다. 시작 시점에 DB 를 읽는
+# 코드가 없어서(@PostConstruct · ApplicationRunner 없음) 컨텍스트는 그대로
+# 올라온다. 확인하는 것은 <b>빈 배선</b>이다 — 서비스 · 매퍼 · 보안 설정이
+# 서로 맞물리는가.
+#
+# 질의까지 보는 테스트가 필요해지면 그때는 Testcontainers 로 진짜
+# PostgreSQL 을 띄우는 것이 맞다. 그 전까지는 이 범위가 정직하다.
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/fulfillment_test_unused
+    driver-class-name: org.postgresql.Driver
+    username: test
+    password: test
+    hikari:
+      # 음수면 커넥션을 못 얻어도 시작을 막지 않는다. 기본값(1ms)은
+      # 첫 커넥션이 실패하면 그 자리에서 터진다.
+      initialization-fail-timeout: -1
+      connection-timeout: 1000
+      maximum-pool-size: 1
+
+  flyway:
+    enabled: false
+
+  # 배치가 테스트 중에 돌면 DB 를 건드린다. 전부 끈다.
+  task:
+    scheduling:
+      pool:
+        size: 1
+
+mybatis:
+  mapper-locations: classpath*:mapper/**/*.xml
+  type-aliases-package: com.fulfillment
+  configuration:
+    map-underscore-to-camel-case: true
+    call-setters-on-nulls: true
+
+# 배치는 각자 설정값으로 꺼 둔다 (cron 에 해당 없는 값을 준다).
+fulfillment:
+  batch:
+    recon:
+      cron: "-"
+    autoAlloc:
+      cron: "-"
+    allocRetry:
+      cron: "-"
+    dormant:
+      cron: "-"
+    notify:
+      cron: "-"
+
+logging:
+  level:
+    org.springframework: warn

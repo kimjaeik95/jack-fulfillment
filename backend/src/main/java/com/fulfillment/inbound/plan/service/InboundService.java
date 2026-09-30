@@ -500,8 +500,8 @@ public class InboundService {
 			}
 		} else if (Inbound.PURCHASE.equals(request.inboundType())) {
 			throw new BusinessException(ErrorCode.INVALID_INPUT,
-					("구매입고는 근거 발주가 필요합니다. 발주번호를 넣거나, 발주 없이 받는 "
-							+ "물건이면 반품입고 · 이동입고로 고르세요."));
+					("구매입고는 근거 발주가 필요합니다. 발주번호를 넣거나, 공급처가 발주 "
+							+ "없이 그냥 보낸 물건이면 직납입고로 고르세요."));
 		}
 
 		Partner supplier = null;

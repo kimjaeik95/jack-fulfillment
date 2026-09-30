@@ -3,7 +3,13 @@ spring:
   application:
     name: fulfillment
   profiles:
-    # 별도 지정이 없으면 로컬(H2)로 뜬다.
+    # 별도 지정이 없으면 로컬 프로파일로 뜬다 — 개발자 PC 의 PostgreSQL 이다.
+    # H2 를 쓰지 않는다. 스키마가 PostgreSQL 전용이라(GENERATED 컬럼 · 부분
+    # 유니크 인덱스 · IS NOT DISTINCT FROM) 다른 DB 에서는 마이그레이션이
+    # 돌지 않는다.
+    #
+    # 그래서 DB_PASSWORD 가 없으면 뜨지 않는다. 테스트는 test 프로파일로
+    # 돌려 DB 없이 컨텍스트만 확인한다.
     default: local
   servlet:
     multipart:
