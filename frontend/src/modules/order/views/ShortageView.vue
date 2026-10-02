@@ -45,13 +45,21 @@ const canAlloc = computed(() => session.can('ORD_ALLOC', 'C'))
 const allocDenyReason = computed(() => session.denyReason('ORD_ALLOC', 'C'))
 const readDenyReason = computed(() => session.denyReason('ORD_ALLOC', 'R'))
 
-/**
- * 기본은 '재고 생긴 것만' 이다.
+/*
+ * 기본은 '전부' 다.
  *
- * 결품 목록 전체는 대개 손쓸 수 없는 줄이라 봐도 할 일이 없다. 열었을 때
- * 바로 누를 수 있는 것이 보여야 이 화면에 다시 온다.
+ * 전에는 '재고 생긴 것만' 으로 열렸다 — 바로 누를 수 있는 것이 보여야
+ * 다시 온다는 이유였는데, <b>결품은 재고가 0 이라서 나는 것</b>이라
+ * 그 조건에 대부분이 걸렸다. 결품 관리인데 결품이 안 보였다.
+ *
+ * 화면 설명이 "대부분은 재고가 들어오면 풀립니다 — 들어온 줄 아무도
+ * 모르는 것이 문제" 라고 말하는데, 기본값은 정반대로 <b>이미 들어온 것만</b>
+ * 보여 주고 있었다. 줄마다 지금 재고를 함께 주는 이유가 사라진다.
+ *
+ * 바로 잡히는 것만 보려면 토글 한 번이면 된다 — '재고 생긴 것 모두
+ * 재할당' 을 누르기 전에 무엇이 잡힐지 미리 보는 데 쓴다.
  */
-const filters = reactive({ keyword: '', channelId: '', resolvableOnly: 'Y' })
+const filters = reactive({ keyword: '', channelId: '', resolvableOnly: '' })
 
 async function fetchPage() {
   if (readDenyReason.value) return
@@ -83,7 +91,7 @@ function search() {
 function resetFilters() {
   filters.keyword = ''
   filters.channelId = ''
-  filters.resolvableOnly = 'Y'
+  filters.resolvableOnly = ''
   search()
 }
 
@@ -269,7 +277,11 @@ async function allocatePending() {
       :loading="loading"
       row-key="lineSeq"
       :show-pager="false"
-      empty-text="결품 품목이 없습니다."
+      :empty-text="
+        filters.resolvableOnly === 'Y'
+          ? '지금 재고가 있는 결품 줄이 없습니다. 재고 조건을 \'전체\' 로 바꾸면 아직 안 들어온 줄까지 보입니다.'
+          : '결품 품목이 없습니다.'
+      "
     >
       <template #cell-orderNo="{ row, value }">
         <span class="code">{{ value }}</span>

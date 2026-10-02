@@ -75,6 +75,13 @@ public class Order {
 	/** 라인 수 · 총 주문수량. 목록에서 전표마다 라인을 읽지 않으려고 집계해 온다. */
 	private Integer lineCount;
 	private Integer totalQty;
+	/**
+	 * 지금 잡혀 있는 수량 — 목록에서 집계해 온 값.
+	 *
+	 * 상태만으로는 "하나도 안 잡음" 과 "일부만 잡음" 이 구분되지 않는다.
+	 * 전량 잡혀야 ALLOCATED 가 되기 때문이다 (syncOrderStatus).
+	 */
+	private Integer allocatedQty;
 
 	@Builder.Default
 	private List<OrderLine> lines = new ArrayList<>();

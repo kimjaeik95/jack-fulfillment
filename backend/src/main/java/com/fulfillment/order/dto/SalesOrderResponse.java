@@ -38,6 +38,8 @@ public record SalesOrderResponse(
 		/** 라인 수 · 총 주문수량. 목록에서 집계해 온 값. */
 		Integer lineCount,
 		Integer totalQty,
+		/** 지금 잡혀 있는 수량. 전량 잡혀야 ALLOCATED 가 되므로 상태만으로는 안 보인다 */
+		Integer allocatedQty,
 
 		/** 아직 고칠 수 있나 — 화면이 버튼을 잠그는 데 쓴다 */
 		boolean editable,
@@ -67,7 +69,7 @@ public record SalesOrderResponse(
 				o.getAddress(), o.getAddressDetail(), o.fullAddress(), o.getDeliveryMemo(),
 				o.getRemark(),
 				o.getCanceledBy(), o.getCanceledAt(), o.getCancelReason(), o.getCancelReasonName(),
-				o.getLineCount(), o.getTotalQty(),
+				o.getLineCount(), o.getTotalQty(), o.getAllocatedQty(),
 				o.isEditable(), o.isCancelable(), unmapped,
 				o.getCreatedBy(), o.getCreatedAt(), o.getUpdatedBy(), o.getUpdatedAt(),
 				lines.stream().map(SalesOrderLineResponse::of).toList());

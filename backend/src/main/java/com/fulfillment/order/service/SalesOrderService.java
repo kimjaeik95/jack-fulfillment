@@ -299,9 +299,25 @@ public class SalesOrderService {
 	 * 미매핑 줄이 하나라도 있으면 막는다. 무엇을 보낼지 모르는 줄을 할당에
 	 * 넘기면 그 줄만 조용히 빠지고, 나중에 "왜 안 나갔지" 를 찾아야 한다.
 	 */
+	/**
+	 * 자동 확정 대상 (ORD-BT-003 이 쓴다).
+	 *
+	 * 접수 상태 · 줄이 있고 · 미매핑이 없는 주문. 판정 자체는 confirm() 이
+	 * 하고, 여기서는 불러도 거부당할 것을 미리 걸러 낼 뿐이다.
+	 */
+	@Transactional(readOnly = true)
+	public List<Long> confirmTargets(int limit) {
+		return orderDao.selectConfirmTargets(limit);
+	}
+
 	@Transactional
 	public Result confirm(LoginUser actor, Long orderSeq) {
-		permissionChecker.require(actor, PERM, "U");
+		// 배치(actor == null)는 보지 않는다 — 로그인 사용자가 없고, 배치를
+		// 켜고 끄는 것 자체가 설정으로 통제된다. 감사로그의 행위자는
+		// system 이 된다 (AllocationBatch 와 같다).
+		if (actor != null) {
+			permissionChecker.require(actor, PERM, "U");
+		}
 
 		Order before = mustFind(orderSeq);
 		if (!Order.RECEIVED.equals(before.getOrderStatus())) {

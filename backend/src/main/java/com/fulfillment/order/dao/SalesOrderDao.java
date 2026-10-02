@@ -39,6 +39,14 @@ public interface SalesOrderDao {
 
 	List<OrderLine> selectLines(@Param("orderSeq") Long orderSeq);
 
+	/**
+	 * 자동 확정 대상 (ORD-BT-003 이 쓴다).
+	 *
+	 * 접수 상태 · 줄이 있고 · 미매핑 줄이 없는 주문. confirm() 이 막는
+	 * 조건을 미리 걸러, 배치가 불러서 거부당하는 일을 줄인다.
+	 */
+	List<Long> selectConfirmTargets(@Param("limit") int limit);
+
 	/* 저장 ---------------------------------------------------------------- */
 
 	void insert(Order order);

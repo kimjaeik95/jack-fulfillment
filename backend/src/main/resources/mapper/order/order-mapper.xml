@@ -35,6 +35,7 @@
         <result property="cancelReasonName" column="cancel_reason_name"/>
         <result property="lineCount"      column="line_count"/>
         <result property="totalQty"       column="total_qty"/>
+        <result property="allocatedQty"   column="allocated_qty"/>
     </resultMap>
 
     <resultMap id="lineMap" type="com.fulfillment.domain.OrderLine">
@@ -97,7 +98,20 @@
         -->
         (SELECT COUNT(*) FROM tb_order_line l WHERE l.order_seq = o.order_seq) AS line_count,
         (SELECT COALESCE(SUM(l.order_qty), 0) FROM tb_order_line l
-          WHERE l.order_seq = o.order_seq) AS total_qty
+          WHERE l.order_seq = o.order_seq) AS total_qty,
+        <!--
+          지금 잡혀 있는 수량.
+
+          '할당 대기' 가 두 가지를 가리키고 있었다 — 하나도 안 잡은 주문과
+          일부만 잡은 주문. 상태(CONFIRMED)는 둘을 구분하지 못한다. 전량
+          잡혀야 ALLOCATED 가 되기 때문에, 열 줄 중 아홉 줄이 잡힌 주문도
+          '대기' 로 보인다.
+        -->
+        (SELECT COALESCE(SUM(a.qty_allocated - a.qty_released), 0)
+           FROM tb_order_line   l
+           JOIN tb_stock_alloc  a ON a.order_line_seq = l.line_seq
+          WHERE l.order_seq   = o.order_seq
+            AND l.line_status &lt;&gt; 'CANCELED') AS allocated_qty
     </sql>
 
     <sql id="orderWhere">
@@ -562,4 +576,37 @@
          LIMIT 1
     </select>
 
+
+    <!--
+      자동 확정 대상 (ORD-BT-003).
+
+      접수 상태인데 미매핑 줄이 하나도 없는 주문. confirm() 이 막는 조건과
+      같은 것을 SQL 로 적는다 — 배치가 괜히 불러 거부당하지 않게 미리
+      거른다. 판정 자체는 여전히 confirm() 이 한다.
+
+      <b>취소된 줄은 세지 않는다.</b> 미매핑이라 취소한 줄이 남아 있으면
+      그 주문은 영영 확정되지 않는다.
+
+      줄이 하나도 없는 주문은 뺀다. 업로드가 첫 행으로 주문을 만들고 뒷
+      행으로 줄을 붙이는 사이에 배치가 끼어들면, 줄 없는 주문이 확정되어
+      그 뒤 행이 "접수 상태가 아니어서 줄을 더할 수 없습니다" 로 막힌다.
+
+      오래된 것부터. 먼저 들어온 주문이 먼저 재고를 잡는 것이 자연스럽다.
+    -->
+    <select id="selectConfirmTargets" resultType="java.lang.Long">
+        SELECT o.order_seq
+          FROM tb_order o
+         WHERE o.order_status = 'RECEIVED'
+           AND EXISTS (
+               SELECT 1 FROM tb_order_line l
+                WHERE l.order_seq = o.order_seq
+                  AND l.line_status &lt;&gt; 'CANCELED')
+           AND NOT EXISTS (
+               SELECT 1 FROM tb_order_line l
+                WHERE l.order_seq = o.order_seq
+                  AND l.sku_seq IS NULL
+                  AND l.line_status &lt;&gt; 'CANCELED')
+         ORDER BY o.ordered_at, o.order_seq
+         LIMIT #{limit}
+    </select>
 </mapper>

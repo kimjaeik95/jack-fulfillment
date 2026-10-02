@@ -137,7 +137,9 @@ const columns = [
   { key: 'channelName', label: '채널', width: '110px' },
   { key: 'receiverName', label: '수령인', width: '130px' },
   { key: 'lineCount', label: '품목', width: '58px', align: 'right' },
-  { key: 'totalQty', label: '수량', width: '70px', align: 'right' },
+  // '할당 대기' 가 '하나도 안 잡음' 과 '일부만 잡음' 을 함께 가리킨다.
+  // 상태로는 안 갈리므로(전량이어야 ALLOCATED) 숫자로 보여 준다.
+  { key: '_qty', label: '잡힘 / 주문', width: '104px', align: 'right' },
   { key: 'orderStatus', label: '상태', width: '100px' },
   { key: 'orderedAt', label: '주문일시', width: '132px' },
   { key: '_act', label: '', width: '160px', align: 'right' },
@@ -226,6 +228,33 @@ async function doRelease() {
 function hasLiveAlloc(order) {
   return ['ALLOCATED', 'CONFIRMED'].includes(order.orderStatus)
 }
+
+/**
+ * 아직 못 잡은 수량 — 할당 버튼이 할 일이 있나.
+ *
+ * 전량 잡힌 주문에도 '할당' 이 떠 있어서, 이미 끝난 건에 무엇을 더 하라는
+ * 것인지 읽히지 않았다. 버튼은 남기되 <b>무엇을 할지를 이름에 적는다</b> —
+ * 할 일이 없으면 눌리지 않고, 결품이 남아 있으면 '남은 N개 할당' 이 된다.
+ *
+ * 다시 거는 것이 의미 있는 경우는 결품뿐이다. 그 사이 입고가 들어와
+ * 잡을 수 있게 됐을 수 있다 (미할당 재처리 배치가 하는 일과 같다).
+ */
+const remainOf = (order) =>
+  (order?.lines ?? []).reduce((s, l) => s + Math.max(0, Number(l.remainQty || 0)), 0)
+
+/**
+ * 잡힌 정도를 색으로.
+ *
+ *   0        아직 손도 안 댐
+ *   일부     절반쯤 간 것 — 나머지는 결품이다
+ *   전량     끝
+ */
+function allocClass(order) {
+  const got = Number(order.allocatedQty ?? 0)
+  const want = Number(order.totalQty ?? 0)
+  if (!got) return 'dim'
+  return got >= want ? 'ok' : 'short'
+}
 </script>
 
 <template>
@@ -302,6 +331,16 @@ function hasLiveAlloc(order) {
         <div v-if="row.extOrderNo" class="small dim mono">{{ row.extOrderNo }}</div>
       </template>
 
+      <!--
+        잡힘 / 주문. 둘이 같으면 다 잡힌 것이고, 0 이면 아직 손도 안 댄
+        것이다. 그 사이면 일부만 잡힌 주문 — 같은 '할당 대기' 라도 할 일이
+        다르다.
+      -->
+      <template #cell-_qty="{ row }">
+        <strong :class="allocClass(row)">{{ num(row.allocatedQty ?? 0) }}</strong>
+        <span class="dim"> / {{ num(row.totalQty) }}</span>
+      </template>
+
       <template #cell-orderStatus="{ value }">
         <CodeBadge group="SALES_ORDER_STATUS" :code="value" />
       </template>
@@ -311,13 +350,25 @@ function hasLiveAlloc(order) {
       </template>
 
       <template #cell-_act="{ row }">
+        <!--
+          ALLOCATED 는 전량 잡힌 상태다 — 한 줄이라도 결품이면 서버가
+          CONFIRMED 로 되돌린다(syncOrderStatus). 그래서 상태만 보고
+          '더 잡을 것이 있나' 를 가를 수 있다.
+        -->
         <button
           class="btn btn-sm btn-primary"
-          :disabled="!canAlloc || busy || ['PICKING', 'SHIPPED'].includes(row.orderStatus)"
-          :title="allocDenyReason ?? '재고를 잡습니다. 두 번 눌러도 안전합니다.'"
+          :disabled="
+            !canAlloc || busy
+              || ['ALLOCATED', 'PICKING', 'SHIPPED'].includes(row.orderStatus)
+          "
+          :title="
+            row.orderStatus === 'ALLOCATED'
+              ? '전량 잡혀 있습니다'
+              : (allocDenyReason ?? '재고를 잡습니다. 두 번 눌러도 안전합니다.')
+          "
           @click.stop="doAllocate(row)"
         >
-          할당
+          {{ row.orderStatus === 'ALLOCATED' ? '할당됨' : '할당' }}
         </button>
         <button
           class="btn btn-sm"
@@ -426,13 +477,21 @@ function hasLiveAlloc(order) {
         >
           할당해제
         </button>
+        <!--
+          할 일이 있을 때만 눌린다. 전량 잡힌 건에 '할당' 이 떠 있으면
+          무엇을 더 하라는 것인지 읽히지 않는다.
+        -->
         <button
           class="btn btn-primary"
-          :disabled="!canAlloc || busy || ['PICKING', 'SHIPPED'].includes(picked.orderStatus)"
+          :disabled="
+            !canAlloc || busy || !remainOf(picked)
+              || ['PICKING', 'SHIPPED'].includes(picked.orderStatus)
+          "
+          :title="remainOf(picked) ? '못 잡은 수량을 다시 잡아 봅니다' : '전량 잡혀 있습니다'"
           @click="doAllocate(picked)"
         >
           <span v-if="busy" class="spinner"></span>
-          할당
+          {{ remainOf(picked) ? `남은 ${num(remainOf(picked))}개 할당` : '전량 할당됨' }}
         </button>
       </template>
     </ModalDialog>
@@ -521,6 +580,11 @@ function hasLiveAlloc(order) {
 .short {
   color: var(--danger);
   font-weight: 600;
+}
+
+/* 전량 잡힌 것 — 더 볼 일이 없다는 표시 */
+.ok {
+  color: var(--success);
 }
 
 .pager {

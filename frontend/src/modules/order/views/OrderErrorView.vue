@@ -436,7 +436,9 @@ async function saveAssign() {
     <!-- ── 묶음 안의 줄 ─────────────────────────────────────── -->
     <ModalDialog
       v-if="detail"
-      :title="detail.group.extProductCode"
+      :title="detail.group.extOptionCode
+        ? `${detail.group.extProductCode} · 옵션 ${detail.group.extOptionCode}`
+        : detail.group.extProductCode"
       :subtitle="`${detail.group.channelName} · ${detail.group.extProductName ?? '표시명 없음'}`"
       size="wide"
       @close="detail = null"
@@ -506,10 +508,24 @@ async function saveAssign() {
         최종 판단은 이 두 줄을 보는 사람이 한다.
       -->
       <div class="compare">
+        <!--
+          품번만으로는 무엇인지 알 수가 없다.
+
+          옵션코드가 색상과 사이즈를 가르는 자리라, 그것 없이 SKU 를 고르면
+          같은 제품의 다른 색·사이즈를 집게 된다 — 쿠팡은 품번 하나에 옵션이
+          여럿이고, 무신사는 색상마다 품번이 갈려 옵션이 사이즈만 담는다.
+          채널마다 어느 쪽에 무엇이 들어 있는지가 달라서 둘 다 보여야 한다.
+        -->
         <div class="cmp">
           <span class="cmp-l">채널이 보낸 것</span>
           <span class="cmp-v">{{ assigning.displayName }}</span>
-          <span class="small dim mono">{{ assigning.extProductCode ?? '코드 없음' }}</span>
+          <span v-if="assigning.extOptionName" class="small">{{ assigning.extOptionName }}</span>
+          <span class="small dim mono">
+            품번 {{ assigning.extProductCode ?? '없음' }}
+            <template v-if="assigning.extOptionCode">
+              · 옵션 {{ assigning.extOptionCode }}
+            </template>
+          </span>
         </div>
         <div class="cmp-arrow">→</div>
         <div class="cmp">
