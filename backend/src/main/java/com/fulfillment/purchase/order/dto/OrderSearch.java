@@ -27,6 +27,13 @@ public class OrderSearch extends ScopedSearch {
 	private String orderStatus;
 	/** 아직 안 끝난 것만 — 발주 · 부분입고 */
 	private String openOnly;
+	/**
+	 * 입고예정을 더 잡을 수 있는 것만 — 근거 발주 고르기가 쓴다.
+	 *
+	 * openOnly 와 다르다. 저쪽은 '물건이 덜 들어왔나' 인데, 예정은 이미
+	 * 다 잡혀 있을 수 있다. 그 발주를 목록에 두면 골라도 담을 것이 없다.
+	 */
+	private String plannableOnly;
 	/** 납기가 지난 미완료 발주만 */
 	private String overdueOnly;
 	/** 이 SKU 가 든 발주만 */

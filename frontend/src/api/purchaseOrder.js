@@ -28,6 +28,7 @@ export async function list(params = {}) {
     supplierId: params.supplierId,
     orderStatus: params.orderStatus,
     openOnly: params.openOnly,
+    plannableOnly: params.plannableOnly,
     overdueOnly: params.overdueOnly,
     skuId: params.skuId,
     requestSeq: params.requestSeq,
@@ -72,6 +73,20 @@ export async function pending(params = {}) {
  */
 export async function progress(params = {}) {
   return list({ ...params, openOnly: 'Y', sortBy: 'dueDate', sortDir: 'asc' })
+}
+
+/**
+ * 근거 발주 고르기 (입고예정 — INB-PG-001).
+ *
+ * 진행현황과 다르다. 저쪽은 <b>물건이 덜 들어왔나</b> 를 보는데, 여기는
+ * <b>예정을 더 잡을 수 있나</b> 다.
+ *
+ * 둘은 갈린다 — 예정만 세우고 아직 안 받은 발주는 진행현황에는 남아
+ * 있지만 담을 것이 없다. 그걸 목록에 두면 골라도 아무 줄도 안 들어오고,
+ * 고르는 사람은 왜 목록에 있었는지 알 수가 없다.
+ */
+export async function plannable(params = {}) {
+  return list({ ...params, plannableOnly: 'Y', sortBy: 'dueDate', sortDir: 'asc' })
 }
 
 /**

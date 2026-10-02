@@ -804,7 +804,7 @@ const createDenyReason = computed(() => session.denyReason('PUR_PO_ISSUE', 'C'))
       <div v-if="pickedRequestNos.length" class="alert alert-info mb-2">
         <span class="alert-icon">📋</span>
         <span>
-          근거 구매요청
+          구매요청
           <strong class="code">{{ pickedRequestNos.join(', ') }}</strong>
           <template v-if="pickedRequestNos.length > 1"> · {{ pickedRequestNos.length }} 건</template>
         </span>
@@ -932,7 +932,7 @@ const createDenyReason = computed(() => session.denyReason('PUR_PO_ISSUE', 'C'))
         <span v-if="detail.orderDate">발주일 <strong>{{ detail.orderDate }}</strong></span>
         <span v-else class="dim">아직 나가지 않았습니다</span>
         <span v-if="detail.issuedByName">발주자 <strong>{{ detail.issuedByName }}</strong></span>
-        <span v-if="detail.requestNos">근거 <strong class="code">{{ detail.requestNos }}</strong></span>
+        <span v-if="detail.requestNos">구매요청 <strong class="code">{{ detail.requestNos }}</strong></span>
         <span>결제 <strong>{{ detail.payTerm }}</strong></span>
         <span>
           발주 <strong>{{ num(detail.totalOrderQty) }}</strong>

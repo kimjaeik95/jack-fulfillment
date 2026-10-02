@@ -156,6 +156,33 @@
             <if test='openOnly == "Y"'>
                 AND o.order_status IN ('ISSUED','PARTIAL')
             </if>
+            <!--
+              근거 발주 고르기(입고예정)가 쓴다. 아직 <b>예정을 더 잡을 수
+              있는</b> 발주만.
+
+              openOnly 와 다르다. 저쪽은 '물건이 덜 들어왔나' 를 보는데,
+              예정은 이미 다 잡혀 있을 수 있다 — 예정만 세우고 아직 안 받은
+              상태다. 그 발주를 목록에 두면 골라도 담을 것이 없고, 서버가
+              "잔량은 이미 다른 입고예정에 모두 잡혀 있습니다" 로 되돌린다.
+              고르는 사람 입장에서는 왜 목록에 있었는지 알 수가 없다.
+
+              줄 하나라도 여유가 있으면 남긴다. 한 줄만 더 받을 수 있어도
+              예정을 세울 이유가 되기 때문이다.
+            -->
+            <if test='plannableOnly == "Y"'>
+                AND o.order_status IN ('ISSUED','PARTIAL')
+                AND EXISTS (
+                    SELECT 1
+                      FROM tb_purchase_order_line l
+                     WHERE l.order_seq = o.order_seq
+                       AND l.order_qty - COALESCE(l.received_qty, 0)
+                         - COALESCE((SELECT SUM(il.planned_qty)
+                                       FROM tb_inbound_line il
+                                       JOIN tb_inbound i ON i.inbound_seq = il.inbound_seq
+                                      WHERE il.order_line_seq = l.line_seq
+                                        AND i.inbound_status &lt;&gt; 'CANCELED'), 0) &gt; 0
+                )
+            </if>
             <!-- 납기가 지났는데 아직 안 들어온 것. 독촉할 대상이다. -->
             <if test='overdueOnly == "Y"'>
                 AND o.order_status IN ('ISSUED','PARTIAL')
