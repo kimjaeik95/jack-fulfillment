@@ -13,6 +13,8 @@ public record InboundLineResponse(
 		Long lineSeq,
 		Integer lineNo,
 		String skuId,
+		/** 스캔 대조용. 발급 전이면 null 이다. */
+		String barcode,
 		String colorCode,
 		String sizeCode,
 		String productId,
@@ -51,7 +53,7 @@ public record InboundLineResponse(
 	public static InboundLineResponse of(InboundLine l) {
 		return new InboundLineResponse(
 				l.getLineSeq(), l.getLineNo(),
-				l.getSkuId(), l.getColorCode(), l.getSizeCode(),
+				l.getSkuId(), l.getBarcode(), l.getColorCode(), l.getSizeCode(),
 				l.getProductId(), l.getProductName(), l.getBrandName(),
 				l.getPlannedQty(), l.getArrivedQty(),
 				l.notArrived(), l.differs(), l.diffQty(),

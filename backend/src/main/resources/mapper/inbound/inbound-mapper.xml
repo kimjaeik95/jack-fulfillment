@@ -17,6 +17,8 @@
         <result property="arrivedAt"       column="arrived_at"/>
         <result property="arrivedBy"       column="arrived_by"/>
         <result property="vehicleNo"       column="vehicle_no"/>
+        <result property="boxCount"        column="box_count"/>
+        <result property="palletCount"     column="pallet_count"/>
         <result property="driverName"      column="driver_name"/>
         <result property="arriveRemark"    column="arrive_remark"/>
         <result property="canceledBy"      column="canceled_by"/>
@@ -65,6 +67,7 @@
         <result property="putawayQty"     column="putaway_qty"/>
         <result property="remark"         column="remark"/>
         <result property="skuId"          column="sku_id"/>
+        <result property="barcode"        column="barcode"/>
         <result property="colorCode"      column="color_code"/>
         <result property="sizeCode"       column="size_code"/>
         <result property="productId"      column="product_id"/>
@@ -87,6 +90,7 @@
         i.plant_seq, i.warehouse_seq, i.supplier_seq,
         i.planned_date, i.inbound_status,
         i.arrived_at, i.arrived_by, i.vehicle_no, i.driver_name, i.arrive_remark,
+        i.box_count, i.pallet_count,
         i.canceled_by, i.canceled_at, i.cancel_reason, i.remark,
         i.over_approved_by, i.over_approved_at, i.over_approve_remark,
         i.closed_by, i.closed_at,
@@ -135,9 +139,19 @@
 
     <sql id="searchWhere">
         <where>
+            <!--
+              차량번호 · 기사명도 건다.
+
+              나중에 문제가 생겼을 때 손에 있는 것은 대개 차량번호다. "그날
+              그 차가 가져온 것" 을 찾으려는데 입고번호로만 찾히면, 입고번호를
+              이미 알고 있어야 찾을 수 있다는 뜻이 된다 — 알고 있으면 찾을
+              이유도 없다.
+            -->
             <if test="keyword != null">
                 AND (i.inbound_no    ILIKE '%' || #{keyword} || '%'
                   OR i.remark        ILIKE '%' || #{keyword} || '%'
+                  OR i.vehicle_no    ILIKE '%' || #{keyword} || '%'
+                  OR i.driver_name   ILIKE '%' || #{keyword} || '%'
                   OR o.order_no      ILIKE '%' || #{keyword} || '%'
                   OR s.partner_name ILIKE '%' || #{keyword} || '%')
             </if>
@@ -239,6 +253,7 @@
         SELECT l.line_seq, l.inbound_seq, l.line_no, l.sku_seq, l.order_line_seq,
                l.planned_qty, l.arrived_qty, l.received_qty, l.rejected_qty, l.putaway_qty, l.remark,
                sk.sku_id      AS sku_id,
+               sk.barcode     AS barcode,
                sk.color_code  AS color_code,
                sk.size_code   AS size_code,
                p.product_id   AS product_id,
@@ -328,6 +343,8 @@
                arrived_by    = #{actor},
                vehicle_no    = #{vehicleNo},
                driver_name   = #{driverName},
+               box_count     = #{boxCount},
+               pallet_count  = #{palletCount},
                arrive_remark = #{arriveRemark},
             </when>
             <when test='toStatus == "CANCELED"'>

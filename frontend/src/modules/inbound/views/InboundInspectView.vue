@@ -5,7 +5,7 @@
  * 입하가 "차에서 내렸다" 라면 검수는 <b>세어 보고 받아들인다</b> 이다.
  * 내린 개수와 세어 본 개수는 또 다르고, 그 차이를 찾는 것이 이 화면의 일이다.
  *
- * 합격은 기입고로 쌓이고 발주 잔량까지 줄인다. 거부는 <b>재고가 되지
+ * 받은 수량은 기입고로 쌓이고 발주 잔량까지 줄인다. 거부는 <b>재고가 되지
  * 않는다</b> — 받은 적 없는 물건이라 우리 것이 아니고, 공급처와 값을
  * 협상하는 근거가 된다.
  *
@@ -106,14 +106,94 @@ async function openInspect(row) {
     const full = await inboundApi.detail(row.inboundSeq)
     for (const k of Object.keys(draft)) delete draft[k]
     for (const l of full.lines) {
-      // 안 센 수량을 합격으로 미리 채운다. 대부분은 다 맞게 오고,
-      // 줄마다 같은 숫자를 다시 치게 하면 오타만 는다.
-      draft[l.lineSeq] = { passed: l.pendingInspectQty, rejected: 0, reason: '' }
+      /*
+       * 0 으로 연다.
+       *
+       * 전에는 '안 센 수량' 을 받음 칸에 미리 채웠다. 손으로 칠 때는 편했지만,
+       * 검수는 <b>세는 일</b>이다. 채워 두면 세기 전부터 다 맞다고 적혀
+       * 있는 셈이고, 바코드를 찍으면 그 위에 더해져 두 배가 된다.
+       *
+       * 다 맞게 온 날은 '안 센 수량으로 채우기' 한 번이면 된다 — 그쪽이
+       * 버튼 하나고, 세지 않고 넘어가는 것이 한 번 더 의식되는 편이 맞다.
+       */
+      draft[l.lineSeq] = { passed: 0, rejected: 0, reason: '' }
     }
     target.value = full
+    scan.value = ''
+    scanMsg.value = ''
+    scanError.value = ''
   } catch (e) {
     loadError.value = e.message
   }
+}
+
+/* ── 스캔해서 세기 ──────────────────────────────────────────── */
+
+/**
+ * 찍으면 그 줄의 '받음' 이 하나 오른다.
+ *
+ * <b>숫자 입력을 없애지 않는다.</b> 박스로 500개가 오면 치는 쪽이 훨씬
+ * 빠르고, 낱개로 조금 오거나 섞여 오면 찍는 쪽이 정확하다. 어느 쪽이
+ * 나은지는 그날 물건이 정한다.
+ *
+ * 창은 0 으로 열린다. 검수는 <b>세는 일</b>인데 채워 두면 세기 전부터 다
+ * 맞다고 적혀 있는 셈이고, 찍으면 그 위에 더해져 두 배가 된다. 다 맞게 온
+ * 날은 옆의 채우기 버튼 한 번이면 된다.
+ */
+const scan = ref('')
+const scanInput = ref(null)
+const scanMsg = ref('')
+const scanError = ref('')
+
+/**
+ * 안 센 수량을 받은 것으로 한꺼번에 채운다.
+ *
+ * 다 맞게 온 날에 쓴다. 세지 않고 받아들이는 것이라, 버튼을 눌러야만
+ * 되게 둔다 — 열자마자 채워져 있으면 세기 전부터 다 맞다고 적혀 있는
+ * 셈이고, 그대로 저장하는 일이 생긴다.
+ */
+function fillAll() {
+  for (const l of target.value?.lines ?? []) {
+    if (draft[l.lineSeq]) draft[l.lineSeq].passed = Math.max(0, roomOf(l))
+  }
+  scanMsg.value = '예정수량을 받은 것으로 채웠습니다. 다른 품목만 고치세요.'
+  scanError.value = ''
+}
+
+/**
+ * 한 번 찍었다.
+ *
+ * 바코드로 먼저 찾고 없으면 SKU 코드로 본다 — 스캐너는 바코드를 주고
+ * 사람이 손으로 칠 때는 코드를 친다. 서버의 resolveSku 와 같은 순서다.
+ */
+function onScan() {
+  const v = scan.value.trim()
+  scan.value = ''
+  if (!v) return
+
+  const lines = target.value?.lines ?? []
+  const hit =
+    lines.find((l) => l.barcode && l.barcode === v) ??
+    lines.find((l) => l.skuId === v)
+
+  if (!hit) {
+    scanMsg.value = ''
+    scanError.value = `이 입고에 없는 물건입니다. (${v}) 지시에 없는 것은 셀 수 없습니다.`
+    return
+  }
+
+  const d = draft[hit.lineSeq]
+  const handled = Number(d.passed || 0) + Number(d.rejected || 0)
+  if (handled >= roomOf(hit)) {
+    // 막지는 않는다. 더 오는 일은 실제로 있고, 초과는 검수가 판정한다.
+    scanError.value =
+      `${hit.skuId} — 예정수량 ${roomOf(hit)} 개를 넘었습니다. ` +
+      `실제로 더 왔으면 그대로 두세요. 초과입고로 판정합니다.`
+  } else {
+    scanError.value = ''
+  }
+  d.passed = Number(d.passed || 0) + 1
+  scanMsg.value = `${hit.skuId} · ${hit.productName} — 받음 ${d.passed}`
 }
 
 /** 이번에 손댄 줄만 보낸다 — 안 건드린 줄까지 보내면 0 짜리 회차가 쌓인다 */
@@ -124,17 +204,52 @@ const dirtyLines = computed(() =>
   }),
 )
 
+/**
+ * 지난 회차까지 센 것을 뺀, 이번에 더 셀 수 있는 수량.
+ *
+ * <b>기준은 예정수량이다.</b> 전에는 입하수량을 기준으로 삼았는데, 물건이
+ * 박스로 오면 입하에서는 셀 수가 없어 대개 예정을 그대로 둔다 — 실측이
+ * 아닌 숫자를 기준으로 재고 있었던 셈이다.
+ */
+const nz = (v) => (v == null ? 0 : Number(v))
+const roomOf = (l) => nz(l.plannedQty) - nz(l.receivedQty) - nz(l.rejectedQty)
+
+/**
+ * 아직 안 센 수량 — 지금 적은 것까지 뺀 값.
+ *
+ * 서버가 준 값은 저장 전까지 안 바뀐다. 세면서 '몇 개 남았나' 를 보려면
+ * 화면이 빼 줘야 한다. 음수면 예정보다 더 센 것이다 — 막지 않고
+ * 초과입고 승인으로 넘긴다 (INB-005).
+ */
+const remainOf = (l) => {
+  const d = draft[l.lineSeq]
+  if (!d) return roomOf(l)
+  return roomOf(l) - Number(d.passed || 0) - Number(d.rejected || 0)
+}
+
+/**
+ * 저장을 막아야 하는 것만.
+ *
+ * <b>입하수량을 넘는 것은 막지 않는다.</b> 물건은 박스로 오고 기사는
+ * 기다려 주지 않아, 입하수량은 대개 예정수량을 그대로 둔 값이다 — 실측이
+ * 아니다. 실제로 세는 것은 여기고, 세어 보니 더 있는 일은 실제로 있다.
+ *
+ * 초과는 막을 일이 아니라 완료 전에 승인받을 일이다 (INB-005). 넘으면
+ * 아래 overWarn 이 알려 주고, 입고완료에서 승인을 요구한다.
+ */
 const lineError = (l) => {
   const d = draft[l.lineSeq]
   if (!d) return ''
-  const handled = Number(d.passed || 0) + Number(d.rejected || 0)
-  if (handled > l.pendingInspectQty) {
-    return `안 센 수량 ${l.pendingInspectQty} 개를 넘습니다.`
-  }
   if (Number(d.rejected) > 0 && !d.reason) {
     return '거부 사유를 고르세요.'
   }
   return ''
+}
+
+/** 막지는 않고 알려만 준다 — 더 센 줄 */
+const overWarn = (l) => {
+  const over = -remainOf(l)
+  return over > 0 ? `${over} 개 더 셌습니다. 초과입고 승인을 받아야 완료됩니다.` : ''
 }
 
 const anyError = computed(() => (target.value?.lines ?? []).some((l) => lineError(l)))
@@ -161,11 +276,11 @@ async function submit() {
       })),
     )
     toast.success(
-      `${inbound.inboundNo} 검수 — 합격 ${totalPassed.value} / 거부 ${totalRejected.value}`,
+      `${inbound.inboundNo} 검수 — 받음 ${totalPassed.value} / 거부 ${totalRejected.value}`,
     )
     if (warning) toast.warn(warning)
     // 남은 수량이 있으면 화면을 닫지 않는다. 분할 검수는 이어서 하는 일이다.
-    if (inbound.lines.some((l) => l.pendingInspectQty > 0)) {
+    if (inbound.lines.some((l) => roomOf(l) > 0)) {
       await openInspect(inbound)
     } else {
       target.value = null
@@ -192,7 +307,7 @@ const denyReason = computed(() => session.denyReason('INB_INSPECT', 'C'))
       <div>
         <h1 class="page-title">입고검수</h1>
         <p class="page-desc">
-          세어 보고 <strong>받아들일 것과 못 받을 것</strong>을 가릅니다. 합격은 기입고로
+          세어 보고 <strong>받아들일 것과 못 받을 것</strong>을 가릅니다. 받은 수량은 기입고로
           쌓이고 발주 잔량을 줄입니다. <strong>거부는 재고가 되지 않습니다</strong> —
           받은 적 없는 물건이라 공급처와 처리를 정해야 합니다. 한 번에 다 세지 않아도
           됩니다. <strong>여기서도 재고는 늘지 않습니다.</strong>
@@ -228,7 +343,7 @@ const denyReason = computed(() => session.denyReason('INB_INSPECT', 'C'))
           v-model="filters.keyword"
           class="grow"
           label="검색어"
-          placeholder="입고번호 / 발주번호 / 공급처"
+          placeholder="입고번호 / 발주번호 / 공급처 / 차량번호"
           @enter="search()"
         />
         <FormField
@@ -323,6 +438,31 @@ const denyReason = computed(() => session.denyReason('INB_INSPECT', 'C'))
         <span v-if="target.vehicleNo" class="dim">차량 {{ target.vehicleNo }}</span>
       </div>
 
+      <!--
+        입하 때 적은 것을 여기 띄운다.
+        검수는 박스를 풀어 낱개로 세는 일이라 박스 수로 검증하지는 않는다 —
+        박스당 입수가 SKU 마다 다르고 혼합 박스도 있어서 셀 수가 없다.
+
+        쓸모는 <b>모자랄 때 어디를 볼지</b>다. 예정 80 인데 50 이 나오면
+        공급처가 덜 보낸 것인지 박스 하나를 안 푼 것인지 둘인데, 박스 3 을
+        받았다는 기록이 있으면 마당부터 보게 된다.
+
+        그리고 입하 화면을 다시 열지 않아도 된다. 검수하다 말고 왔다 갔다
+        하면 세던 것을 놓친다.
+      -->
+      <div v-if="target.boxCount != null || target.palletCount != null || target.driverName"
+           class="arrive-note small dim">
+        입하 기록 —
+        <template v-if="target.palletCount != null">
+          파렛트 <strong>{{ num(target.palletCount) }}</strong>
+        </template>
+        <template v-if="target.boxCount != null">
+          · 박스 <strong>{{ num(target.boxCount) }}</strong>
+        </template>
+        <template v-if="target.driverName">· 기사 {{ target.driverName }}</template>
+        <span v-if="target.arriveRemark"> · {{ target.arriveRemark }}</span>
+      </div>
+
       <div v-if="target.overQty > 0" class="alert mt-1" :class="target.needsOverApproval ? 'alert-warn' : 'alert-info'">
         <span class="alert-icon">{{ target.needsOverApproval ? '⚠' : 'ℹ' }}</span>
         <span v-if="target.needsOverApproval">
@@ -336,11 +476,39 @@ const denyReason = computed(() => session.denyReason('INB_INSPECT', 'C'))
         </span>
       </div>
 
+      <!--
+        찍어서 세는 칸.
+
+        숫자 입력을 없애지 않는다 — 박스로 500개가 오면 치는 쪽이 빠르고,
+        낱개로 조금 오거나 섞여 오면 찍는 쪽이 정확하다. 둘 다 둔다.
+
+        창은 0 으로 열린다 — 세기 전부터 다 맞다고 적혀 있으면 안 된다.
+        다 맞게 온 날을 위해 채우기 버튼을 바로 옆에 둔다.
+      -->
+      <div class="scan-row">
+        <input
+          ref="scanInput"
+          v-model="scan"
+          class="input scan-input"
+          placeholder="바코드를 찍거나 SKU 코드를 입력하고 Enter"
+          @keyup.enter="onScan()"
+        />
+        <button class="btn" title="다 맞게 왔을 때. 세지 않고 받아들입니다" @click="fillAll()">
+          안 센 수량으로 채우기
+        </button>
+      </div>
+      <div v-if="scanError" class="alert alert-warn mb-1">
+        <span class="alert-icon">⚠</span><span>{{ scanError }}</span>
+      </div>
+      <div v-else-if="scanMsg" class="alert alert-ok mb-1">
+        <span class="alert-icon">✅</span><span>{{ scanMsg }}</span>
+      </div>
+
       <div class="lines-head">
         <strong>
-          금회 검수 — 합격 {{ num(totalPassed) }} / 거부 {{ num(totalRejected) }}
+          금회 검수 — 받음 {{ num(totalPassed) }} / 거부 {{ num(totalRejected) }}
         </strong>
-        <span class="small dim">안 센 수량으로 채워 뒀습니다. 다른 품목만 고치세요.</span>
+        <span class="small dim">찍거나 직접 적으세요. 다 맞게 왔으면 위의 채우기 버튼을 쓰면 됩니다.</span>
       </div>
 
       <table class="table lines">
@@ -348,11 +516,10 @@ const denyReason = computed(() => session.denyReason('INB_INSPECT', 'C'))
           <tr>
             <th style="width: 32px" class="right">#</th>
             <th style="width: 160px">SKU</th>
-            <th style="width: 64px" class="right">예정</th>
-            <th style="width: 64px" class="right">입하</th>
-            <th style="width: 64px" class="right">안 셈</th>
-            <th style="width: 84px">합격</th>
+            <th style="width: 72px" class="right">예정</th>
+            <th style="width: 84px">받음</th>
             <th style="width: 84px">거부</th>
+            <th style="width: 72px" class="right">남음</th>
             <th style="width: 130px">거부 사유</th>
           </tr>
         </thead>
@@ -363,12 +530,17 @@ const denyReason = computed(() => session.denyReason('INB_INSPECT', 'C'))
               <span class="code">{{ l.skuId }}</span>
               <div class="small dim">{{ l.productName }}</div>
             </td>
-            <td class="num">{{ num(l.plannedQty) }}</td>
-            <td class="num">{{ num(l.arrivedQty) }}</td>
+            <!--
+              기준은 예정수량이다.
+              입하수량은 대개 예정을 그대로 둔 값이라(박스로 와서 못 센다)
+              비교 기준이 못 된다. 입하에서 실제로 세어 다르게 적은 날만
+              아래에 작게 붙인다.
+            -->
             <td class="num">
-              <strong :class="l.pendingInspectQty ? 'warn' : 'dim'">
-                {{ num(l.pendingInspectQty) }}
-              </strong>
+              <strong>{{ num(l.plannedQty) }}</strong>
+              <div v-if="l.arrivedQty != null && l.arrivedQty !== l.plannedQty" class="small warn">
+                입하 {{ num(l.arrivedQty) }}
+              </div>
             </td>
             <td>
               <input
@@ -388,6 +560,17 @@ const denyReason = computed(() => session.denyReason('INB_INSPECT', 'C'))
                 :disabled="l.inspectDone"
               />
             </td>
+            <!--
+              적은 만큼 줄어든다. 세면서 '몇 개 남았나' 를 보는 자리라,
+              고정된 숫자가 떠 있으면 쓸모가 없다. 화면 안에서 빼는 것이라
+              서버를 부르지 않는다.
+            -->
+            <td class="num">
+              <strong :class="remainOf(l) > 0 ? 'warn' : 'dim'">{{ num(remainOf(l)) }}</strong>
+              <div v-if="remainOf(l) < 0" class="small danger">
+                {{ num(-remainOf(l)) }} 초과
+              </div>
+            </td>
             <!-- 거부가 있으면 사유가 필수다. 사유 없는 거부는 나중에 아무것도 증명하지 못한다. -->
             <td>
               <select
@@ -405,6 +588,10 @@ const denyReason = computed(() => session.denyReason('INB_INSPECT', 'C'))
           <tr v-for="l in target.lines.filter((x) => lineError(x))" :key="`e${l.lineSeq}`">
             <td colspan="8" class="small danger">{{ l.skuId }} — {{ lineError(l) }}</td>
           </tr>
+          <!-- 막지 않는다. 더 온 것은 승인으로 다룬다 (INB-005) -->
+          <tr v-for="l in target.lines.filter((x) => overWarn(x))" :key="`o${l.lineSeq}`">
+            <td colspan="8" class="small warn">⚠ {{ l.skuId }} — {{ overWarn(l) }}</td>
+          </tr>
         </tbody>
       </table>
 
@@ -419,7 +606,7 @@ const denyReason = computed(() => session.denyReason('INB_INSPECT', 'C'))
             <tr>
               <th style="width: 56px" class="right">회차</th>
               <th style="width: 160px">SKU</th>
-              <th style="width: 70px" class="right">합격</th>
+              <th style="width: 70px" class="right">받음</th>
               <th style="width: 70px" class="right">거부</th>
               <th style="width: 110px">사유</th>
               <th style="width: 90px">검수자</th>
@@ -457,6 +644,21 @@ const denyReason = computed(() => session.denyReason('INB_INSPECT', 'C'))
 </template>
 
 <style scoped>
+/* 찍어서 세는 칸 — 숫자 입력과 나란히 둔다 */
+.scan-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.scan-input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* 입하 때 적은 것. 검수 중에 입하 화면으로 돌아가지 않게 */
+.arrive-note {
+  margin-top: 4px;
+}
 .summary {
   display: flex;
   gap: 10px;

@@ -29,6 +29,21 @@ public record ArriveRequest(
 		@Size(max = 50, message = "기사명은 50자 이하로 입력하세요.")
 		String driverName,
 
+		/**
+		 * 내린 박스 · 파렛트 수.
+		 *
+		 * 차에서 내리는 자리에서 셀 수 있는 것은 이것이다. 낱개는 검수에서
+		 * 센다 — 기사는 박스를 뜯어 세는 동안 기다려 주지 않는다.
+		 *
+		 * 비워도 된다. 필수로 걸면 못 셌을 때 아무 숫자나 넣게 되고,
+		 * 그러면 없느니만 못하다.
+		 */
+		@Min(value = 0, message = "박스 수는 0 이상이어야 합니다.")
+		Integer boxCount,
+
+		@Min(value = 0, message = "파렛트 수는 0 이상이어야 합니다.")
+		Integer palletCount,
+
 		@Size(max = 300, message = "비고는 300자 이하로 입력하세요.")
 		String remark,
 

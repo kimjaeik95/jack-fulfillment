@@ -103,13 +103,17 @@ const columns = [
 const arriving = ref(null)
 const busy = ref(false)
 const serverError = ref('')
-const arrive = reactive({ vehicleNo: '', driverName: '', remark: '' })
+const arrive = reactive({ vehicleNo: '', driverName: '', boxCount: '', palletCount: '', remark: '' })
+
+/** 낱개를 줄별로 적을지. 기본은 아니다 — 박스로 오고 낱개는 검수에서 센다 */
+const countByLine = ref(false)
 /** 줄별 입하수량 — 예정수량으로 미리 채운다 */
 const qty = reactive({})
 
 async function openArrive(row) {
   serverError.value = ''
-  Object.assign(arrive, { vehicleNo: '', driverName: '', remark: '' })
+  Object.assign(arrive, { vehicleNo: '', driverName: '', boxCount: '', palletCount: '', remark: '' })
+  countByLine.value = false
   for (const k of Object.keys(qty)) delete qty[k]
   try {
     const full = await inboundApi.detail(row.inboundSeq)
@@ -147,6 +151,8 @@ async function submitArrive() {
     const { inbound, warning } = await inboundApi.arrive(arriving.value.inboundSeq, {
       vehicleNo: arrive.vehicleNo || null,
       driverName: arrive.driverName || null,
+      boxCount: arrive.boxCount === '' ? null : Number(arrive.boxCount),
+      palletCount: arrive.palletCount === '' ? null : Number(arrive.palletCount),
       remark: arrive.remark || null,
       // 바꾼 줄만 보낸다. 안 보낸 줄은 예정대로 내린 것으로 본다.
       lines: changed.value.map((l) => ({
@@ -325,6 +331,24 @@ const denyReason = computed(() => session.denyReason('INB_ARRIVE', 'C'))
           help="수량이 안 맞거나 파손이 나오면 이게 첫 번째 단서입니다."
         />
         <FormField v-model="arrive.driverName" label="기사명" placeholder="선택" />
+        <!--
+          차에서 내리는 자리에서 셀 수 있는 것은 이것이다. 낱개는 검수에서
+          센다. 비워도 된다 — 못 셌을 때 아무 숫자나 넣게 하면 없느니만 못하다.
+        -->
+        <FormField
+          v-model.number="arrive.palletCount"
+          label="파렛트"
+          type="number"
+          placeholder="선택"
+          help="낱개는 검수에서 셉니다."
+        />
+        <FormField
+          v-model.number="arrive.boxCount"
+          label="박스"
+          type="number"
+          placeholder="선택"
+          help="검수 때 이 수와 맞는지 보면 통째로 빠진 것이 잡힙니다."
+        />
         <FormField
           v-model="arrive.remark"
           label="비고"
@@ -333,15 +357,33 @@ const denyReason = computed(() => session.denyReason('INB_ARRIVE', 'C'))
         />
       </div>
 
+      <!--
+        낱개 수량은 접어 둔다.
+        물건은 박스로 오고 기사는 기다려 주지 않는다. 차에서 내리는 자리에서
+        20줄짜리 표가 펼쳐져 있으면 세라는 뜻으로 읽히는데, 설계는 원래
+        <b>안 세도 되게</b> 돼 있다 — 안 고친 줄은 예정대로 내린 것으로 보고,
+        정확한 수량은 검수에서 센다 (INB-003).
+        그래서 기본을 '예정대로' 로 두고, 다른 날만 펼친다.
+      -->
       <div class="lines-head">
         <strong>
-          내린 개수 — 예정 {{ num(arriving.totalPlannedQty) }} / 입하 {{ num(totalArrived) }}
-          <span v-if="diff !== 0" class="warn">({{ diff > 0 ? '+' : '' }}{{ diff }})</span>
+          받을 것 — {{ arriving.lines.length }}줄 · {{ num(arriving.totalPlannedQty) }}개
         </strong>
-        <span class="small dim">예정수량으로 채워 뒀습니다. 다른 품목만 고치세요.</span>
+        <button class="btn btn-sm btn-ghost" @click="countByLine = !countByLine">
+          {{ countByLine ? '접기' : '낱개를 직접 적어야 한다면' }}
+        </button>
       </div>
 
-      <table class="table lines">
+      <div v-if="!countByLine" class="alert alert-ok">
+        <span class="alert-icon">✅</span>
+        <span>
+          <strong>낱개는 검수에서 셉니다.</strong> 박스째 받는 자리라 몇 개가 들어
+          있는지 알 수 없고, 기사도 뜯어 세는 동안 기다려 주지 않습니다 —
+          여기서는 <strong>차량 · 기사 · 박스</strong>만 적고 넘어가세요.
+        </span>
+      </div>
+
+      <table v-if="countByLine" class="table lines">
         <thead>
           <tr>
             <th style="width: 36px" class="right">#</th>

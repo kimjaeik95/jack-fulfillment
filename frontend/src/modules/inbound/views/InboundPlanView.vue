@@ -86,7 +86,10 @@ async function goPage(n) {
 const suppliers = ref([])
 
 onMounted(async () => {
+  // 창고까지 불러야 한다. warehouseOptionsOf() 가 이 목록을 거르는 것이라,
+  // 안 부르면 센터를 골라도 창고 드롭다운이 비어 있다.
   await hierarchy.loadPlants(false)
+  await hierarchy.loadWarehouses(false)
   try {
     const data = await partnerApi.suppliers({ useYn: 'Y', size: 0 })
     suppliers.value = data.rows
@@ -104,7 +107,7 @@ const supplierOptions = computed(() =>
 const columns = [
   { key: 'inboundNo', label: '입고번호', width: '150px', cls: 'code' },
   { key: 'inboundType', label: '종류', width: '84px', align: 'center' },
-  { key: 'orderNo', label: '근거 발주', width: '145px', cls: 'code' },
+  { key: 'orderNo', label: '발주번호', width: '145px', cls: 'code' },
   { key: 'supplierName', label: '공급처', width: '120px' },
   { key: '_where', label: '받을 곳', width: '150px' },
   { key: 'plannedDate', label: '예정일', width: '100px', align: 'center' },
@@ -166,9 +169,10 @@ const loadingOrder = ref(false)
  * 이미 다른 예정에 잡힌 수량을 뺀 '지금 더 예정할 수 있는 수량' 이 온다.
  * 발주 잔량만 보여 주면 두 번 예정하고 나서야 초과를 안다.
  */
+/** 담았으면 true. 고르기에서 실패하면 번호를 되돌려야 해서 결과를 돌려준다. */
 async function pullFromOrder() {
   const no = form.orderNo.trim()
-  if (!no) return
+  if (!no) return false
   loadingOrder.value = true
   serverError.value = ''
   try {
@@ -186,8 +190,10 @@ async function pullFromOrder() {
       remark: '',
     }))
     toast.success(`${no} 에서 ${lines.value.length} 품목을 담았습니다.`)
+    return true
   } catch (e) {
     serverError.value = e.message
+    return false
   } finally {
     loadingOrder.value = false
   }
@@ -211,10 +217,22 @@ const pickingOrder = ref(false)
  */
 async function pickOrder(order) {
   pickingOrder.value = false
+
+  /*
+   * 못 담으면 되돌린다.
+   *
+   * 전에는 번호를 먼저 박고 담았는데, 담기가 실패해도 그 번호가 입력칸에
+   * 남았다. 화면에는 발주번호가 있고 품목은 비어 있는, 무엇이 일어났는지
+   * 알 수 없는 상태가 된다 — 저장을 눌러도 '줄이 없다' 로 막히고, 번호를
+   * 지워야 한다는 것을 아무도 알려 주지 않는다.
+   */
+  const before = { orderNo: form.orderNo, plantId: form.plantId, supplierId: form.supplierId }
   form.orderNo = order.orderNo
   if (order.plantId) form.plantId = order.plantId
   if (order.supplierId) form.supplierId = order.supplierId
-  await pullFromOrder()
+
+  const ok = await pullFromOrder()
+  if (!ok) Object.assign(form, before)
 }
 
 function addLine(sku) {
@@ -353,6 +371,7 @@ async function doCancel() {
 
 const nf = new Intl.NumberFormat('ko-KR')
 const num = (v) => (v === null || v === undefined ? '-' : nf.format(v))
+const stamp = (v) => (v ? String(v).replace('T', ' ').slice(0, 16) : '-')
 
 const canCreate = computed(() => session.can('INB_PLAN', 'C'))
 const canUpdate = computed(() => session.can('INB_PLAN', 'U'))
@@ -364,12 +383,16 @@ const createDenyReason = computed(() => session.denyReason('INB_PLAN', 'C'))
   <div>
     <div class="page-head">
       <div>
-        <h1 class="page-title">입고예정</h1>
+        <h1 class="page-title">입고 관리</h1>
         <p class="page-desc">
-          <strong>창고가 받을 준비</strong>입니다. 언제 · 어디로 · 무엇이 몇 개 오는지
-          미리 적어 둡니다. 구매입고는 <strong>발주가 근거</strong>이고, 예정수량은
-          발주 잔량을 넘을 수 없습니다 — 실제로 더 들어오는 경우는 검수에서
-          초과입고로 판정합니다. 여기까지는 재고가 움직이지 않습니다.
+          <strong>입고예정을 세우고, 지난 입고를 되짚는 자리</strong>입니다.
+          예정은 언제 · 어디로 · 무엇이 몇 개 오는지 미리 적어 두는 것이고,
+          구매입고는 <strong>발주가 근거</strong>입니다. 예정수량은 발주 잔량을
+          넘을 수 없습니다 — 실제로 더 들어오면 검수에서 초과입고로 판정합니다.
+          여기까지는 재고가 움직이지 않습니다.
+          <br />
+          끝난 건도 모두 남아 있습니다. <strong>차량번호나 기사명으로도</strong>
+          찾을 수 있습니다 — 나중에 문제가 생겼을 때 손에 있는 것은 대개 그쪽입니다.
         </p>
       </div>
       <div class="page-head-actions">
@@ -397,7 +420,7 @@ const createDenyReason = computed(() => session.denyReason('INB_PLAN', 'C'))
           v-model="filters.keyword"
           class="grow"
           label="검색어"
-          placeholder="입고번호 / 발주번호 / 공급처"
+          placeholder="입고번호 / 발주번호 / 공급처 / 차량번호 / 기사명"
           @enter="search()"
         />
         <FormField v-model="filters.fromDate" label="예정일 시작" type="date" @change="search()" />
@@ -468,7 +491,7 @@ const createDenyReason = computed(() => session.denyReason('INB_PLAN', 'C'))
         <!-- 예정과 입하를 한 칸에 둔다. 떼어 놓으면 '얼마나 왔나' 를 눈으로 빼야 한다. -->
         <template #cell-_qty="{ row }">
           <strong>{{ num(row.totalPlannedQty) }}</strong>
-          <template v-if="row.arrived">
+          <template v-if="row.hasArrived">
             <span class="dim"> / </span>
             <strong :class="row.arrivalDiffers ? 'warn' : 'ok'">
               {{ num(row.totalArrivedQty) }}
@@ -586,7 +609,7 @@ const createDenyReason = computed(() => session.denyReason('INB_PLAN', 'C'))
       <div class="from-order">
         <FormField
           v-model="form.orderNo"
-          :label="needsOrder ? '근거 발주 *' : '근거 발주'"
+          :label="needsOrder ? '발주번호 *' : '발주번호'"
           mono
           placeholder="고르거나 번호를 직접 입력"
           help="고르면 그 발주의 센터 · 공급처까지 맞추고 잔량이 남은 줄을 담습니다."
@@ -689,20 +712,170 @@ const createDenyReason = computed(() => session.denyReason('INB_PLAN', 'C'))
       <div class="detail-head">
         <CodeBadge group="INBOUND_STATUS" :code="detail.inboundStatus" />
         <CodeBadge group="INBOUND_TYPE" :code="detail.inboundType" />
-        <span v-if="detail.orderNo">근거 <strong class="code">{{ detail.orderNo }}</strong></span>
+        <span v-if="detail.orderNo">발주 <strong class="code">{{ detail.orderNo }}</strong></span>
         <span v-if="detail.supplierName">공급처 <strong>{{ detail.supplierName }}</strong></span>
         <span>
           예정 <strong>{{ num(detail.totalPlannedQty) }}</strong>
-          <template v-if="detail.arrived">
+          <template v-if="detail.hasArrived">
             / 입하 <strong :class="detail.arrivalDiffers ? 'warn' : 'ok'">
               {{ num(detail.totalArrivedQty) }}
             </strong>
           </template>
         </span>
-        <span v-if="detail.arrivedAt">
-          입하 <strong>{{ detail.arrivedByName ?? detail.arrivedBy }}</strong>
-          <span v-if="detail.vehicleNo" class="dim"> · {{ detail.vehicleNo }}</span>
+      </div>
+
+      <!--
+        입하 기록을 따로 뗀다.
+
+        전에는 상태 뱃지들 사이에 '입하 홍길동 · 12가3456' 으로 작게 끼어
+        있었다. 그런데 나중에 문제가 생겨 이 화면을 여는 사람은 <b>그것을
+        보러</b> 온다 — 누가 가져왔고 몇 박스였나. 수량 옆에 흐리게 붙어
+        있으면 찾느라 훑게 된다.
+
+        기사명 · 박스 · 파렛트는 아예 빠져 있었다. 차량번호만으로는 전화를
+        걸 수가 없다.
+      -->
+      <div v-if="detail.arrivedAt" class="arrive-box">
+        <div class="arrive-title">입하 기록</div>
+        <div class="arrive-grid">
+          <div><span class="k">받은 때</span><strong>{{ stamp(detail.arrivedAt) }}</strong></div>
+          <div><span class="k">받은 사람</span><strong>{{ detail.arrivedByName ?? detail.arrivedBy }}</strong></div>
+          <div>
+            <span class="k">차량번호</span>
+            <strong :class="detail.vehicleNo ? 'code' : 'dim'">{{ detail.vehicleNo ?? '안 적음' }}</strong>
+          </div>
+          <div>
+            <span class="k">기사</span>
+            <strong :class="detail.driverName ? '' : 'dim'">{{ detail.driverName ?? '안 적음' }}</strong>
+          </div>
+          <div>
+            <span class="k">파렛트</span>
+            <strong :class="detail.palletCount != null ? '' : 'dim'">
+              {{ detail.palletCount != null ? num(detail.palletCount) : '안 적음' }}
+            </strong>
+          </div>
+          <div>
+            <span class="k">박스</span>
+            <strong :class="detail.boxCount != null ? '' : 'dim'">
+              {{ detail.boxCount != null ? num(detail.boxCount) : '안 적음' }}
+            </strong>
+          </div>
+        </div>
+        <p v-if="detail.arriveRemark" class="arrive-remark small">
+          💬 {{ detail.arriveRemark }}
+        </p>
+      </div>
+
+      <!--
+        초과입고.
+
+        예정보다 많이 받은 건이다. 공급처 허용 오차를 넘으면 승인을 받아야
+        완료되는데, 승인 화면은 검수중 · 적치중만 보여 줘서 <b>완료되는
+        순간 어디서도 안 보이게</b> 된다.
+
+        그런데 끝났다고 없던 일이 되지 않는다 — 예정보다 더 받았다는 것은
+        공급처와 정산할 때 다시 꺼내야 하는 사실이다. 누가 언제 승인했는지도
+        같이 남아야 한다.
+      -->
+      <div v-if="detail.overQty > 0" class="alert mt-2"
+           :class="detail.overApproved ? 'alert-info' : 'alert-warn'">
+        <span class="alert-icon">{{ detail.overApproved ? '✅' : '⚠' }}</span>
+        <span>
+          예정보다 <strong>{{ num(detail.overQty) }}개</strong> 많이 받았습니다
+          (공급처 허용 오차 {{ num(detail.allowedOverQty) }}개).
+          <template v-if="detail.overApproved">
+            <br />
+            <strong>{{ detail.overApprovedByName ?? detail.overApprovedBy }}</strong> 승인 ·
+            {{ stamp(detail.overApprovedAt) }}
+            <span v-if="detail.overApproveRemark"> · {{ detail.overApproveRemark }}</span>
+          </template>
+          <template v-else-if="detail.needsOverApproval">
+            <br /><strong>아직 승인받지 않았습니다.</strong> 승인 전에는 입고를 완료할 수 없습니다.
+          </template>
+          <template v-else>
+            <br />허용 오차 안이라 승인 없이 받았습니다.
+          </template>
         </span>
+      </div>
+
+      <!--
+        검수 · 적치 내역.
+
+        작업 화면(검수 · 적치)에도 같은 표가 있지만, 그 화면들은 일이 끝나면
+        목록에서 빠진다 — 끝난 뒤에 되짚을 수 있는 자리는 여기뿐이다.
+
+        거부는 특히 돈과 직결된다. 공급처 청구서에 100개가 찍혀 왔을 때
+        "3개는 파손이라 안 받았습니다" 를 대려면 언제 · 누가 · 왜 거부했는지가
+        남아 있어야 한다.
+
+        서버는 전부터 inspects · putaways 를 함께 보내고 있었다. 화면이
+        안 그렸을 뿐이다.
+      -->
+      <div v-if="detail.inspects?.length" class="trail-box">
+        <div class="arrive-title">검수 내역 — {{ detail.inspects.length }} 회</div>
+        <table class="table trail">
+          <thead>
+            <tr>
+              <th style="width: 44px" class="right">회차</th>
+              <th style="width: 118px">언제</th>
+              <th style="width: 86px">누가</th>
+              <th style="width: 150px">SKU</th>
+              <th style="width: 58px" class="right">받음</th>
+              <th style="width: 58px" class="right">거부</th>
+              <th>거부 사유</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="r in detail.inspects" :key="r.inspectSeq">
+              <td class="num">{{ r.roundNo }}</td>
+              <td class="small">{{ stamp(r.inspectedAt) }}</td>
+              <td class="small">{{ r.inspectedByName ?? r.inspectedBy }}</td>
+              <td><span class="code small">{{ r.skuId }}</span></td>
+              <td class="num">{{ num(r.passedQty) }}</td>
+              <td class="num">
+                <strong v-if="r.rejectedQty" class="danger">{{ num(r.rejectedQty) }}</strong>
+                <span v-else class="dim">-</span>
+              </td>
+              <td class="small">
+                <template v-if="r.hasRejected">
+                  {{ r.reasonName ?? r.reasonCode }}
+                  <span v-if="r.remark" class="dim"> · {{ r.remark }}</span>
+                </template>
+                <span v-else class="dim">-</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div v-if="detail.putaways?.length" class="trail-box">
+        <div class="arrive-title">적치 내역 — {{ detail.putaways.length }} 곳</div>
+        <table class="table trail">
+          <thead>
+            <tr>
+              <th style="width: 160px">자리</th>
+              <th style="width: 150px">SKU</th>
+              <th style="width: 58px" class="right">개수</th>
+              <th style="width: 118px">언제</th>
+              <th style="width: 86px">누가</th>
+              <th style="width: 72px" class="center">재고 반영</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="p in detail.putaways" :key="p.putawaySeq">
+              <td><span class="code">{{ p.locationFullCode ?? p.locationId }}</span></td>
+              <td><span class="code small">{{ p.skuId }}</span></td>
+              <td class="num">{{ num(p.qty) }}</td>
+              <td class="small">{{ stamp(p.putawayAt) }}</td>
+              <td class="small">{{ p.putawayByName ?? p.putawayBy }}</td>
+              <!-- 재고가 되는 것은 입고완료다. 적치만으로는 아직 아니다 (INB-008). -->
+              <td class="center small">
+                <span v-if="p.applied" class="ok">됨</span>
+                <span v-else class="dim">아직</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
       </div>
       <p v-if="detail.remark" class="small">{{ detail.remark }}</p>
       <div v-if="detail.cancelReason" class="alert alert-warn mt-1">
@@ -788,6 +961,41 @@ const createDenyReason = computed(() => session.denyReason('INB_PLAN', 'C'))
 </template>
 
 <style scoped>
+/* 입하 기록 — 나중에 문제가 생겼을 때 보러 오는 자리라 따로 뗀다 */
+.arrive-box {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+.arrive-title {
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--text-2);
+  margin-bottom: 6px;
+}
+.arrive-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 6px 16px;
+}
+.arrive-grid > div {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+}
+.arrive-grid .k {
+  flex: 0 0 62px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+/* 검수 · 적치 내역 — 끝난 뒤에 되짚는 자리 */.trail-box {  margin-top: 10px;  padding: 10px 12px;  border: 1px solid var(--border);  border-radius: var(--radius);  background: var(--surface-2);}.trail-box .table.trail {  margin-top: 4px;}.trail-box .table.trail th,.trail-box .table.trail td {  padding: 4px 6px;}.center {  text-align: center;}
+.arrive-remark {
+  margin: 8px 0 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
 .from-order {
   display: flex;
   align-items: flex-end;

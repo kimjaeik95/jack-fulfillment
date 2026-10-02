@@ -234,7 +234,7 @@ const denyReason = computed(() => session.denyReason('INB_APPROVE', 'A'))
 
       <div class="detail-head">
         <CodeBadge group="INBOUND_STATUS" :code="target.inboundStatus" />
-        <span v-if="target.orderNo">근거 <strong class="code">{{ target.orderNo }}</strong></span>
+        <span v-if="target.orderNo">발주 <strong class="code">{{ target.orderNo }}</strong></span>
         <span>예정 <strong>{{ num(target.totalPlannedQty) }}</strong></span>
         <span>받음 <strong class="warn">{{ num(target.totalReceivedQty) }}</strong></span>
         <span>초과 <strong class="danger">+{{ num(target.overQty) }}</strong></span>

@@ -34,7 +34,7 @@ public class InboundInspect {
 	private Long lineSeq;
 	/** 이 라인의 몇 번째 검수인가. 1 부터. */
 	private Integer roundNo;
-	/** 금회 합격 — 이만큼을 받아들인다 */
+	/** 금회 받음 — 이만큼을 받아들인다 */
 	private Integer passedQty;
 	/** 금회 거부 — 재고에 반영하지 않는다 (INB-006) */
 	private Integer rejectedQty;
@@ -54,7 +54,7 @@ public class InboundInspect {
 		return rejectedQty != null && rejectedQty > 0;
 	}
 
-	/** 금회 만진 수량 — 합격 + 거부 */
+	/** 금회 만진 수량 — 받음 + 거부 */
 	public int handledQty() {
 		return nz(passedQty) + nz(rejectedQty);
 	}

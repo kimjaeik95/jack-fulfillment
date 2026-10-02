@@ -43,7 +43,7 @@ public class InboundLine {
 	 * 있고, 그 차이를 찾는 것이 검수다.
 	 */
 	private Integer arrivedQty;
-	/** 검수 통과 누계 (INB-004). 회차별 합격의 합과 항상 같다. */
+	/** 검수 통과 누계 (INB-004). 회차별 받음의 합과 항상 같다. */
 	private Integer receivedQty;
 	/** 거부 누계 (INB-006). 재고에 반영하지 않는다. */
 	private Integer rejectedQty;
@@ -58,6 +58,8 @@ public class InboundLine {
 
 	/* 조회 전용 파생 컬럼 -------------------------------------------------- */
 	private String skuId;
+	/** 스캔 대조용. 발급 전이면 비어 있다. */
+	private String barcode;
 	private String colorCode;
 	private String sizeCode;
 	private String productId;

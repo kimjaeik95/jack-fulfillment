@@ -56,6 +56,15 @@ public class Inbound {
 	private String arrivedBy;
 	private String vehicleNo;
 	private String driverName;
+	/**
+	 * 내린 박스 · 파렛트 수.
+	 *
+	 * 물건은 박스로 온다. 낱개는 검수에서 세고(INB-003), 차에서 내리는
+	 * 자리에서 셀 수 있는 것은 이것뿐이다. 비어 있을 수 있다 — 낱개로
+	 * 오는 입고도 있고, 못 세고 받는 날도 있다.
+	 */
+	private Integer boxCount;
+	private Integer palletCount;
 	private String arriveRemark;
 
 	/* 초과입고 승인 (INB-005) ---------------------------------------------- */
@@ -181,8 +190,22 @@ public class Inbound {
 		return PLANNED.equals(inboundStatus);
 	}
 
+	/** <b>지금</b> 입하 상태인가 — 다음은 검수다 */
 	public boolean isArrived() {
 		return ARRIVED.equals(inboundStatus);
+	}
+
+	/**
+	 * 도착한 적이 있나.
+	 *
+	 * isArrived() 와 다르다. 저쪽은 '지금 입하 상태' 라, 검수로 넘어가는
+	 * 순간 false 가 된다 — 물건은 그대로 창고에 있는데도.
+	 *
+	 * 목록이 '예정 / 입하' 를 보여 줄 때 필요한 것은 이쪽이다. 상태로
+	 * 물으면 검수에 들어간 순간 입하수량이 화면에서 사라진다.
+	 */
+	public boolean hasArrived() {
+		return arrivedAt != null;
 	}
 
 	public boolean isCanceled() {
@@ -211,7 +234,8 @@ public class Inbound {
 	 * 내린 개수와 세어 본 개수는 또 다를 수 있다.
 	 */
 	public boolean arrivalDiffers() {
-		return isArrived() && totalArrivedQty != null
+		// 상태가 아니라 '도착했나' 로 묻는다. 차이는 검수에 들어가도 사실로 남는다.
+		return hasArrived() && totalArrivedQty != null
 				&& !totalArrivedQty.equals(totalPlannedQty);
 	}
 

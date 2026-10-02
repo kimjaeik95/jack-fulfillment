@@ -290,7 +290,7 @@ public class InboundService {
 
 		String why = reason == null ? "입고예정 취소" : reason;
 		int changed = inboundDao.updateStatus(inboundSeq, Inbound.PLANNED, Inbound.CANCELED,
-				actorId(actor), null, null, null, why);
+				actorId(actor), null, null, null, null, null, why);
 		requireChanged(changed, inbound, "취소");
 
 		Inbound after = mustFind(inboundSeq);
@@ -331,7 +331,8 @@ public class InboundService {
 		Map<Long, Integer> sent = readArrived(request, lines);
 
 		int changed = inboundDao.updateStatus(inboundSeq, Inbound.PLANNED, Inbound.ARRIVED,
-				actorId(actor), request.vehicleNo(), request.driverName(), request.remark(), null);
+				actorId(actor), request.vehicleNo(), request.driverName(),
+				request.boxCount(), request.palletCount(), request.remark(), null);
 		requireChanged(changed, inbound, "입하");
 
 		for (InboundLine line : lines) {
@@ -342,8 +343,9 @@ public class InboundService {
 
 		Inbound after = mustFind(inboundSeq);
 		auditRecorder.recordAction(actor, "UPDATE", TABLE, after.getInboundNo(),
-				"입하 — 예정 %d / 입하 %d%s".formatted(
+				"입하 — 예정 %d / 입하 %d%s%s".formatted(
 						nz(after.getTotalPlannedQty()), nz(after.getTotalArrivedQty()),
+						packageNote(after),
 						after.getVehicleNo() == null ? "" : " (차량 " + after.getVehicleNo() + ")"));
 
 		return new Result(InboundResponse.of(after, linesOf(inboundSeq)), diffWarning(after));
@@ -513,6 +515,23 @@ public class InboundService {
 		}
 
 		return new Context(plant, warehouse, order, supplier);
+	}
+
+	/**
+	 * 감사기록에 남길 박스 · 파렛트.
+	 *
+	 * 낱개 수량이 맞아도 한 파렛트가 통째로 마당에 남아 있을 수 있다.
+	 * 그때 되짚을 수 있는 것이 이 숫자다.
+	 */
+	private String packageNote(Inbound inbound) {
+		StringBuilder sb = new StringBuilder();
+		if (inbound.getPalletCount() != null) {
+			sb.append(" / 파렛트 ").append(inbound.getPalletCount());
+		}
+		if (inbound.getBoxCount() != null) {
+			sb.append(" / 박스 ").append(inbound.getBoxCount());
+		}
+		return sb.toString();
 	}
 
 	private void requirePlanned(Inbound inbound, String what) {

@@ -20,7 +20,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import * as inboundApi from '@/api/inbound.js'
 import * as correctApi from '@/api/inboundCorrect.js'
-import { codeOptions } from '@/api/codes.js'
+import { codeLabel, codeOptions } from '@/api/codes.js'
 import { useHierarchyStore } from '@/stores/hierarchy.js'
 import { useSessionStore } from '@/stores/session.js'
 import { useToastStore } from '@/stores/toast.js'
@@ -132,14 +132,22 @@ const head = reactive({ reasonCode: '', remark: '' })
 /**
  * 줄별 입력.
  *
- * 부호를 직접 치게 하지 않는다. 창고에서는 "10 개 덜 왔다" 라고 말하지
- * "마이너스 10" 이라고 말하지 않고, 부호를 손으로 넣게 하면 방향을 반대로
- * 적는 사고가 반드시 난다. 방향과 개수를 따로 받아 서버에 보낼 때 합친다.
+ * <b>실제 수량을 받고 변동량은 계산한다.</b> 부호도 방향도 묻지 않는다.
+ *
+ * 전에는 '덜 받음 − / 더 받음 +' 와 개수를 따로 받았는데, 기준이 무엇인지가
+ * 안 적혀 있어 두 가지로 읽혔다.
+ *
+ *   예정 2 · 기록 5 · 실제 5    →  "3개 더 받았으니 +3"  → 8 이 된다
+ *
+ * 예정과 비교하면 안 되고 <b>기록과</b> 비교해야 하는데, 말이 그것을
+ * 가리지 못했다. 세어 보니 몇 개더라를 그대로 적게 하면 그 혼동이 없다 —
+ * 재고조정(INV-PG-006)이 '조정후 수량' 을 받는 것과 같은 이유다.
  */
 const draft = reactive({})
 
-function blankDraft() {
-  return { dir: 'MINUS', qty: 0, reasonCode: '', remark: '' }
+/** 안 고친 상태 = 지금 남아 있는 수량 그대로 */
+function blankDraft(line) {
+  return { actual: line.remainingQty, reasonCode: '', remark: '' }
 }
 
 async function openCreate(row) {
@@ -153,7 +161,7 @@ async function openCreate(row) {
       correctApi.targets(row.inboundSeq),
     ])
     for (const k of Object.keys(draft)) delete draft[k]
-    for (const l of lines) draft[l.putawaySeq] = blankDraft()
+    for (const l of lines) draft[l.putawaySeq] = blankDraft(l)
     targetLines.value = lines
     target.value = full
   } catch (e) {
@@ -171,11 +179,12 @@ async function openEdit(row) {
       correctApi.targets(correct.inboundSeq),
     ])
     for (const k of Object.keys(draft)) delete draft[k]
-    for (const l of lines) draft[l.putawaySeq] = blankDraft()
+    for (const l of lines) draft[l.putawaySeq] = blankDraft(l)
     for (const l of correct.lines) {
+      // 저장된 것은 변동량이다. 화면은 실제 수량을 쓰므로 되돌려 넣는다.
+      const t = lines.find((x) => x.putawaySeq === l.putawaySeq)
       draft[l.putawaySeq] = {
-        dir: l.qtyDelta < 0 ? 'MINUS' : 'PLUS',
-        qty: Math.abs(l.qtyDelta),
+        actual: (t?.remainingQty ?? 0) + l.qtyDelta,
         reasonCode: l.reasonCode ?? '',
         remark: l.remark ?? '',
       }
@@ -190,22 +199,47 @@ async function openEdit(row) {
   }
 }
 
-const deltaOf = (d) => (d.dir === 'MINUS' ? -Math.abs(d.qty || 0) : Math.abs(d.qty || 0))
+/**
+ * 변동량 = 적어 넣은 실제 수량 − 지금 남아 있는 수량.
+ *
+ * 비워 두거나 지금과 같으면 0 이다 — 고칠 것이 없다는 뜻이다.
+ */
+const deltaOf = (d, l) => {
+  if (!d || d.actual === '' || d.actual === null || d.actual === undefined) return 0
+  return Number(d.actual) - Number(l.remainingQty ?? 0)
+}
 
-/** 개수를 적은 줄만 보낸다. 0 인 줄은 고치는 것이 없다. */
+/** 달라진 줄만 보낸다. 그대로인 줄은 고치는 것이 없다. */
 const filledLines = computed(() =>
   targetLines.value
     .map((l) => ({ line: l, d: draft[l.putawaySeq] }))
-    .filter(({ d }) => d && Math.abs(d.qty || 0) > 0),
+    .filter(({ line, d }) => deltaOf(d, line) !== 0),
 )
 
 const totalDelta = computed(() =>
-  filledLines.value.reduce((s, { d }) => s + deltaOf(d), 0),
+  filledLines.value.reduce((s, { line, d }) => s + deltaOf(d, line), 0),
 )
 
-/** 놓은 것보다 많이 빼려는 줄 — 서버도 막지만 누르기 전에 알아야 한다 */
+/**
+ * 줄 사유를 안 고르면 뭐가 되는지 — 드롭다운 첫 항목에 그대로 적는다.
+ *
+ * 전에는 '헤더 사유' 였다. 개발자 말이고, 읽는 사람은 비워 둬도 되는지
+ * 알 수가 없다. 빈 값이면 전표 사유를 따른다는 것이 구조인데
+ * (tb_inbound_correct_line.reason_code 가 NULL 가능), 화면이 그걸 숨기고
+ * 있었다.
+ *
+ * 칸을 접지 않고 남기는 이유는, <b>줄마다 다를 수 있다</b>는 것이 이
+ * 화면의 쓸모 중 하나라서다 — 10개는 공급처 미납이고 5개는 우리 검수
+ * 착오인 날, 그걸 나눠 적어야 공급처에 10개만 청구할 수 있다.
+ */
+const sameAsHead = computed(() =>
+  head.reasonCode
+    ? `위와 같음 (${codeLabel('REASON_CORRECT', head.reasonCode)})`
+    : '위와 같음',
+)
+/** 음수로 적은 줄 — 놓은 적 없는 것을 도로 가져올 수는 없다 */
 const overLimit = computed(() =>
-  filledLines.value.filter(({ line, d }) => deltaOf(d) < 0 && -deltaOf(d) > line.remainingQty),
+  filledLines.value.filter(({ line, d }) => Number(d.actual) < 0),
 )
 
 const canSubmit = computed(
@@ -218,7 +252,7 @@ async function submit() {
   try {
     const lines = filledLines.value.map(({ line, d }) => ({
       putawaySeq: line.putawaySeq,
-      qtyDelta: deltaOf(d),
+      qtyDelta: deltaOf(d, line),
       reasonCode: d.reasonCode || null,
       remark: d.remark || null,
     }))
@@ -441,8 +475,8 @@ async function doCancel() {
             <th style="width: 64px" class="right">놓음</th>
             <th style="width: 64px" class="right">남음</th>
             <th style="width: 64px" class="right">현재고</th>
-            <th style="width: 92px">방향</th>
-            <th style="width: 80px" class="right">개수</th>
+            <th style="width: 92px" class="right">실제 수량</th>
+            <th style="width: 76px" class="right">변동</th>
             <th style="width: 120px">줄 사유</th>
           </tr>
         </thead>
@@ -463,24 +497,37 @@ async function doCancel() {
               <div v-if="l.correctedQty" class="small dim">정정 {{ signed(l.correctedQty) }}</div>
             </td>
             <td class="num dim">{{ num(l.qtyOnHand) }}</td>
-            <td>
-              <select v-model="draft[l.putawaySeq].dir" class="input input-sm">
-                <option value="MINUS">덜 받음 −</option>
-                <option value="PLUS">더 받음 +</option>
-              </select>
-            </td>
+            <!--
+              방향을 묻지 않는다. 세어 보니 몇 개더라를 그대로 적게 한다.
+
+              '덜 받음 − / 더 받음 +' 는 기준이 안 적혀 있어 두 가지로
+              읽혔다 — 예정과 비교할 것인가, 기록과 비교할 것인가.
+              예정 2 · 기록 5 · 실제 5 인 건에서 "3개 더 받았으니 +3" 을
+              누르면 8 이 된다. 고칠 것이 없는 건인데도.
+
+              실제 수량을 받으면 그 혼동이 없다. 변동은 옆에서 계산해 보여
+              준다 — 재고조정이 '조정후 수량' 을 받는 것과 같은 방식이다.
+            -->
             <td>
               <input
-                v-model.number="draft[l.putawaySeq].qty"
+                v-model.number="draft[l.putawaySeq].actual"
                 class="input input-sm right"
                 type="number"
                 min="0"
-                :max="draft[l.putawaySeq].dir === 'MINUS' ? l.remainingQty : undefined"
               />
+            </td>
+            <td class="num">
+              <strong
+                v-if="deltaOf(draft[l.putawaySeq], l) !== 0"
+                :class="deltaOf(draft[l.putawaySeq], l) < 0 ? 'danger' : 'ok'"
+              >
+                {{ signed(deltaOf(draft[l.putawaySeq], l)) }}
+              </strong>
+              <span v-else class="dim">그대로</span>
             </td>
             <td>
               <select v-model="draft[l.putawaySeq].reasonCode" class="input input-sm">
-                <option value="">헤더 사유</option>
+                <option value="">{{ sameAsHead }}</option>
                 <option v-for="o in codeOptions('REASON_CORRECT')" :key="o.value" :value="o.value">
                   {{ o.label }}
                 </option>
@@ -493,9 +540,10 @@ async function doCancel() {
       <div v-if="overLimit.length" class="alert alert-danger mt-2">
         <span class="alert-icon">⛔</span>
         <span>
-          놓은 적 없는 수량은 뺄 수 없습니다 —
+          실제 수량은 0 보다 작을 수 없습니다 —
           {{ overLimit.map((o) => `${o.line.locationId} (남음 ${o.line.remainingQty})`).join(', ') }}.
-          다른 입고 것이면 그 입고를 정정하고, 원인을 모르면 재고조정으로 맞추세요.
+          놓은 적 없는 것을 도로 가져올 수는 없습니다. 다른 입고 것이면 그 입고를
+          정정하고, 원인을 모르면 재고조정으로 맞추세요.
         </span>
       </div>
 

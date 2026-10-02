@@ -96,7 +96,7 @@ public class ReceiptService {
 	 * 회차로 쌓는다 (INB-003). 한 번에 다 못 세는 일이 흔하고, 덮으면
 	 * "처음엔 몇 개라 했었지" 를 아무도 답할 수 없다.
 	 *
-	 * 합격분은 <b>발주의 기입고수량까지</b> 올린다 (INB-004). 검수를 통과한
+	 * 받은 수량은 <b>발주의 기입고수량까지</b> 올린다 (INB-004). 검수를 통과한
 	 * 것이 곧 '발주 관점에서 받은 것' 이다 — 적치는 창고 내부 작업이라
 	 * 발주 잔량과 무관하다.
 	 *
@@ -149,7 +149,7 @@ public class ReceiptService {
 
 		if (passed == 0 && rejected == 0) {
 			throw new BusinessException(ErrorCode.INVALID_INPUT,
-					"검수한 수량이 없습니다. 합격이든 거부든 한 줄 이상 적으세요.");
+					"검수한 수량이 없습니다. 받은 수량이든 거부든 한 줄 이상 적으세요.");
 		}
 
 		if (inbound.getOrderSeq() != null) {
@@ -159,12 +159,12 @@ public class ReceiptService {
 		// 처음 검수하면 상태가 넘어간다. 두 번째부터는 이미 검수중이다.
 		if (inbound.isArrived()) {
 			inboundDao.updateStatus(inboundSeq, Inbound.ARRIVED, Inbound.INSPECTING,
-					actorId(actor), null, null, null, null);
+					actorId(actor), null, null, null, null, null, null);
 		}
 
 		Inbound after = mustFind(inboundSeq);
 		auditRecorder.recordAction(actor, "UPDATE", TABLE, after.getInboundNo(),
-				"검수 — 합격 %d / 거부 %d".formatted(passed, rejected));
+				"검수 — 받음 %d / 거부 %d".formatted(passed, rejected));
 
 		return new Result(response(after), inspectWarning(after, rejected));
 	}
@@ -175,18 +175,29 @@ public class ReceiptService {
 	 * 기준은 <b>내린 개수</b>다. 예정이 아니다 — 세는 것은 눈앞에 있는
 	 * 물건이지 서류상의 숫자가 아니다.
 	 */
+	/**
+	 * 검수 한 줄.
+	 *
+	 * <b>입하수량을 넘어도 막지 않는다.</b> 전에는 막았고, 메시지가 "더
+	 * 왔다면 입하수량부터 고치세요" 라고 안내했다. 그런데 입하는 예정
+	 * 상태에서만 찍을 수 있어서(requirePlanned) 되돌아갈 길이 없었다 —
+	 * 안내가 막다른 곳을 가리키고 있었다.
+	 *
+	 * 그리고 입하수량은 실측이 아니다. 물건은 박스로 오고 기사는 기다려
+	 * 주지 않아, 대개 예정수량을 그대로 둔 채 넘어간다. 실제로 세는 것은
+	 * 검수다 — 그 검수를 세지 않은 숫자로 가두면 더 온 물건을 적을 자리가
+	 * 사라진다.
+	 *
+	 * 초과는 여기서 막을 일이 아니라 <b>완료 전에 승인받을 일</b>이다
+	 * (INB-005). overQty 는 예정수량 기준으로 재고, 공급처 허용 오차를
+	 * 넘으면 close() 가 승인을 요구한다. 문지기가 이미 뒤에 있다.
+	 *
+	 * 입하수량은 덮지 않는다. '차에서 내린 것으로 적은 수' 와 '세어 본 수'
+	 * 가 둘 다 남아야 그 차이를 나중에 물을 수 있다 (INB-003).
+	 */
 	private void validateLine(InspectRequest.Line rl, InboundLine line) {
 		if (rl.rejectedQty() > 0) {
 			codeValues.require(REASON_INSPECT, rl.reasonCode(), "거부 사유");
-		}
-		int pending = line.pendingInspectQty();
-		if (rl.handled() > pending) {
-			throw new BusinessException(ErrorCode.INVALID_INPUT,
-					("%s 는 아직 안 센 수량이 %d 개인데 %d 개를 검수하려 합니다. 내린 개수 "
-							+ "%d 개보다 많이 받을 수는 없습니다 — 더 왔다면 입하수량부터 "
-							+ "고치세요.")
-							.formatted(line.getSkuId(), pending, rl.handled(),
-									nz(line.getArrivedQty())));
 		}
 	}
 
@@ -321,7 +332,7 @@ public class ReceiptService {
 
 		if (inbound.isInspecting()) {
 			inboundDao.updateStatus(inboundSeq, Inbound.INSPECTING, Inbound.PUTAWAY,
-					actorId(actor), null, null, null, null);
+					actorId(actor), null, null, null, null, null, null);
 		}
 
 		Inbound after = mustFind(inboundSeq);

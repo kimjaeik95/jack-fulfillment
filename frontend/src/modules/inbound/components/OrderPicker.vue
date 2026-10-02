@@ -1,6 +1,6 @@
 <script setup>
 /**
- * 근거 발주 고르기 (PUR-PG-006).
+ * 발주 고르기 (PUR-PG-006).
  *
  * 입고예정은 발주를 근거로 만든다. 그런데 발주번호를 손으로 적게 하면
  * PO-20260916-0001 을 어딘가에서 옮겨 적어야 하고, 한 글자만 틀려도
@@ -22,7 +22,7 @@ import FormField from '@/components/FormField.vue'
 import CodeBadge from '@/components/CodeBadge.vue'
 
 const props = defineProps({
-  title: { type: String, default: '근거 발주 고르기' },
+  title: { type: String, default: '발주 고르기' },
   /** 입고예정이 이미 고른 값 — 있으면 그 조건으로 좁힌다 */
   plantId: { type: String, default: '' },
   supplierId: { type: String, default: '' },
@@ -45,9 +45,15 @@ async function search() {
   loading.value = true
   loadError.value = ''
   try {
-    // progress 가 '아직 안 들어온 발주, 급한 납기부터' 를 이미 뜻한다.
-    // 조건을 여기서 다시 적으면 진행현황 화면과 목록이 갈라질 수 있다.
-    const data = await orderApi.progress({
+    /*
+     * progress 가 아니라 plannable 이다.
+     *
+     * 진행현황은 '물건이 덜 들어왔나' 를 보는데, 여기 필요한 것은 '예정을
+     * 더 잡을 수 있나' 다. 예정만 세우고 아직 안 받은 발주는 진행현황에는
+     * 남아 있지만 담을 것이 없어서, 골라도 서버가 "잔량은 이미 다른
+     * 입고예정에 모두 잡혀 있습니다" 로 되돌린다.
+     */
+    const data = await orderApi.plannable({
       keyword: filters.keyword || null,
       plantId: filters.plantId || null,
       supplierId: filters.supplierId || null,

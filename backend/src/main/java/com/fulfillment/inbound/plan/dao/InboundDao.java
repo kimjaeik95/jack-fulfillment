@@ -58,6 +58,8 @@ public interface InboundDao {
 			@Param("actor") String actor,
 			@Param("vehicleNo") String vehicleNo,
 			@Param("driverName") String driverName,
+			@Param("boxCount") Integer boxCount,
+			@Param("palletCount") Integer palletCount,
 			@Param("arriveRemark") String arriveRemark,
 			@Param("cancelReason") String cancelReason);
 

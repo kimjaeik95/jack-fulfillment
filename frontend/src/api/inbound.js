@@ -107,10 +107,17 @@ export async function cancel(inboundSeq, reason) {
  *
  * @param {{lineSeq: number, arrivedQty: number}[]} lines
  */
-export async function arrive(inboundSeq, { vehicleNo, driverName, remark, lines } = {}) {
+export async function arrive(
+  inboundSeq,
+  { vehicleNo, driverName, boxCount, palletCount, remark, lines } = {},
+) {
   const { data, warning } = await post(`/inbounds/${inboundSeq}/arrive`, {
     vehicleNo,
     driverName,
+    // 박스 · 파렛트는 이 자리에서 실제로 셀 수 있는 유일한 수다.
+    // 낱개는 박스를 뜯어야 알 수 있어 검수에서 센다.
+    boxCount,
+    palletCount,
     remark,
     lines,
   })

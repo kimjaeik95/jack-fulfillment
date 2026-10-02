@@ -116,7 +116,7 @@ public class InboundController {
 	public ApiResponse<InboundResponse> arrive(@PathVariable Long inboundSeq,
 			@Valid @RequestBody(required = false) ArriveRequest request) {
 		InboundService.Result result = inboundService.arrive(CurrentUser.require(), inboundSeq,
-				request == null ? new ArriveRequest(null, null, null, null) : request);
+				request == null ? new ArriveRequest(null, null, null, null, null, null) : request);
 		return ApiResponse.ok(result.inbound(), result.warning());
 	}
 }
