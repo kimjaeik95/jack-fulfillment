@@ -11,7 +11,7 @@
  *
  * 여기서도 재고 수량은 안 바뀐다. 물건은 카트에서 박스로 옮겨졌을 뿐이다.
  */
-import { computed, nextTick, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import * as outboundApi from '@/api/outbound.js'
 import { codeOptions } from '@/api/codes.js'
 import { useHierarchyStore } from '@/stores/hierarchy.js'
@@ -68,9 +68,6 @@ const target = ref(null)
 const boxes = ref([])
 const tasks = ref([])
 const activeBoxSeq = ref(null)
-const scan = reactive({ skuScan: '', qty: 1 })
-const skuInput = ref(null)
-const qtyInput = ref(null)
 const busy = ref(false)
 const scanError = ref('')
 
@@ -79,10 +76,8 @@ async function openPacking(row) {
   await reload()
   // 열려 있는 박스가 있으면 그것부터 담는다. 없으면 하나 만들어야 한다.
   activeBoxSeq.value = boxes.value.find((b) => b.open)?.boxSeq ?? null
-  Object.assign(scan, { skuScan: '', qty: 1 })
   scanError.value = ''
-  await nextTick()
-  skuInput.value?.focus?.()
+  resetDraft()
 }
 
 async function reload() {
@@ -116,62 +111,89 @@ const leftQty = computed(() =>
   openTasks.value.reduce((s, t) => s + (t.inspectedQty - t.packed), 0),
 )
 
-const matched = computed(() => {
-  const sku = scan.skuScan.trim()
-  if (!sku) return null
-  return openTasks.value.find((t) => t.skuBarcode === sku || t.skuId === sku) ?? null
-})
+/**
+ * 담을 수량 — 줄마다 하나씩, 남은 만큼을 미리 채운다.
+ *
+ * <b>패킹은 세는 자리가 아니다.</b> 피킹 · 검수 · 실사는 수량이 손에서
+ * 나와야 해서 0 에서 찍어 올리지만, 여기는 <b>이미 센 것을 박스에
+ * 나누는</b> 자리다. 몇 개인지는 검수가 이미 정했다.
+ *
+ * 그래서 스캔을 뺐다. 찍어서 확인하는 '이 물건이 이 지시 것이 맞나' 는
+ * 검수에서 끝났고, 패킹이 새로 아는 것은 <b>어느 박스에 들어갔나</b>
+ * 하나뿐인데 그것은 박스 버튼이 정한다. 같은 질문을 두 번 하고 있었다.
+ *
+ * 경우를 나눠 보면 사람이 정할 것이 있는 쪽이 드물다.
+ *
+ *   단포 1개 → 1박스     찍을 것이 없다
+ *   N개    → 1박스       전부 한 박스. 나눌 것이 없다
+ *   N개    → M박스       여기만 사람이 정한다 — 수량을 친다
+ */
+const draft = reactive({})
 
-async function onSkuScanned() {
-  scanError.value = ''
-  const m = matched.value
-  if (!m) {
-    scanError.value = scan.skuScan.trim()
-      ? `${scan.skuScan} 은(는) 담을 것이 없습니다. 검수를 먼저 했는지 확인하세요.`
-      : ''
-    scan.skuScan = ''
-    await nextTick()
-    skuInput.value?.focus?.()
-    return
-  }
-  scan.qty = m.inspectedQty - m.packed
-  await nextTick()
-  qtyInput.value?.select?.()
+/** 남은 만큼 */
+const roomOf = (t) => t.inspectedQty - t.packed
+
+/** 담을 수량을 남은 만큼으로 되돌린다 — 박스가 바뀌거나 다시 읽었을 때 */
+function resetDraft() {
+  for (const k of Object.keys(draft)) delete draft[k]
+  for (const t of openTasks.value) draft[t.lineSeq] = roomOf(t)
 }
 
-const qtyError = computed(() => {
-  const m = matched.value
-  if (!m) return ''
-  const q = Number(scan.qty)
-  const room = m.inspectedQty - m.packed
-  if (!q || q < 1) return '1 이상이어야 합니다.'
-  if (q > room) return `담을 수 있는 것은 ${room} 개입니다.`
+function qtyErrorOf(t) {
+  const q = Number(draft[t.lineSeq])
+  if (!q || q < 1) return '1 이상'
+  if (q > roomOf(t)) return `${roomOf(t)} 개까지`
   return ''
-})
+}
 
-const canSubmit = computed(
-  () => activeBox.value?.open && matched.value && !qtyError.value && !busy.value && canPack.value,
-)
-
-async function submitPack() {
-  if (!canSubmit.value) return
+async function submitPack(task, qty) {
+  if (!activeBox.value?.open || busy.value || !canPack.value) return
+  const q = Number(qty)
+  if (!q || q < 1 || q > roomOf(task)) return
   busy.value = true
   scanError.value = ''
-  const m = matched.value
   try {
-    await outboundApi.pack(activeBoxSeq.value, { lineSeq: m.lineSeq, qty: Number(scan.qty) })
-    toast.success(`${activeBox.value.boxNo}번 박스에 ${m.skuId} ${scan.qty} 개`)
+    await outboundApi.pack(activeBoxSeq.value, { lineSeq: task.lineSeq, qty: q })
+    toast.success(`${activeBox.value.boxNo}번 박스에 ${task.skuId} ${q} 개`)
     await reload()
-    scan.skuScan = ''
-    scan.qty = 1
-    await nextTick()
-    skuInput.value?.focus?.()
+    resetDraft()
     await fetchPage()
   } catch (e) {
     scanError.value = e.message
-    scan.skuScan = ''
-    await nextTick()
-    skuInput.value?.focus?.()
+  } finally {
+    busy.value = false
+  }
+}
+
+/**
+ * 남은 것을 전부 지금 박스에.
+ *
+ * 박스를 하나만 쓰는 건이 대부분이다 — 그때는 '어느 박스' 가 물을 것도
+ * 없는 질문이라, 줄마다 누르게 하지 않는다. 한 건이 실패해도 나머지는
+ * 담고 실패한 것만 말한다.
+ */
+async function packAllHere() {
+  if (!activeBox.value?.open || busy.value || !canPack.value) return
+  busy.value = true
+  scanError.value = ''
+  const targets = openTasks.value.slice()
+  const failed = []
+  try {
+    for (const t of targets) {
+      try {
+        await outboundApi.pack(activeBoxSeq.value, { lineSeq: t.lineSeq, qty: roomOf(t) })
+      } catch (e) {
+        failed.push(`${t.skuId} — ${e.message}`)
+      }
+    }
+    await reload()
+    resetDraft()
+    await fetchPage()
+    if (failed.length) {
+      scanError.value = failed.join('\n')
+    } else {
+      toast.success(`${activeBox.value.boxNo}번 박스에 남은 것을 모두 담았습니다.`)
+    }
   } finally {
     busy.value = false
   }
@@ -188,8 +210,7 @@ async function addBox() {
     toast.success(`${b.boxNo}번 박스를 만들었습니다.`)
     await reload()
     activeBoxSeq.value = b.boxSeq
-    await nextTick()
-    skuInput.value?.focus?.()
+    resetDraft()
   } catch (e) {
     toast.error(e.message)
   }
@@ -226,7 +247,7 @@ async function saveBox() {
 async function closeBox(box) {
   try {
     await outboundApi.closeBox(box.boxSeq)
-    toast.success(`${box.boxNo}번 박스를 닫았습니다.`)
+    toast.success(`${box.boxNo}번 박스 포장을 마쳤습니다.`)
     await reload()
     // 닫았으면 다음 열린 박스로 옮긴다. 없으면 비워 둔다 — 새로 만들어야 한다.
     activeBoxSeq.value = boxes.value.find((b) => b.open)?.boxSeq ?? null
@@ -239,7 +260,7 @@ async function closeBox(box) {
 async function reopenBox(box) {
   try {
     await outboundApi.reopenBox(box.boxSeq)
-    toast.success(`${box.boxNo}번 박스를 다시 열었습니다.`)
+    toast.success(`${box.boxNo}번 박스를 다시 엽니다 — 더 담을 수 있습니다.`)
     await reload()
     activeBoxSeq.value = box.boxSeq
     await fetchPage()
@@ -402,7 +423,7 @@ const columns = [
           class="box-chip"
           :class="{ active: b.boxSeq === activeBoxSeq, closed: b.closed }"
           :disabled="b.closed"
-          :title="b.closed ? '닫힌 박스입니다' : '이 박스에 담습니다'"
+          :title="b.closed ? '포장이 끝난 박스입니다' : '이 박스에 담습니다'"
           @click="activeBoxSeq = b.boxSeq"
         >
           <strong>{{ b.boxNo }}번</strong>
@@ -412,30 +433,59 @@ const columns = [
         </button>
       </div>
 
-      <div v-if="activeBox?.open && leftQty" class="scan-grid">
-        <FormField
-          ref="skuInput"
-          v-model="scan.skuScan"
-          label="SKU 스캔"
-          mono
-          :placeholder="`${activeBox.boxNo}번 박스에 담을 물건의 태그를 찍으세요`"
-          :help="matched ? matched.productName : '검수한 것만 담을 수 있습니다'"
-          @enter="onSkuScanned()"
-        />
-        <FormField
-          ref="qtyInput"
-          v-model="scan.qty"
-          label="수량"
-          type="number"
-          :disabled="!matched"
-          :error="qtyError"
-          :help="matched ? `담을 것 ${matched.inspectedQty - matched.packed} 개` : ''"
-          @enter="submitPack()"
-        />
-        <button class="btn btn-primary scan-submit" :disabled="!canSubmit" @click="submitPack()">
-          <span v-if="busy" class="spinner"></span>
-          {{ activeBox.boxNo }}번에 담기
-        </button>
+      <!--
+        담을 것. 검수가 이미 센 것이라 수량은 남은 만큼 채워 둔다.
+
+        박스를 하나만 쓰는 건이 대부분이므로 '전부 담기' 를 위에 둔다 —
+        그때는 '어느 박스' 가 물을 것도 없는 질문이다. 나눠 담을 때만
+        줄마다 수량을 고친다.
+      -->
+      <div v-if="activeBox?.open && leftQty" class="to-pack">
+        <div class="to-pack-head">
+          <span>
+            <strong>{{ activeBox.boxNo }}번 박스</strong>에 담습니다 ·
+            남은 것 {{ num(leftQty) }}개
+          </span>
+          <button
+            class="btn btn-primary"
+            :disabled="busy || !canPack"
+            title="남은 것을 모두 이 박스에 담습니다"
+            @click="packAllHere()"
+          >
+            <span v-if="busy" class="spinner"></span>
+            남은 것 전부 {{ activeBox.boxNo }}번에
+          </button>
+        </div>
+
+        <table class="table sub">
+          <tr v-for="t in openTasks" :key="t.lineSeq">
+            <td class="code">{{ t.skuId }}</td>
+            <td class="small dim">{{ t.colorCode }} / {{ t.sizeCode }}</td>
+            <td class="small">{{ t.productName }}</td>
+            <td class="right small dim">
+              검수 {{ num(t.inspectedQty) }} · 담음 {{ num(t.packed) }}
+            </td>
+            <td class="right" style="width: 170px">
+              <input
+                v-model.number="draft[t.lineSeq]"
+                class="input pack-qty"
+                type="number"
+                min="1"
+                :max="roomOf(t)"
+                :disabled="busy || !canPack"
+                :title="`${roomOf(t)} 개까지`"
+                @keyup.enter="submitPack(t, draft[t.lineSeq])"
+              />
+              <button
+                class="btn btn-sm"
+                :disabled="busy || !canPack || !!qtyErrorOf(t)"
+                @click="submitPack(t, draft[t.lineSeq])"
+              >
+                {{ activeBox.boxNo }}번에
+              </button>
+            </td>
+          </tr>
+        </table>
       </div>
 
       <!-- 박스별 내용 -->
@@ -446,7 +496,7 @@ const columns = [
           <span v-if="b.boxType" class="small dim">{{ b.boxType }}</span>
           <span v-if="b.weightG" class="small dim">{{ num(b.weightG) }}g</span>
           <span class="small dim">{{ num(b.totalPackedQty) }}개</span>
-          <span v-if="b.closedByName" class="small dim">닫음 {{ b.closedByName }}</span>
+          <span v-if="b.closedByName" class="small dim">포장 {{ b.closedByName }}</span>
           <span class="grow"></span>
           <button
             v-if="b.open"
@@ -456,23 +506,28 @@ const columns = [
           >
             규격 · 무게
           </button>
+          <!--
+            '닫기' 라고 쓰면 이 화면에서만 뜻이 둘이 된다 — 창을 닫는 '닫기'
+            가 아래에 또 있다. 여기서 하는 일은 테이프를 붙이는 것이고,
+            그 다음은 송장이다. 하는 일과 다음 단계가 보이는 말로 쓴다.
+          -->
           <button
             v-if="b.open"
             class="btn btn-sm btn-primary"
             :disabled="!canManageBox || b.empty"
-            :title="b.empty ? '빈 박스는 닫지 않습니다' : '더 담을 수 없게 됩니다'"
+            :title="b.empty ? '빈 박스는 포장할 것이 없습니다' : '테이프를 붙입니다 — 더 담을 수 없고, 다음은 송장입니다'"
             @click="closeBox(b)"
           >
-            닫기
+            포장 완료
           </button>
           <button
             v-else
             class="btn btn-sm"
             :disabled="!canManageBox"
-            title="송장이 붙기 전까지는 다시 열 수 있습니다"
+            title="송장이 붙기 전까지는 다시 담을 수 있습니다"
             @click="reopenBox(b)"
           >
-            다시 열기
+            다시 담기
           </button>
           <button
             v-if="b.open && b.empty"
@@ -592,20 +647,27 @@ const columns = [
   opacity: 0.6;
   cursor: default;
 }
-.scan-grid {
-  display: grid;
-  grid-template-columns: 1.6fr 0.7fr auto;
-  gap: 10px;
-  align-items: end;
+/* 담을 것 — 박스 고르기 바로 아래 */
+.to-pack {
   margin-bottom: 12px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--line, #e5e7eb);
 }
-@media (max-width: 720px) {
-  .scan-grid {
-    grid-template-columns: 1fr;
-  }
+.to-pack-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
 }
-.scan-submit {
-  height: 38px;
+.pack-qty {
+  width: 72px;
+  text-align: right;
+  padding: 4px 8px;
+  font-size: 13px;
+  margin-right: 6px;
 }
 .box-card {
   margin-top: 10px;

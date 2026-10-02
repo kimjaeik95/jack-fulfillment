@@ -38,7 +38,24 @@ const canShort = computed(() => session.can('OUT_SHORTAGE', 'C'))
 const rows = ref([])
 const loading = ref(false)
 const loadError = ref('')
-const filters = reactive({ keyword: '', plantId: '', mineOnly: 'Y' })
+/*
+ * 기본은 '전체 지시' 다.
+ *
+ * 전에는 '내가 맡은 것' 으로 열렸는데, 새 지시는 담당자가 비어 있어서
+ * 아무도 안 맡은 동안에는 <b>아무에게도 안 보였다.</b> 작업자는 빈 목록을
+ * 보고 "아직 안 왔구나" 하고 나가고, 지시는 그대로 쌓였다.
+ *
+ * 맡는 것은 집기의 전제가 아니다 — pick() 은 담당자를 보지 않는다. 맡기는
+ * '누가 가고 있는지' 를 남기는 장치라, 그걸 못 해서 일을 못 하게 둘 이유가
+ * 없다. 내 것만 보려면 토글 한 번이면 된다.
+ */
+const filters = reactive({ keyword: '', plantId: '', mineOnly: '' })
+
+/** 아무도 안 맡은 진행중 지시 — 걸러진 목록과 상관없이 전체 기준으로 센다 */
+const openRows = ref([])
+const unassignedCount = computed(
+  () => openRows.value.filter((o) => !o.assignedTo).length,
+)
 
 async function fetchPage() {
   loading.value = true
@@ -52,13 +69,15 @@ async function fetchPage() {
       sortBy: 'instructedAt',
       sortDir: 'asc',
     })
+    openRows.value = data.rows ?? []
     // '내가 맡은 것' 은 화면에서 거른다. 서버 조건을 하나 더 만드는 것보다,
     // 어차피 진행중 지시는 많지 않고 화면에서 바로 토글하는 편이 빠르다.
-    rows.value = (data.rows ?? []).filter(
+    rows.value = openRows.value.filter(
       (o) => filters.mineOnly !== 'Y' || o.assignedTo === session.currentUserId,
     )
   } catch (e) {
     loadError.value = e.message
+    openRows.value = []
     rows.value = []
   } finally {
     loading.value = false
@@ -112,18 +131,21 @@ async function takeIt(row) {
 
 const target = ref(null)
 const tasks = ref([])
-const scan = reactive({ locationScan: '', skuScan: '', qty: 1 })
+const scan = reactive({ locationScan: '', skuScan: '' })
 const locInput = ref(null)
 const skuInput = ref(null)
-const qtyInput = ref(null)
 const busy = ref(false)
 const scanError = ref('')
+/** 방금 무엇을 몇 개까지 집었는지 — 찍는 손이 눈으로 확인하는 줄 */
+const scanMsg = ref('')
 
 async function openPicking(row) {
   target.value = row
   await loadTasks()
-  Object.assign(scan, { locationScan: '', skuScan: '', qty: 1 })
+  Object.assign(scan, { locationScan: '', skuScan: '' })
   scanError.value = ''
+  scanMsg.value = ''
+  for (const k of Object.keys(manual)) delete manual[k]
   await nextTick()
   locInput.value?.focus?.()
 }
@@ -190,7 +212,18 @@ async function chooseItem(task) {
   await onSkuScanned()
 }
 
-/** SKU 를 찍으면 수량 칸으로. 남은 수량을 미리 채워 엔터만 치면 되게 한다 */
+/**
+ * SKU 를 찍으면 하나 집은 것이다.
+ *
+ * 전에는 찍으면 수량칸에 <b>남은 수량을 미리 채우고</b> 엔터만 받았다.
+ * 60 개를 집으라고 했으면 60 이 들어가 있어서, 58 개만 담고 엔터를 쳐도
+ * 60 개로 기록됐다. 그 차이는 출고검수까지 가야 드러나고, 거기서도
+ * 같은 방식으로 미리 채워 주고 있었으니 안 드러나면 고객이 모자란 상자를
+ * 받는다.
+ *
+ * 입고검수 · 출고검수 · 재고실사와 같은 방식으로 맞춘다 — <b>찍은 만큼만
+ * 올라간다.</b> 박스째 집어 오는 경우를 위해 줄마다 직접 입력을 둔다.
+ */
 async function onSkuScanned() {
   scanError.value = ''
   const m = matched.value
@@ -203,44 +236,46 @@ async function onSkuScanned() {
     skuInput.value?.focus?.()
     return
   }
-  scan.qty = m.toPickQty
-  await nextTick()
-  qtyInput.value?.select?.()
+  await submitPick(m, 1)
 }
 
-const qtyError = computed(() => {
-  const m = matched.value
-  if (!m) return ''
-  const q = Number(scan.qty)
-  if (!q || q < 1) return '1 이상이어야 합니다.'
-  if (q > m.toPickQty) return `이 자리에서 집을 것은 ${m.toPickQty} 개입니다.`
-  return ''
-})
+/** 줄마다 직접 입력 — 박스째라 하나씩 못 찍을 때 */
+const manual = reactive({})
 
-const canSubmit = computed(() => matched.value && !qtyError.value && !busy.value && canPick.value)
+async function submitManual(task) {
+  const q = Number(manual[task.lineSeq])
+  if (!q || q < 1) return
+  if (q > task.toPickQty) {
+    scanError.value = `${task.skuId} 를 이 자리에서 집을 것은 ${task.toPickQty} 개입니다.`
+    return
+  }
+  manual[task.lineSeq] = ''
+  // 직접 입력한 줄의 빈을 스캔칸에도 맞춰 둔다 — 다음 동작이 이어지게
+  scan.locationScan = task.locationBarcode ?? task.locationId
+  await submitPick(task, q)
+}
 
-async function submitPick() {
-  if (!canSubmit.value) return
+async function submitPick(m, qty) {
+  if (!m || busy.value || !canPick.value) return
   busy.value = true
   scanError.value = ''
-  const m = matched.value
   try {
     const out = await outboundApi.pick(target.value.outboundSeq, {
       lineSeq: m.lineSeq,
       stockSeq: m.stockSeq,
       allocSeq: m.allocSeq,
-      qty: Number(scan.qty),
+      qty,
     })
-    toast.success(`${m.skuId} ${scan.qty} 개`)
     target.value = out
     await loadTasks()
+    const after = tasks.value.find((t) => t.lineSeq === m.lineSeq && t.stockSeq === m.stockSeq)
+    scanMsg.value = `${m.skuId} · ${m.productName ?? ''} — 집음 ${after?.pickedQty ?? qty}`
     // 다음 칸으로. 같은 빈에 남은 것이 있으면 빈은 그대로 두고 SKU 만
     // 비운다 — 작업자가 그 자리에 서 있기 때문이다.
     const sameBin = openTasks.value.some(
       (t) => t.locationBarcode === scan.locationScan.trim() || t.locationId === scan.locationScan.trim(),
     )
     scan.skuScan = ''
-    scan.qty = 1
     if (!sameBin) scan.locationScan = ''
     await nextTick()
     ;(sameBin ? skuInput : locInput).value?.focus?.()
@@ -373,6 +408,16 @@ const columns = [
       </div>
     </div>
 
+    <!--
+      아무도 안 맡은 지시를 먼저 말한다. 목록에 섞여 있으면 담당 칸을 하나씩
+      읽어야 알 수 있고, '내가 맡은 것' 으로 걸러 둔 사람에게는 아예 안 보인다.
+    -->
+    <p v-if="!loading && unassignedCount > 0" class="small dim mb-2">
+      진행중 {{ openRows.length }} 건 중
+      <strong class="warn">{{ unassignedCount }} 건</strong>을 아무도 안 맡았습니다.
+      줄 오른쪽 <strong>맡기</strong> 로 가져갈 수 있습니다.
+    </p>
+
     <DataTable
       :columns="columns"
       :rows="rows"
@@ -381,7 +426,11 @@ const columns = [
       :page-size="0"
       :show-pager="false"
       clickable
-      empty-text="집을 지시가 없습니다. '전체 지시' 로 바꿔 보세요."
+      :empty-text="
+        filters.mineOnly === 'Y'
+          ? `내가 맡은 지시가 없습니다. 범위를 '전체 지시' 로 바꾸면 ${unassignedCount} 건이 더 있습니다.`
+          : '집을 지시가 없습니다.'
+      "
       @row-click="openPicking"
     >
       <template #cell-orderNo="{ row, value }">
@@ -476,25 +525,13 @@ const columns = [
           label="SKU 스캔"
           mono
           placeholder="상품 태그를 찍으세요"
-          :disabled="!scan.locationScan"
-          :help="matched ? `${matched.productName}` : '빈을 먼저 찍으세요'"
+          :disabled="!scan.locationScan || busy || !canPick"
+          help="한 번 찍을 때마다 1 개씩 올라갑니다"
           @enter="onSkuScanned()"
         />
-        <FormField
-          ref="qtyInput"
-          v-model="scan.qty"
-          label="수량"
-          type="number"
-          :disabled="!matched"
-          :error="qtyError"
-          :help="matched ? `이 자리에서 ${matched.toPickQty} 개` : ''"
-          @enter="submitPick()"
-        />
-        <button class="btn btn-primary scan-submit" :disabled="!canSubmit" @click="submitPick()">
-          <span v-if="busy" class="spinner"></span>
-          집었다
-        </button>
       </div>
+
+      <p v-if="scanMsg" class="small ok mt-1">{{ scanMsg }}</p>
 
         <!--
           빈을 찍으면 그 자리에서 집을 것을 크게 보여 준다.
@@ -532,11 +569,27 @@ const columns = [
               <!--
                 태그가 찢어지거나 안 읽히는 일이 실제로 있다. 그때 작업을
                 멈추게 할 수는 없어서 누르는 길을 남기되, 스캔이 기본임이
-                보이도록 작게 둔다.
+                보이도록 작게 둔다. 한 번 누르면 한 개다 — 스캔과 같다.
+
+                박스째 집어 와 하나씩 찍을 수 없는 경우를 위해 개수 칸을
+                옆에 둔다. 찍는 것이 기본이고 이쪽이 예외다.
               -->
-              <button class="btn btn-sm at-pick" :disabled="!canPick" @click="chooseItem(t)">
-                태그 대신 고르기
-              </button>
+              <div class="at-act">
+                <button class="btn btn-sm at-pick" :disabled="!canPick || busy" @click="chooseItem(t)">
+                  태그 대신 +1
+                </button>
+                <input
+                  v-model.number="manual[t.lineSeq]"
+                  class="input manual-qty"
+                  type="number"
+                  min="1"
+                  :max="t.toPickQty"
+                  :disabled="!canPick || busy"
+                  placeholder="개수"
+                  title="박스째라 하나씩 못 찍을 때 — 숫자를 넣고 Enter"
+                  @keyup.enter="submitManual(t)"
+                />
+              </div>
             </div>
           </div>
         </div>
@@ -680,9 +733,21 @@ const columns = [
 /* 빈 · SKU · 수량 · 버튼이 한 줄에. 좁으면 접힌다 */
 .scan-grid {
   display: grid;
-  grid-template-columns: 1.2fr 1.2fr 0.7fr auto;
+  grid-template-columns: 1fr 1fr;
   gap: 10px;
   align-items: end;
+}
+/* 스캔이 기본이라 눈에 덜 띄게 — 박스째일 때만 쓴다 */
+.at-act {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.manual-qty {
+  width: 76px;
+  text-align: right;
+  padding: 4px 8px;
+  font-size: 13px;
 }
 @media (max-width: 720px) {
   .scan-grid {

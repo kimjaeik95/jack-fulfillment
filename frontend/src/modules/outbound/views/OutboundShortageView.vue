@@ -13,6 +13,7 @@
  * 못 짚으면 이 목록은 읽고 지나가는 종이가 된다.
  */
 import { computed, onMounted, reactive, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import * as outboundApi from '@/api/outbound.js'
 import { codeOptions } from '@/api/codes.js'
 import { useHierarchyStore } from '@/stores/hierarchy.js'
@@ -121,7 +122,36 @@ const columns = [
   { key: 'plantName', label: '센터', width: '104px' },
   { key: 'assignedToName', label: '담당', width: '96px' },
   { key: 'instructedAt', label: '지시일시', width: '140px' },
+  { key: '_act', label: '다음 작업', width: '150px', align: 'right' },
 ]
+
+/*
+ * 묶여 있는 수량.
+ *
+ * 결품을 적어도 <b>할당은 안 풀린다</b> — 실물이 없다는 것은 재고가 틀렸다는
+ * 뜻이고, 할당만 풀면 판매가능이 늘어 다음 주문이 또 같은 자리를 잡기
+ * 때문이다 (OutboundService.shortage 의 주석). 그래서 그 수량은 팔 수도
+ * 내보낼 수도 없이 잡힌 채로 남는다.
+ *
+ * 전에는 그 사실이 화면 어디에도 없었다. '없었다' 는 과거만 보이고 '지금
+ * 묶여 있다' 는 현재가 안 보이니, 읽고 지나가는 목록이 됐다. 할 일이 적힌
+ * 곳은 알림뿐이었는데 그건 센터장만 본다.
+ */
+const lockedQty = computed(() =>
+  rows.value.reduce((sum, r) => sum + (Number(r.shortageQty) || 0), 0),
+)
+
+const router = useRouter()
+
+/** 장부엔 몇 개라고 되어 있나 — 고치기 전에 먼저 볼 곳 */
+function goStock(row) {
+  router.push({ name: 'stocks', query: { plantId: row.plantId, skuId: row.skuId } })
+}
+
+/** 실물에 맞춘다. 센터는 미리 채워 보낸다 — 줄에 이미 적혀 있는 값이다 */
+function goAdjust(row) {
+  router.push({ name: 'stock-adjust', query: { plantId: row.plantId, new: '1' } })
+}
 </script>
 
 <template>
@@ -142,6 +172,23 @@ const columns = [
     </div>
     <div v-if="loadError" class="alert alert-danger mb-2">
       <span class="alert-icon">⛔</span><span>{{ loadError }}</span>
+    </div>
+
+    <!--
+      '없었다' 가 아니라 '지금 묶여 있다' 를 말한다.
+
+      결품을 적어도 할당은 안 풀리므로 그 수량은 팔 수도 내보낼 수도 없이
+      잡힌 채로 남는다. 그 사실이 여태 알림에만 있었고 — 센터장만 본다 —
+      이 화면에는 없었다. 그래서 목록이 '읽고 지나가는 종이' 가 됐다.
+    -->
+    <div v-if="!loading && lockedQty > 0" class="alert alert-warn mb-2">
+      <span class="alert-icon">⚠</span>
+      <span>
+        결품 {{ total }}건 · <strong>재고 {{ lockedQty }}개가 잡힌 채 묶여 있습니다.</strong>
+        결품을 적어도 할당은 풀리지 않습니다 — 없는 물건을 다음 주문이 또 잡지 않게
+        하려는 것입니다. <strong>실사나 재고조정으로 장부를 실물에 맞춰야</strong> 풀립니다.
+        줄 오른쪽 <strong>다음 작업</strong>에서 바로 갈 수 있습니다.
+      </span>
     </div>
 
     <div class="toolbar">
@@ -216,6 +263,25 @@ const columns = [
 
       <template #cell-instructedAt="{ value }">
         <span class="small">{{ dt(value) }}</span>
+      </template>
+
+      <!--
+        다음으로 갈 곳.
+
+        '그 자리를 실사하세요' 라고 적어 두기만 하면 빈코드를 눈으로 읽고
+        다른 화면에서 다시 찾아야 한다. 센터와 SKU 는 이 줄이 이미 알고
+        있으므로 채워서 보낸다.
+
+        재고 보기가 먼저다 — 고치기 전에 '장부엔 몇 개라고 되어 있나' 를
+        봐야 조정수량을 정할 수 있다.
+      -->
+      <template #cell-_act="{ row }">
+        <button class="btn btn-sm" title="이 센터의 이 SKU 재고를 봅니다" @click="goStock(row)">
+          재고 보기
+        </button>
+        <button class="btn btn-sm" title="장부를 실물에 맞춥니다" @click="goAdjust(row)">
+          조정
+        </button>
       </template>
     </DataTable>
 

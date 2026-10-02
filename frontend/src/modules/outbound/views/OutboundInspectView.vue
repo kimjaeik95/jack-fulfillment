@@ -71,17 +71,20 @@ onMounted(async () => {
 
 const target = ref(null)
 const tasks = ref([])
-const scan = reactive({ skuScan: '', qty: 1 })
+const scan = reactive({ skuScan: '' })
 const skuInput = ref(null)
-const qtyInput = ref(null)
 const busy = ref(false)
 const scanError = ref('')
+/** 방금 무엇을 몇 개까지 세었는지 — 찍는 손이 눈으로 확인하는 줄 */
+const scanMsg = ref('')
 
 async function openInspect(row) {
   target.value = row
   await loadTasks()
-  Object.assign(scan, { skuScan: '', qty: 1 })
+  scan.skuScan = ''
   scanError.value = ''
+  scanMsg.value = ''
+  for (const k of Object.keys(manual)) delete manual[k]
   await nextTick()
   skuInput.value?.focus?.()
 }
@@ -101,6 +104,17 @@ const matched = computed(() => {
   return openTasks.value.find((t) => t.skuBarcode === sku || t.skuId === sku) ?? null
 })
 
+/**
+ * 한 번 찍었다 — 하나 센 것이다.
+ *
+ * 전에는 찍으면 수량칸에 <b>남은 수량을 미리 채우고</b> 엔터만 받았다.
+ * 검수는 '맞는지 확인하는 자리' 인데 답을 미리 줘 버리니, 60 개를 안 세고
+ * 엔터를 쳐도 60 개로 기록됐다. 그 차이는 고객이 상자를 열어야 드러난다.
+ *
+ * 입고검수 · 재고실사와 같은 방식으로 맞춘다 — <b>찍은 만큼만 올라간다.</b>
+ * 박스째라 하나씩 못 찍는 경우를 위해 줄마다 직접 입력을 두고, 카트를 보고
+ * 맞다고 판단했을 때 쓰는 '집은 대로 전부' 도 그대로 남긴다.
+ */
 async function onSkuScanned() {
   scanError.value = ''
   const m = matched.value
@@ -113,39 +127,43 @@ async function onSkuScanned() {
     skuInput.value?.focus?.()
     return
   }
-  scan.qty = m.toInspectQty
-  await nextTick()
-  qtyInput.value?.select?.()
+  await addQty(m, 1)
 }
 
-const qtyError = computed(() => {
-  const m = matched.value
-  if (!m) return ''
-  const q = Number(scan.qty)
-  if (!q || q < 1) return '1 이상이어야 합니다.'
-  if (q > m.toInspectQty) return `셀 것은 ${m.toInspectQty} 개입니다.`
-  return ''
-})
+/** 줄마다 직접 입력 — 박스째라 하나씩 못 찍을 때 */
+const manual = reactive({})
 
-const canSubmit = computed(
-  () => matched.value && !qtyError.value && !busy.value && canInspect.value,
-)
+async function submitManual(task) {
+  const q = Number(manual[task.lineSeq])
+  if (!q || q < 1) return
+  if (q > task.toInspectQty) {
+    scanError.value = `${task.skuId} 에 셀 것은 ${task.toInspectQty} 개입니다.`
+    return
+  }
+  manual[task.lineSeq] = ''
+  await addQty(task, q)
+}
 
-async function submitInspect() {
-  if (!canSubmit.value) return
+/**
+ * 센 수량을 더한다.
+ *
+ * 서버의 inspect 는 더하기다 (되돌리기가 음수를 보내는 것과 같은 길이다).
+ * 그래서 찍을 때마다 보내도 1 차 · 재계수 같은 해석이 끼어들지 않는다 —
+ * 재고실사가 화면에 쌓아 두는 것과 다른 점이다.
+ */
+async function addQty(task, qty) {
   busy.value = true
-  scanError.value = ''
-  const m = matched.value
   try {
     const out = await outboundApi.inspect(target.value.outboundSeq, {
-      lineSeq: m.lineSeq,
-      qty: Number(scan.qty),
+      lineSeq: task.lineSeq,
+      qty,
     })
-    toast.success(`${m.skuId} ${scan.qty} 개`)
     target.value = out
     await loadTasks()
+    const after = tasks.value.find((t) => t.lineSeq === task.lineSeq)
+    scanMsg.value = `${task.skuId} · ${task.productName ?? ''} — 센 것 ${after?.inspectedQty ?? qty}`
+    scanError.value = ''
     scan.skuScan = ''
-    scan.qty = 1
     await nextTick()
     skuInput.value?.focus?.()
     await fetchPage()
@@ -308,32 +326,22 @@ const columns = [
           label="SKU 스캔"
           mono
           placeholder="카트에서 꺼내 태그를 찍으세요"
-          :help="matched ? matched.productName : '빈은 찍지 않습니다'"
+          help="한 번 찍을 때마다 1 개씩 올라갑니다 — 빈은 찍지 않습니다"
+          :disabled="busy || !canInspect"
           @enter="onSkuScanned()"
         />
-        <FormField
-          ref="qtyInput"
-          v-model="scan.qty"
-          label="수량"
-          type="number"
-          :disabled="!matched"
-          :error="qtyError"
-          :help="matched ? `셀 것 ${matched.toInspectQty} 개` : ''"
-          @enter="submitInspect()"
-        />
-        <button class="btn btn-primary scan-submit" :disabled="!canSubmit" @click="submitInspect()">
-          <span v-if="busy" class="spinner"></span>
-          세었다
-        </button>
         <!--
           하나씩 찍는 것이 기본이다. 단포처럼 한 줄 한 개짜리를 하루에 수백 건
           치는 곳에서는 그 한 번이 그대로 시간이 되어, 카트를 보고 맞다고
           판단했을 때 누르는 길을 둔다 — 검수를 건너뛰는 것과는 다르다.
         -->
         <button class="btn scan-submit" :disabled="busy || !canInspect" @click="doInspectAll()">
+          <span v-if="busy" class="spinner"></span>
           집은 대로 전부
         </button>
       </div>
+
+      <p v-if="scanMsg" class="small ok mt-1">{{ scanMsg }}</p>
 
       <table class="table lines mt-2">
         <thead>
@@ -344,6 +352,8 @@ const columns = [
             <th style="width: 70px" class="right">집음</th>
             <th style="width: 70px" class="right">센 것</th>
             <th style="width: 70px" class="right">남음</th>
+            <!-- 박스째라 하나씩 못 찍을 때. 찍는 것이 기본이고 이쪽이 예외다 -->
+            <th style="width: 104px" class="right">직접 입력</th>
             <th style="width: 100px"></th>
           </tr>
         </thead>
@@ -359,6 +369,20 @@ const columns = [
             <td class="right" :class="t.inspectedQty ? 'ok' : 'dim'">{{ num(t.inspectedQty) }}</td>
             <td class="right" :class="t.toInspectQty > 0 ? 'danger' : 'dim'">
               {{ num(t.toInspectQty) }}
+            </td>
+            <td class="right">
+              <input
+                v-if="t.toInspectQty > 0"
+                v-model.number="manual[t.lineSeq]"
+                class="input manual-qty"
+                type="number"
+                min="1"
+                :max="t.toInspectQty"
+                :disabled="busy || !canInspect"
+                placeholder="개수"
+                title="찍지 않고 한 번에 더합니다"
+                @keyup.enter="submitManual(t)"
+              />
             </td>
             <td class="right">
               <button
@@ -398,9 +422,16 @@ const columns = [
 }
 .scan-grid {
   display: grid;
-  grid-template-columns: 1.6fr 0.7fr auto auto;
+  grid-template-columns: 1fr auto;
   gap: 10px;
   align-items: end;
+}
+/* 줄마다 두는 직접 입력 — 스캔이 기본이라 눈에 덜 띄게 작게 둔다 */
+.manual-qty {
+  width: 86px;
+  text-align: right;
+  padding: 4px 8px;
+  font-size: 13px;
 }
 @media (max-width: 720px) {
   .scan-grid {

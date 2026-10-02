@@ -365,7 +365,7 @@ const columns = [
       </table>
 
       <p class="small dim mt-1">
-        집은 수량은 피킹(4차 B섹터)이 채웁니다. 아직 피킹 화면이 없어 모두 0 입니다.
+        집은 수량은 <strong>피킹</strong> 화면이 채웁니다. 여기서는 고칠 수 없습니다.
       </p>
 
       <template #footer>
