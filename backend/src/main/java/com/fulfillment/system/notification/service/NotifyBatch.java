@@ -75,6 +75,20 @@ public class NotifyBatch {
 				notificationDao.findBrokenChains());
 
 		/*
+		 * 적치는 끝났는데 입고완료를 안 누른 것.
+		 *
+		 * 물건은 빈에 있는데 재고가 아니고, 정정도 못 한다 — 어느 쪽으로도
+		 * 못 가는 상태인데 지금까지는 주문이 들어와 결품이 나야 알았다.
+		 *
+		 * 자동으로 완료시키지 않는 이유는 그것이 승인 행위라서다. 적치는
+		 * 작업자(INB_PUTAWAY/C)가, 완료는 센터 관리자(INB_APPROVE/A)가
+		 * 한다 — 사람이 다르다. 자동으로 돌리면 그 단계가 사라진다.
+		 * 그래서 재촉만 한다.
+		 */
+		int unclosed = notifier.sync(Notification.INBOUND_UNCLOSED,
+				notificationDao.findUnclosedInbounds());
+
+		/*
 		 * 아래 셋은 사건형으로 만들 수도 있었다.
 		 *
 		 * 배치로 둔 이유는 <b>닫는 쪽</b>이다. 결재는 승인 · 반려 · 취소 ·
@@ -94,12 +108,12 @@ public class NotifyBatch {
 		int allocShort = notifier.sync(Notification.ALLOC_SHORT,
 				notificationDao.findAllocShortOrders());
 
-		log.info("알림 배치 — 납기초과 {} · 운송중지연 {} · 체인꺾임 {} · 결재대기 {} · 미매핑 {} · 할당결품 {}",
-				overdue, stuck, broken, approvals, unmapped, allocShort);
-		return new Result(overdue, stuck, broken, approvals, unmapped, allocShort);
+		log.info("알림 배치 — 납기초과 {} · 운송중지연 {} · 체인꺾임 {} · 입고완료대기 {} · 결재대기 {} · 미매핑 {} · 할당결품 {}",
+				overdue, stuck, broken, unclosed, approvals, unmapped, allocShort);
+		return new Result(overdue, stuck, broken, unclosed, approvals, unmapped, allocShort);
 	}
 
-	public record Result(int overdue, int stuck, int broken,
+	public record Result(int overdue, int stuck, int broken, int unclosed,
 			int approvals, int unmapped, int allocShort) {
 	}
 }

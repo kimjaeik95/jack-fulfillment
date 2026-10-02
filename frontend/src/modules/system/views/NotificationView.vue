@@ -128,7 +128,8 @@ async function sweep() {
     const r = await notiApi.sweep()
     sweepMsg.value =
       `납기초과 ${r.overdue} · 운송중지연 ${r.stuck} · 체인꺾임 ${r.broken} · ` +
-      `결재대기 ${r.approvals} · 미매핑 ${r.unmapped} · 할당결품 ${r.allocShort}`
+      `입고완료대기 ${r.unclosed} · 결재대기 ${r.approvals} · ` +
+      `미매핑 ${r.unmapped} · 할당결품 ${r.allocShort}`
     await fetchPage()
     session.refreshNotiBadge?.()
   } catch (e) {
@@ -299,9 +300,9 @@ const columns = [
     </div>
 
     <p class="small dim mt-2">
-      여덟 종류입니다 — 미매핑 주문 · 할당 결품 · 피킹 결품 · 결재 대기 · 배송 실패 ·
-      발주 납기 초과 · 운송중 지연 · 수량 체인 꺾임. 피킹 결품과 배송 실패는 그 자리에서
-      바로 뜨고, 나머지는 새벽 배치가 찾습니다.
+      아홉 종류입니다 — 미매핑 주문 · 할당 결품 · 피킹 결품 · 결재 대기 · 배송 실패 ·
+      발주 납기 초과 · 운송중 지연 · 수량 체인 꺾임 · 입고완료 대기. 피킹 결품과 배송
+      실패는 그 자리에서 바로 뜨고, 나머지는 새벽 배치가 찾습니다.
     </p>
   </div>
 </template>

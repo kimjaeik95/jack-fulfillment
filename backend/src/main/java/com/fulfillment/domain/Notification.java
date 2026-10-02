@@ -45,6 +45,14 @@ public class Notification {
 	public static final String TRANSIT_STUCK = "TRANSIT_STUCK";
 	/** 설명되지 않는 차이가 있다 (배치) */
 	public static final String CHAIN_BROKEN = "CHAIN_BROKEN";
+	/**
+	 * 적치는 끝났는데 입고완료를 안 눌렀다 (배치).
+	 *
+	 * 물건은 빈에 있지만 재고가 아니다 — 입고완료에서만 재고가 되기 때문이다
+	 * (INB-008). 정정도 못 한다. 어느 쪽으로도 못 가는 상태인데, 지금까지는
+	 * 주문이 들어와 결품이 나야 알 수 있었다.
+	 */
+	public static final String INBOUND_UNCLOSED = "INBOUND_UNCLOSED";
 
 	/* 등급 */
 

@@ -72,6 +72,9 @@ public interface NotificationDao {
 	/** 수량 체인이 꺾인 지시 */
 	List<Notification> findBrokenChains();
 
+	/** 적치는 끝났는데 입고완료를 안 눌러 아직 재고가 아닌 입고 */
+	List<Notification> findUnclosedInbounds();
+
 	/**
 	 * 결재를 기다리는 문서.
 	 *

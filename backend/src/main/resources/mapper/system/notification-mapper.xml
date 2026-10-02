@@ -474,4 +474,56 @@
          GROUP BY o.order_no, o.ordered_at, ch.channel_name, r.role_seq
     </select>
 
+
+    <!--
+      적치는 끝났는데 입고완료를 안 눌렀다.
+
+      물건은 빈에 있지만 재고가 아니다 — 입고완료에서만 재고가 된다
+      (INB-008). 정정도 못 한다(완료된 입고만 다룬다). 어느 쪽으로도 못
+      가는 상태인데, 지금까지는 주문이 들어와 결품이 나야 알 수 있었다.
+
+      closable() 과 같은 조건을 SQL 로 적는다 — 적치중이고, 놓은 것이
+      있고, 초과승인이 필요 없거나 이미 받았다. 조건이 둘로 갈라지면
+      한쪽만 고치는 날이 오므로 주석으로 짝을 밝혀 둔다.
+
+      센터 관리자에게 보낸다. 누를 수 있는 사람에게 가야 알림이 일을
+      한다 — 작업자에게 띄우면 보고도 할 수 있는 것이 없다.
+
+      occurred_at 은 마지막 적치 시각이다. 그때부터 묵은 것이므로,
+      알림함이 오래된 것을 위로 올릴 때 그 기준이 된다.
+    -->
+    <select id="findUnclosedInbounds" resultMap="notiMap">
+        SELECT 'INBOUND_UNCLOSED' AS kind,
+               r.role_seq         AS role_seq,
+               i.plant_seq        AS plant_seq,
+               'INBOUND'          AS ref_type,
+               i.inbound_no       AS ref_no,
+               i.inbound_no || ' 적치 끝 · 입고완료 대기' AS title,
+               <!-- 공급처가 없는 입고(직납 · 이동)도 있다. 비면 앞의 ' · ' 도 빼야 한다 -->
+               CASE WHEN pt.partner_name IS NULL THEN ''
+                    ELSE pt.partner_name || ' · ' END
+                   || '적치 ' ||
+                   COALESCE((SELECT SUM(l.putaway_qty)::int
+                               FROM tb_inbound_line l
+                              WHERE l.inbound_seq = i.inbound_seq), 0)
+                   || '개가 아직 재고가 아닙니다' AS body,
+               'WARN'             AS level,
+               (SELECT MAX(p.putaway_at)
+                  FROM tb_inbound_putaway p
+                  JOIN tb_inbound_line l ON l.line_seq = p.line_seq
+                 WHERE l.inbound_seq = i.inbound_seq) AS occurred_at
+          FROM tb_inbound i
+          LEFT JOIN tb_partner pt ON pt.partner_seq = i.supplier_seq
+          JOIN tb_role r ON r.role_id = 'CENTER_MGR'
+         WHERE i.inbound_status = 'PUTAWAY'
+           AND EXISTS (SELECT 1 FROM tb_inbound_line l
+                        WHERE l.inbound_seq = i.inbound_seq
+                          AND COALESCE(l.putaway_qty, 0) > 0)
+           <!-- 초과승인이 남아 있으면 아직 누를 수 없다. 그건 다른 알림의 몫이다. -->
+           AND (i.over_approved_by IS NOT NULL
+                OR COALESCE((SELECT SUM(l.received_qty) FROM tb_inbound_line l
+                              WHERE l.inbound_seq = i.inbound_seq), 0)
+                  &lt;= COALESCE((SELECT SUM(l.planned_qty) FROM tb_inbound_line l
+                                  WHERE l.inbound_seq = i.inbound_seq), 0))
+    </select>
 </mapper>
