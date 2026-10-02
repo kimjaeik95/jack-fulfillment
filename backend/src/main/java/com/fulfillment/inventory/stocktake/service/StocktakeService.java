@@ -335,6 +335,30 @@ public class StocktakeService {
 		return new Result(StocktakeResponse.of(after), warning);
 	}
 
+	/**
+	 * 대상 전부 비우기 — 계획 상태에서만.
+	 *
+	 * '대상 생성' 은 조건대로 뽑아 주는데, 한 번 뽑고 나면 되돌릴 길이
+	 * 없었다. 줄마다 빼는 버튼은 있지만 수백 줄이면 쓸 수가 없고, 조건을
+	 * 바꿔 다시 뽑는 것은 <b>비우는 것과 다르다</b> — 조건을 좁혀도 걸리는
+	 * 것이 있으면 0 이 되지 않는다.
+	 *
+	 * 생성과 같은 deleteLines 를 쓴다. 저쪽은 비우고 다시 넣고, 여기는
+	 * 비우기만 한다.
+	 */
+	@Transactional
+	public StocktakeResponse clearTargets(LoginUser actor, Long takeSeq) {
+		permissionChecker.require(actor, PERM, "U");
+
+		Stocktake take = mustFindInScope(actor, takeSeq, PERM, "U");
+		requirePlanned(take, "대상 비우기");
+
+		int removed = stocktakeDao.deleteLines(takeSeq);
+		auditRecorder.recordAction(actor, "UPDATE", TABLE, take.getTakeNo(),
+				"실사 대상 %d 줄 비움".formatted(removed));
+		return StocktakeResponse.of(mustFind(takeSeq));
+	}
+
 	/** 대상 한 줄 빼기 — 계획 상태에서만 */
 	@Transactional
 	public StocktakeResponse removeTarget(LoginUser actor, Long takeSeq, Long lineSeq) {
@@ -479,8 +503,33 @@ public class StocktakeService {
 						: null);
 	}
 
-	/** 바코드로 먼저, 없으면 빈코드로. 이 실사의 창고 안에서만 찾는다. */
+	/**
+	 * 바코드로 먼저, 없으면 빈코드로. 이 실사의 창고 안에서만 찾는다.
+	 *
+	 * 찍힌 값 그대로가 먼저다. 정확히 맞는 것이 있으면 그것이 답이고,
+	 * 손질한 값이 끼어들 틈을 주지 않는다.
+	 */
 	private Location findLocation(Stocktake take, String value) {
+		Location found = findLocationExact(take, value);
+		if (found != null) {
+			return found;
+		}
+		/*
+		 * 라벨이 안 읽혀 손으로 칠 때는 <b>사람이 읽는 모양</b>대로 친다.
+		 *
+		 *   라벨에 인쇄된 것   PL001-GD-1A-01-02
+		 *   저장된 바코드      PL001GD1A0102      (Location.barcodeValue 가 하이픈을 뺀다)
+		 *
+		 * 두 글자가 달라서 아무것도 안 걸렸다. 빈 앞에 서서 보이는 대로 친
+		 * 사람에게 "그 형식은 없습니다" 라고 답하는 셈이라, 하이픈·공백을
+		 * 떼고 한 번 더 본다. 빈코드('1A-01-02')는 이 손질을 거치면 어느
+		 * 것과도 안 맞으므로 위의 정확 일치에서 이미 끝난다.
+		 */
+		String squashed = value.replaceAll("[\\s-]", "").toUpperCase();
+		return squashed.equals(value) ? null : findLocationExact(take, squashed);
+	}
+
+	private Location findLocationExact(Stocktake take, String value) {
 		Location byBarcode = locationDao.selectByBarcode(value);
 		if (byBarcode != null && take.getWarehouseSeq().equals(byBarcode.getWarehouseSeq())) {
 			return byBarcode;

@@ -130,6 +130,17 @@ public class StocktakeController {
 		return ApiResponse.ok(result.stocktake(), result.warning());
 	}
 
+	/**
+	 * 대상 전부 비우기 — 계획 상태에서만.
+	 *
+	 * '/{lineSeq}' 보다 위에 둔다. 아래에 두면 경로가 겹치지는 않지만,
+	 * 한 줄 빼기와 짝이라는 것이 읽는 순서에서 드러나는 편이 낫다.
+	 */
+	@DeleteMapping("/{takeSeq}/targets")
+	public ApiResponse<StocktakeResponse> clearTargets(@PathVariable Long takeSeq) {
+		return ApiResponse.ok(stocktakeService.clearTargets(CurrentUser.require(), takeSeq));
+	}
+
 	/** 대상 한 줄 빼기 — 계획 상태에서만 */
 	@DeleteMapping("/{takeSeq}/targets/{lineSeq}")
 	public ApiResponse<StocktakeResponse> removeTarget(@PathVariable Long takeSeq,

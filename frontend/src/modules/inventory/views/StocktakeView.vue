@@ -330,6 +330,23 @@ async function act(fn, okMessage) {
 const generateTargets = () =>
   act(() => opsApi.generateTargets(detail.value.takeSeq), '대상을 다시 뽑았습니다.')
 
+/**
+ * 대상 전부 비우기.
+ *
+ * '대상 생성' 을 누르면 조건대로 다 뽑히는데, 되돌릴 길이 없었다. 줄마다
+ * 빼는 버튼은 수백 줄이면 쓸 수가 없고, 조건을 좁혀 다시 뽑는 것은
+ * 비우는 것과 다르다 — 걸리는 것이 하나라도 있으면 0 이 안 된다.
+ *
+ * 되묻는다. 수백 줄이 한 번에 사라지는데 되돌릴 길은 다시 뽑는 것뿐이고,
+ * 직접 담은 줄이 섞여 있었으면 그것까지 같이 간다.
+ */
+const askClear = ref(false)
+
+const clearTargets = () => {
+  askClear.value = false
+  return act(() => opsApi.clearTargets(detail.value.takeSeq), '대상을 비웠습니다.')
+}
+
 /* ── 재고에서 직접 담기 (지정실사) ──────────────────────────────
  *
  * 조건으로 훑는 것과 달리 창고의 재고 목록에서 고른다. 지정실사는
@@ -400,6 +417,41 @@ const scanLocation = ref(null)
 
 /** 이번 스캔으로 찍은 것들 — 방금 무엇을 찍었는지 눈으로 확인한다 */
 const scanLog = ref([])
+
+/**
+ * 입력칸이 지금 무엇을 기다리는가.
+ *
+ * 한 칸으로 빈과 물건을 다 받으므로, <b>지금 어느 단계인지를 화면이 말해
+ * 주지 않으면 사용자가 알 길이 없다.</b> 전에는 placeholder 로만 알렸는데,
+ * 한 글자만 쳐도 사라져서 정작 손이 움직이는 동안에는 아무 안내가 없었다.
+ *
+ * 입력칸 위에 고정으로 붙인다. 피킹이 칸을 셋으로 나누고 포커스를 옮겨
+ * 같은 일을 하는데, 실사는 한 빈에서 여러 물건을 세고 수량 칸도 없어서
+ * 칸을 나눌 이유가 없다 — 대신 이 줄이 그 역할을 한다.
+ */
+const scanStep = computed(() => {
+  if (!scanLocation.value) {
+    return { no: 1, title: '빈 라벨을 찍으세요', hint: '라벨이 안 읽히면 빈코드를 직접 치고 Enter' }
+  }
+  const at = scanLocation.value
+  return {
+    no: 2,
+    title: `${at.locationFullCode} 에 있는 물건을 찍으세요`,
+    hint: `이 자리 대상 ${at.lineCount ?? 0}줄 · 찍을 때마다 수량이 1 씩 올라갑니다`,
+  }
+})
+
+/**
+ * 자리를 비운다.
+ *
+ * 전에는 <b>다른 빈 라벨을 찍어야만</b> 자리가 바뀌었다. 세다 말고 그만두거나
+ * 엉뚱한 빈을 찍었을 때 되돌릴 길이 없어서, 스캔을 닫았다 여는 수밖에 없었다
+ * — 그러면 찍어 둔 수량까지 사라진다.
+ */
+function leaveLocation() {
+  scanLocation.value = null
+  focusScan()
+}
 
 function openScan() {
   scanning.value = true
@@ -931,6 +983,16 @@ const progressPct = (t) =>
           >
             재고에서 담기
           </button>
+          <!-- 담은 것이 있을 때만. 빈 상태에서 '비우기' 는 할 일이 없다. -->
+          <button
+            v-if="detail.lineCount"
+            class="btn btn-danger"
+            :disabled="detailBusy || !canCount"
+            title="담긴 대상을 전부 지웁니다. 조건을 다시 잡고 뽑을 때 쓰세요."
+            @click="askClear = true"
+          >
+            대상 비우기
+          </button>
           <button class="btn" :disabled="detailBusy || !canCount" @click="openEdit(detail)">
             계획 수정
           </button>
@@ -1005,26 +1067,34 @@ const progressPct = (t) =>
         <button class="btn btn-sm" :class="{ 'btn-primary': scanning }" @click="scanning ? (scanning = false) : openScan()">
           {{ scanning ? '스캔 닫기' : '📷 바코드로 세기' }}
         </button>
-        <span v-if="scanning && scanLocation" class="scan-here">
-          지금 자리 <span class="code">{{ scanLocation.locationFullCode }}</span>
-          <span class="small dim">대상 {{ scanLocation.lineCount }}줄</span>
-        </span>
-        <span v-else-if="scanning" class="small dim">빈 라벨을 먼저 찍으세요.</span>
+        <!-- 지금 자리는 스캔 패널의 단계 줄이 말한다. 여기서 또 말하면 두 번이다 -->
       </div>
 
       <div v-if="scanning && detail.counting" class="scan-panel">
+        <!--
+          지금 무엇을 찍어야 하는지. placeholder 와 달리 타이핑 중에도 남는다.
+        -->
+        <div class="scan-step" :class="`step-${scanStep.no}`">
+          <span class="scan-step-no">{{ scanStep.no }}</span>
+          <div class="scan-step-text">
+            <strong>{{ scanStep.title }}</strong>
+            <div class="small dim">{{ scanStep.hint }}</div>
+          </div>
+          <button v-if="scanLocation" class="btn btn-sm" @click="leaveLocation()">
+            다른 빈으로
+          </button>
+        </div>
+
         <input
           ref="scanBox"
           v-model="scanValue"
           class="input scan-input"
+          :class="`step-${scanStep.no}`"
           :placeholder="scanLocation ? '물건 바코드 또는 SKU 코드' : '빈 라벨 또는 빈코드'"
           :disabled="!canCount || scanBusy"
           @keyup.enter="onScan()"
         />
         <p class="small dim scan-help">
-          찍은 값이 빈인지 물건인지는 서버가 가립니다. 빈을 찍으면 자리가 바뀌고,
-          물건을 찍으면 그 자리의 수량이 <strong>1 씩 올라갑니다</strong>.
-          라벨이 안 읽히면 코드를 직접 치고 Enter 를 누르세요.
           <strong>저장은 아래 '수량 기록' 버튼</strong>을 눌러야 됩니다 — 지금까지 찍은 것은
           {{ scanTally }} 줄입니다.
         </p>
@@ -1208,6 +1278,18 @@ const progressPct = (t) =>
     </ModalDialog>
 
     <ConfirmDialog
+      v-if="askClear"
+      title="대상 비우기"
+      :message="`${detail?.lineCount ?? 0} 줄을 전부 지웁니다.`"
+      detail="조건으로 뽑은 것도, 재고에서 직접 담은 것도 함께 사라집니다. 되돌리려면 다시 뽑아야 하는데, 직접 담은 줄은 조건으로 다시 나오지 않습니다."
+      confirm-label="비우기"
+      danger
+      :busy="detailBusy"
+      @cancel="askClear = false"
+      @confirm="clearTargets()"
+    />
+
+    <ConfirmDialog
       v-if="askClose"
       title="실사 마감"
       :message="`${askClose.takeNo} 을(를) 마감합니까?`"
@@ -1260,12 +1342,6 @@ const progressPct = (t) =>
   margin: 10px 0 6px;
   flex-wrap: wrap;
 }
-.scan-here {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 13px;
-}
 .scan-panel {
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -1273,12 +1349,44 @@ const progressPct = (t) =>
   padding: 12px;
   margin-bottom: 10px;
 }
+/* 지금 단계 — 입력칸 바로 위에 고정으로 붙는다 */
+.scan-step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.scan-step-no {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  font-weight: 600;
+  background: var(--surface-3);
+  color: var(--text);
+}
+.scan-step.step-2 .scan-step-no {
+  background: var(--primary);
+  color: #fff;
+}
+.scan-step-text {
+  flex: 1;
+  min-width: 0;
+  line-height: 1.45;
+}
 /* 스캐너는 글자를 빠르게 쳐 넣는다. 칸이 크고 글자가 커야 눈으로 확인된다. */
 .scan-input {
   width: 100%;
   font-size: 18px;
   font-family: var(--font-mono, monospace);
   padding: 10px 12px;
+}
+/* 물건을 기다리는 동안에는 칸이 강조된다 — 글자를 읽기 전에 눈으로 안다 */
+.scan-input.step-2 {
+  border-color: var(--primary);
 }
 .scan-help {
   margin: 8px 0 0;

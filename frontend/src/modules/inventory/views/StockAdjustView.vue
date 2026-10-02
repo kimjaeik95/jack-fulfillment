@@ -13,7 +13,8 @@
  * 엉뚱한 값이 반영된다. 화면은 미리보기만 한다.
  */
 import { computed, onMounted, reactive, ref } from 'vue'
-import { codeOptions } from '@/api/codes.js'
+import { useRoute } from 'vue-router'
+import { codeLabel, codeOptions } from '@/api/codes.js'
 import * as opsApi from '@/api/stockOps.js'
 import * as stockApi from '@/api/stock.js'
 import { useHierarchyStore } from '@/stores/hierarchy.js'
@@ -26,6 +27,7 @@ import FormField from '@/components/FormField.vue'
 import CodeBadge from '@/components/CodeBadge.vue'
 import StockPicker from '../components/StockPicker.vue'
 
+const route = useRoute()
 const hierarchy = useHierarchyStore()
 const session = useSessionStore()
 const toast = useToastStore()
@@ -81,6 +83,20 @@ async function goPage(n) {
 onMounted(async () => {
   await Promise.all([hierarchy.loadPlants(false), hierarchy.loadWarehouses(false)])
   await fetchPage()
+
+  /*
+   * 다른 화면이 '여기서 조정하라' 고 보낸 경우 (피킹 결품 → 조정).
+   *
+   * 보낸 쪽이 이미 센터를 알고 있으므로 받아서 채운다. 빈손으로 열면
+   * 사용자가 같은 값을 다시 고르게 되고, 그 사이에 '어느 센터였더라' 가
+   * 생긴다 — 넘어온 맥락을 잃지 않는 것이 요점이다.
+   */
+  if (route.query.new === '1' && canCreate.value) {
+    openCreate()
+    if (route.query.plantId) {
+      form.plantId = String(route.query.plantId)
+    }
+  }
 })
 
 const columns = [
@@ -100,10 +116,23 @@ const columns = [
 const editing = ref(false)
 const editSeq = ref(null)
 const picking = ref(false)
+/** 찍어서 여러 건이 걸렸을 때 담기 창에 넘길 값 */
+const pickKeyword = ref('')
 const busy = ref(false)
 const serverError = ref('')
 
 const form = reactive({ plantId: '', warehouseId: '', reasonCode: '', remark: '' })
+
+/**
+ * 줄 사유를 안 고르면 뭐가 되는지 — 드롭다운 첫 항목에 그대로 적는다.
+ *
+ * 전에는 '헤더 사유' 였다. 개발자 말이라 비워 둬도 되는지 알 수가 없다.
+ * 빈 값이면 전표 사유를 따르는 것이 구조다 (tb_stock_adjust_line.reason_code
+ * 가 NULL 가능). 입고정정도 같은 모양이라 말도 같게 둔다.
+ */
+const sameAsHead = computed(() =>
+  form.reasonCode ? `위와 같음 (${codeLabel('REASON_ADJUST', form.reasonCode)})` : '위와 같음',
+)
 /** 담은 줄 — { stock, qtyField, qtyAfter, reasonCode, remark } */
 const lines = ref([])
 
@@ -123,8 +152,70 @@ function openCreate() {
  * 첫 줄이 전표의 창고를 정한다. 한 전표는 한 창고만 담으므로, 고르는 순간
  * 창고가 잠긴다 — 승인 권한이 창고 단위로 나뉘기 때문이다.
  */
+/* ── 찍어서 담기 ────────────────────────────────────────────── */
+
+/**
+ * 바코드를 찍으면 그 재고를 바로 담는다.
+ *
+ * 담기 창에서도 찍을 수 있지만, 그러려면 창을 열고 찍고 줄을 눌러야 한다.
+ * 파손품을 손에 들고 있는 자리라 <b>찍는 것 하나로 끝나는 편</b>이 맞다.
+ *
+ * <b>수량은 안 센다.</b> 조정은 세는 일이 아니라 원인을 알고 숫자를 고치는
+ * 일이다 — 파손 3개를 확인했으면 3을 적는 것이지 세 번 찍는 것이 아니다.
+ * 그래서 찍기는 '어느 줄인가' 만 정하고 수량은 손으로 적는다. 세는 것은
+ * 실사(INV-PG-009)가 한다.
+ *
+ * 같은 SKU 가 여러 빈에 있으면 고를 수가 없다. 그때는 담기 창을 그 값으로
+ * 열어 사람이 자리를 고르게 한다 — 시스템이 임의로 한 자리를 집으면
+ * 창고에 가 봤을 때 없는 자리에서 뺀 것이 된다.
+ */
+const scan = ref('')
+const scanning = ref(false)
+const scanMsg = ref('')
+const scanError = ref('')
+
+async function onScan() {
+  const v = scan.value.trim()
+  scan.value = ''
+  if (!v) return
+
+  scanning.value = true
+  scanMsg.value = ''
+  scanError.value = ''
+  try {
+    const data = await stockApi.list({
+      keyword: v,
+      plantId: form.plantId || null,
+      warehouseId: form.warehouseId || null,
+      page: 1,
+      size: 10,
+    })
+    const hits = (data.page?.rows ?? []).filter((r) => !pickedSeqs.value.includes(r.stockSeq))
+
+    if (!hits.length) {
+      scanError.value = form.warehouseId
+        ? `${v} — 이 창고에 없거나 이미 담았습니다.`
+        : `${v} — 찾을 수 없습니다.`
+      return
+    }
+    if (hits.length > 1) {
+      // 자리를 고르는 일은 사람 몫이다
+      pickKeyword.value = v
+      picking.value = true
+      return
+    }
+    addLine(hits[0])
+    scanMsg.value = `${hits[0].locationFullCode} · ${hits[0].skuId} 담았습니다.`
+  } catch (e) {
+    scanError.value = e.message
+  } finally {
+    scanning.value = false
+  }
+}
+
 function addLine(row) {
   picking.value = false
+  pickKeyword.value = ''
   if (!form.plantId) {
     form.plantId = row.plantId
     form.warehouseId = row.warehouseId
@@ -453,9 +544,32 @@ const QTY_FIELD_OPTIONS = [
         <FormField v-model="form.remark" label="비고" class="span-2" />
       </div>
 
+      <!--
+        찍어서 담는 칸.
+
+        담기 창에서도 찍을 수 있지만 창을 열고 찍고 줄을 눌러야 한다.
+        파손품을 손에 들고 있는 자리라 찍는 것 하나로 끝나는 편이 맞다.
+
+        수량은 안 센다 — 조정은 세는 일이 아니라 원인을 알고 숫자를 고치는
+        일이다. 찍기는 '어느 줄인가' 만 정한다.
+      -->
       <div class="lines-head">
         <strong>조정할 재고 {{ lines.length }} 줄</strong>
+        <input
+          v-model="scan"
+          class="input scan-input"
+          :disabled="scanning"
+          placeholder="바코드를 찍으면 바로 담깁니다"
+          @keyup.enter="onScan()"
+        />
         <button class="btn btn-sm btn-primary" @click="picking = true">+ 재고 담기</button>
+      </div>
+
+      <div v-if="scanError" class="alert alert-warn mb-1">
+        <span class="alert-icon">⚠</span><span>{{ scanError }}</span>
+      </div>
+      <div v-else-if="scanMsg" class="alert alert-ok mb-1">
+        <span class="alert-icon">✅</span><span>{{ scanMsg }}</span>
       </div>
 
       <div v-if="!lines.length" class="empty-note">
@@ -502,7 +616,7 @@ const QTY_FIELD_OPTIONS = [
             </td>
             <td>
               <select v-model="l.reasonCode" class="select">
-                <option value="">헤더 사유</option>
+                <option value="">{{ sameAsHead }}</option>
                 <option v-for="o in codeOptions('REASON_ADJUST')" :key="o.value" :value="o.value">
                   {{ o.label }}
                 </option>
@@ -548,9 +662,10 @@ const QTY_FIELD_OPTIONS = [
       :plant-id="form.plantId"
       :warehouse-id="form.warehouseId"
       :lock-warehouse="!!form.warehouseId"
+      :keyword="pickKeyword"
       :picked-seqs="pickedSeqs"
       @pick="addLine"
-      @close="picking = false"
+      @close="picking = false; pickKeyword = ''"
     />
 
     <!-- ── 상세 ─────────────────────────────────────────────── -->
@@ -645,6 +760,12 @@ const QTY_FIELD_OPTIONS = [
 </template>
 
 <style scoped>
+/* 찍어서 담는 칸 — 담기 버튼 옆에 둔다 */
+.scan-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 320px;
+}
 .lines-head {
   display: flex;
   align-items: center;
@@ -652,7 +773,7 @@ const QTY_FIELD_OPTIONS = [
   gap: 10px;
   margin: 14px 0 8px;
   padding-top: 12px;
-  border-top: 1px solid var(--line, #e5e7eb);
+  border-top: 1px solid var(--border);
 }
 .lines th,
 .lines td {

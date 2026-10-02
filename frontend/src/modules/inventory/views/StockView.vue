@@ -37,6 +37,7 @@ import DataTable from '@/components/DataTable.vue'
 import ModalDialog from '@/components/ModalDialog.vue'
 import FormField from '@/components/FormField.vue'
 import CodeBadge from '@/components/CodeBadge.vue'
+import { day, stamp } from '@/utils/datetime.js'
 
 const route = useRoute()
 const router = useRouter()
@@ -167,7 +168,7 @@ const columns = [
 
 const nf = new Intl.NumberFormat('ko-KR')
 const num = (v) => (v === null || v === undefined ? '-' : nf.format(v))
-const day = (v) => (v ? String(v).slice(0, 10) : null)
+// day · stamp 는 @/utils/datetime.js 에서 온다 — 화면마다 복사하지 않는다
 
 /* ── 상세 (INV-PG-002) ──────────────────────────────────────── */
 
@@ -483,10 +484,10 @@ const lockedCount = computed(() => rows.value.filter((r) => r.locked).length)
         </div>
         <div>
           <span class="dt">최근 실사</span>
-          <span class="dd">{{ day(picked.lastCountedAt) ?? '없음' }}</span>
+          <span class="dd">{{ day(picked.lastCountedAt, '없음') }}</span>
         </div>
-        <div><span class="dt">최초 생성</span><span class="dd small">{{ picked.createdAt }} · {{ picked.createdBy }}</span></div>
-        <div><span class="dt">최근 변경</span><span class="dd small">{{ picked.updatedAt ?? '-' }} · {{ picked.updatedBy ?? '-' }}</span></div>
+        <div><span class="dt">최초 생성</span><span class="dd small">{{ stamp(picked.createdAt) }} · {{ picked.createdBy }}</span></div>
+        <div><span class="dt">최근 변경</span><span class="dd small">{{ stamp(picked.updatedAt) }} · {{ picked.updatedBy ?? '-' }}</span></div>
       </div>
 
       <template #footer>

@@ -109,7 +109,8 @@ public interface StocktakeDao {
 			@Param("locationSeq") Long locationSeq,
 			@Param("skuSeq") Long skuSeq);
 
-	void deleteLines(@Param("takeSeq") Long takeSeq);
+	/** 대상 전부 지우기. 생성이 다시 넣기 전에 쓰고, 비우기가 그대로 쓴다 */
+	int deleteLines(@Param("takeSeq") Long takeSeq);
 
 	List<StocktakeLine> selectLines(@Param("takeSeq") Long takeSeq,
 			@Param("diffOnly") String diffOnly,

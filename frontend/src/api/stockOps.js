@@ -203,6 +203,18 @@ export async function pickTargets(takeSeq, stockSeqs) {
   return { take: data, warning }
 }
 
+/**
+ * 대상 전부 비우기 — 계획 상태에서만.
+ *
+ * '대상 생성' 을 한 번 누르면 조건대로 다 뽑히는데 되돌릴 길이 없었다.
+ * 줄마다 빼는 버튼은 수백 줄이면 쓸 수가 없고, 조건을 좁혀 다시 뽑는
+ * 것은 비우는 것과 다르다 — 걸리는 것이 하나라도 있으면 0 이 안 된다.
+ */
+export async function clearTargets(takeSeq) {
+  const { data } = await del(`/stocktakes/${takeSeq}/targets`)
+  return data
+}
+
 /** 대상 한 줄 빼기 — 계획 상태에서만 */
 export async function removeTarget(takeSeq, lineSeq) {
   const { data } = await del(`/stocktakes/${takeSeq}/targets/${lineSeq}`)

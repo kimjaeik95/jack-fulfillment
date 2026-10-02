@@ -27,6 +27,13 @@ const props = defineProps({
   warehouseId: { type: String, default: '' },
   /** 창고를 바꿀 수 있는지. 조정 요청은 전표의 창고가 정해져 있어 잠근다. */
   lockWarehouse: { type: Boolean, default: false },
+  /**
+   * 열자마자 이 값으로 걸러 둔다.
+   *
+   * 찍었는데 같은 SKU 가 여러 빈에 있을 때 쓴다 — 어느 자리에서 뺄지는
+   * 사람이 골라야 해서, 찍은 값을 들고 창을 열어 그 몇 건만 보여 준다.
+   */
+  keyword: { type: String, default: '' },
   /** 이미 담은 재고 순번 — 목록에서 흐리게 표시한다 */
   pickedSeqs: { type: Array, default: () => [] },
   /**
@@ -57,7 +64,7 @@ const loading = ref(false)
 const loadError = ref('')
 
 const filters = reactive({
-  keyword: '',
+  keyword: props.keyword,
   plantId: props.plantId,
   warehouseId: props.warehouseId,
   locationId: '',
@@ -132,7 +139,7 @@ function confirmMulti() {
         v-model="filters.keyword"
         class="grow"
         label="검색어"
-        placeholder="SKU / 제품명 / 빈코드"
+        placeholder="바코드를 찍거나 SKU · 제품명 · 빈코드를 입력"
         @enter="search()"
       />
       <FormField
