@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Fulfillment · 전체 데이터베이스 ERD</title>
+<style>
+:root{font-family:Segoe UI,Malgun Gothic,sans-serif;color:#1e293b;background:#f5f7fb;font-size:13px}*{box-sizing:border-box}body{margin:0;height:100vh;overflow:hidden}button,input,select{font:inherit}button,select{cursor:pointer}button{background:white;border:1px solid #dbe2ec;border-radius:7px;padding:7px 11px;color:#334155}button:hover{background:#eef2ff;border-color:#a5b4fc}button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid #818cf8;outline-offset:2px}header{height:92px;background:#fff;border-bottom:1px solid #dbe2ec;padding:15px 24px;display:flex;align-items:center;justify-content:space-between;gap:16px}h1{font-size:22px;letter-spacing:-.7px;margin:0 0 6px}h1 span{font-weight:400;color:#94a3b8}header p{margin:0;color:#64748b;font-size:12px}.stats{display:flex;gap:24px;white-space:nowrap}.stats b{font-size:24px;display:block;color:#4338ca}.stats span{font-size:11px;color:#64748b}.toolbar{height:57px;background:#fff;display:flex;align-items:center;padding:10px 20px;gap:9px;border-bottom:1px solid #dbe2ec}.toolbar input{width:260px;padding:8px 11px;border:1px solid #dbe2ec;border-radius:7px}.toolbar select{padding:7px;border:1px solid #dbe2ec;border-radius:7px;background:white}.toolbar label{display:flex;align-items:center;gap:4px;white-space:nowrap}.toolbar input[type=checkbox]{width:auto}.spacer{flex:1}#zoomLabel{font-size:12px;width:43px;text-align:center}main{height:calc(100vh - 182px);display:flex}nav{width:224px;flex-shrink:0;border-right:1px solid #dbe2ec;background:#fff;overflow:auto;padding:14px 10px}nav h2{font-size:11px;letter-spacing:.5px;color:#64748b;margin:14px 8px 6px}nav button{border:0;display:block;width:100%;text-align:left;font-size:11px;padding:7px 8px;margin:1px 0;overflow:hidden;text-overflow:ellipsis}nav button small{display:block;color:#64748b;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}nav button.active{background:#e0e7ff;color:#3730a3}#viewport{position:relative;overflow:auto;flex:1;background-image:radial-gradient(#cbd5e1 .7px,transparent .7px);background-size:18px 18px}#surface{position:relative}#diagram{position:absolute;top:0;left:0;transform-origin:top left}#edges{position:absolute;inset:0;overflow:visible;pointer-events:none}.edge{fill:none;stroke:#a5b4c8;stroke-width:1.4;opacity:.36}.edge.hot{stroke:#4f46e5;stroke-width:2.6;opacity:.95}.edge.muted{opacity:.06}.lane{position:absolute;top:18px;font-size:15px;font-weight:700;border-left:4px solid var(--color);padding-left:10px}.lane small{font-weight:400;color:#94a3b8;margin-left:8px}.card{position:absolute;width:310px;background:#fff;border:1px solid #d7deea;border-radius:9px;box-shadow:0 3px 9px #3341550c;overflow:hidden;border-top:4px solid var(--color);transition:opacity .15s}.card.selected{box-shadow:0 0 0 3px #818cf8,0 4px 16px #4f46e526}.card.related{border-color:#818cf8}.card.dim{opacity:.23}.card>button{border:0;border-radius:0;display:block;width:100%;text-align:left;padding:11px 12px;background:#f8fafc}.card strong{font-size:13px;display:block}.card .description{display:block;font-size:11px;color:#64748b;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.row{height:25px;display:flex;align-items:center;padding:0 10px;border-top:1px solid #f1f5f9;gap:6px;font-family:Consolas,monospace;font-size:11px}.row .keys{width:42px;flex-shrink:0;font-size:9px;font-weight:bold;color:#6366f1}.row .col{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.row .type{font-size:10px;color:#64748b;max-width:94px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.row.pk{background:#fafaff}.row .required{color:#e11d48}.more{font-size:10px;color:#64748b;padding:7px 12px;border-top:1px solid #e2e8f0}#detail{width:400px;flex-shrink:0;background:white;border-left:1px solid #dbe2ec;overflow:auto;padding:20px}#detail[hidden]{display:none}#detail h2{font-size:17px;margin:8px 0}#detail h3{font-size:13px;margin:24px 0 8px}#detail p{line-height:1.7;color:#64748b;font-size:12px}#detail .close{float:right}#detail table{border-collapse:collapse;width:100%;font-size:11px}#detail td,#detail th{text-align:left;vertical-align:top;padding:8px 4px;border-bottom:1px solid #e2e8f0;overflow-wrap:anywhere}#detail th{color:#64748b}#detail td small{display:block;color:#64748b;line-height:1.5;margin-top:4px}#detail .relation{display:block;width:100%;font-size:11px;text-align:left;margin-bottom:7px;overflow-wrap:anywhere;line-height:1.7}pre{white-space:pre-wrap;font-size:11px;background:#f8fafc;padding:10px;border-radius:6px;overflow-wrap:anywhere}.source{font-size:10px;color:#64748b;overflow-wrap:anywhere}footer{height:33px;display:flex;align-items:center;gap:20px;background:white;border-top:1px solid #dbe2ec;padding:0 18px;font-size:11px;color:#64748b}.legend-key{color:#4f46e5;font-weight:600}#empty{padding:36px;color:#64748b}#empty[hidden]{display:none}@media(max-width:1000px){nav{width:185px}#detail{width:330px}.toolbar{flex-wrap:wrap;height:auto;min-height:57px}main{height:calc(100vh - 220px)}.stats{gap:12px}.toolbar input{width:200px}}@media(max-width:650px){nav{display:none}header{padding:12px}.stats{display:none}#detail{position:absolute;right:0;top:190px;bottom:33px;width:90%;z-index:5}footer{gap:8px;font-size:9px}.toolbar{padding:8px}}
+</style>
+</head>
+<body>
+<header><div><h1>Fulfillment <span>/</span> Database ERD</h1><p><span id="versionRange"></span> 마이그레이션 기준 · 실제 DB 조회 결과 아님 · 외부 연결 없이 동작</p></div><div class="stats" id="stats"></div></header>
+<div class="toolbar"><input id="search" type="search" placeholder="테이블 · 컬럼 · 한글 설명 검색" aria-label="테이블과 컬럼 검색"><select id="group" aria-label="업무 영역"><option value="">모든 업무 영역</option></select><label><input type="checkbox" id="allColumns">모든 컬럼</label><label><input type="checkbox" id="onlyRelated">선택 테이블과 관계만</label><span class="spacer"></span><button id="minus" aria-label="축소">−</button><span id="zoomLabel">80%</span><button id="plus" aria-label="확대">＋</button><button id="fit">전체 맞춤</button><button id="reset">초기화</button></div>
+<main><nav id="nav" aria-label="테이블 목록"></nav><div id="viewport"><div id="empty" hidden>검색 결과가 없습니다.</div><div id="surface"><div id="diagram"><svg id="edges" xmlns="http://www.w3.org/2000/svg"></svg><div id="cards"></div></div></div></div><aside id="detail" aria-label="테이블 상세" hidden></aside></main>
+<footer><span><span class="legend-key">PK</span> 기본키 · <span class="legend-key">FK</span> 외래키 · <span class="legend-key">UQ</span> UNIQUE 제약 구성원</span><span><span style="color:#e11d48">*</span> NOT NULL</span><span>화살표: FK → 참조 키 · 클릭: 상세/관계 · Ctrl+휠: 확대</span></footer>
+<script id="schema" type="application/json">/*__SCHEMA__*/</script>
+<script>
+'use strict';
+const data = JSON.parse(document.getElementById('schema').textContent);
+const $ = id => document.getElementById(id);
+const escapeHTML = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+$('versionRange').textContent = data.versionRange;
+const tableMap = new Map(data.tables.map(t => [t.name,t]));
+let selected = '', zoom = .8, width = 1, height = 1, visible = [], positions = new Map();
+$('stats').innerHTML = [[data.tables.length,'TABLES'],[data.tables.reduce((n,t)=>n+t.columns.length,0),'COLUMNS'],[data.relationships.length,'FOREIGN KEYS']].map(([n,l])=>`<div><b>${n}</b><span>${l}</span></div>`).join('');
+data.groups.forEach((g,i)=>{const o=document.createElement('option');o.value=i;o.textContent=g.name;$('group').append(o)});
+function neighbors(name){const set=new Set([name]);data.relationships.forEach(r=>{if(r.from===name)set.add(r.to);if(r.to===name)set.add(r.from)});return set}
+function shownColumns(t){return $('allColumns').checked?t.columns:t.columns.filter(c=>c.pk||c.fk)}
+function keys(c){return [c.pk?'PK':'',c.fk?'FK':'',c.unique?'UQ':''].filter(Boolean).join(' ')}
+function render(){
+  const query=$('search').value.trim().toLowerCase(),group=$('group').value,related=neighbors(selected);
+  visible=data.tables.filter(t=>(group===''||t.group===Number(group))&&(!$('onlyRelated').checked||!selected||related.has(t.name))&&(!query||[t.name,t.comment,...t.columns.flatMap(c=>[c.name,c.comment])].join(' ').toLowerCase().includes(query)));
+  $('empty').hidden=visible.length>0;positions=new Map();let lane=0;let cards='',nav='';height=100;
+  data.groups.forEach((g,i)=>{
+    const tables=g.tables.map(n=>tableMap.get('tb_'+n)).filter(t=>visible.includes(t));if(!tables.length)return;
+    const x=40+lane*410;let y=65;
+    cards+=`<div class="lane" style="left:${x}px;--color:${g.color}">${escapeHTML(g.name)}<small>${tables.length}</small></div>`;
+    nav+=`<h2 style="color:${g.color}">${escapeHTML(g.name)} · ${tables.length}</h2>`;
+    for(const t of tables){
+      const cols=shownColumns(t);positions.set(t.name,{x,y,cols});
+      cards+=`<article id="card-${t.name}" class="card" style="left:${x}px;top:${y}px;--color:${g.color}"><button data-table="${t.name}" aria-label="${t.name} 상세"><strong>${t.name}</strong><span class="description">${escapeHTML(t.comment||'설명 없음')}</span></button>${cols.map(c=>`<div class="row ${c.pk?'pk':''}" data-col="${c.name}" title="${escapeHTML(c.definition+' · '+c.comment)}"><span class="keys">${keys(c)}</span><span class="col">${c.name}${!c.nullable?'<span class="required"> *</span>':''}</span><span class="type">${escapeHTML(c.type)}</span></div>`).join('')}<div class="more">${t.columns.length}개 컬럼${cols.length<t.columns.length?' · 키 컬럼만 표시':''} · 클릭하여 상세 보기</div></article>`;
+      nav+=`<button data-table="${t.name}" class="${selected===t.name?'active':''}">${t.name}<small>${escapeHTML(t.comment)}</small></button>`;
+      y+=64+cols.length*25+28+45;
+    }
+    height=Math.max(height,y+30);lane++;
+  });
+  width=Math.max(400,lane*410+40);$('cards').innerHTML=cards;$('nav').innerHTML=nav;
+  // Measure actual cards before routing edges, including font and header height.
+  for(const [name,p] of positions){const el=$('card-'+name);p.h=el.offsetHeight;p.w=el.offsetWidth;}
+  drawEdges();applyHighlight();applyZoom();
+}
+function drawEdges(){
+  const svg=$('edges');svg.setAttribute('width',width);svg.setAttribute('height',height);
+  let html='<defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#94a3b8"/></marker><marker id="hotArrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 Z" fill="#4f46e5"/></marker></defs>';
+  data.relationships.forEach((r,i)=>{
+    const a=positions.get(r.from),b=positions.get(r.to);if(!a||!b)return;
+    const rowY=(name,p,col)=>{const el=$('card-'+name).querySelector('[data-col="'+col+'"]');return p.y+(el?el.offsetTop+el.offsetHeight/2:30)};
+    const ay=rowY(r.from,a,r.fromColumns[0]),by=rowY(r.to,b,r.toColumns[0]);
+    let ax,bx,d;
+    if(a.x===b.x){ax=a.x+a.w;bx=b.x+b.w;const route=ax+22+(i%6)*8;d=`M${ax},${ay} C${route},${ay} ${route},${by} ${bx},${by}`;if(r.from===r.to)d=`M${ax},${ay} L${route},${ay} L${route},${by} L${bx},${by}`;}
+    else {const forward=a.x<b.x;ax=forward?a.x+a.w:a.x;bx=forward?b.x:b.x+b.w;const bend=forward?35:-35;d=`M${ax},${ay} C${ax+bend},${ay} ${bx-bend},${by} ${bx},${by}`;}
+    html+=`<path class="edge" data-from="${r.from}" data-to="${r.to}" d="${d}" marker-end="url(#arrow)"><title>${escapeHTML(r.from+'.'+r.fromColumns.join(',')+' → '+r.to+'.'+r.toColumns.join(',')+' · '+r.name)}</title></path>`;
+  });svg.innerHTML=html;
+}
+function applyHighlight(){const related=neighbors(selected);document.querySelectorAll('.card').forEach(el=>{const name=el.id.slice(5);el.classList.toggle('selected',name===selected);el.classList.toggle('related',!!selected&&related.has(name));el.classList.toggle('dim',!!selected&&!related.has(name))});document.querySelectorAll('.edge').forEach(el=>{const hot=!!selected&&(el.dataset.from===selected||el.dataset.to===selected);el.classList.toggle('hot',hot);el.classList.toggle('muted',!!selected&&!hot);el.setAttribute('marker-end',hot?'url(#hotArrow)':'url(#arrow)')});const svg=$('edges');svg.querySelectorAll('.hot').forEach(el=>svg.append(el));}
+function applyZoom(){ $('diagram').style.width=width+'px';$('diagram').style.height=height+'px';$('diagram').style.transform=`scale(${zoom})`;$('surface').style.width=width*zoom+'px';$('surface').style.height=height*zoom+'px';$('zoomLabel').textContent=Math.round(zoom*100)+'%'; }
+function changeZoom(value){const v=$('viewport'),cx=(v.scrollLeft+v.clientWidth/2)/zoom,cy=(v.scrollTop+v.clientHeight/2)/zoom;zoom=Math.min(1.8,Math.max(.08,value));applyZoom();v.scrollLeft=cx*zoom-v.clientWidth/2;v.scrollTop=cy*zoom-v.clientHeight/2;}
+function selectTable(name){
+  selected=name;
+  if(!visible.some(t=>t.name===name)){$('search').value='';$('group').value='';}
+  render();showDetail();
+  const p=positions.get(name);if(p){$('viewport').scrollTo({left:Math.max(0,p.x*zoom-35),top:Math.max(0,p.y*zoom-35),behavior:'smooth'})}
+}
+function showDetail(){
+  const t=tableMap.get(selected);if(!t){$('detail').hidden=true;return}
+  const rels=data.relationships.filter(r=>r.from===selected||r.to===selected);
+  $('detail').hidden=false;
+  $('detail').innerHTML=`<button class="close" id="closeDetail" aria-label="상세 닫기">×</button><div class="source">${escapeHTML(data.groups[t.group].name)}</div><h2>${t.name}</h2><p>${escapeHTML(t.comment)}</p><div class="source">최초 정의: ${escapeHTML(t.source)}</div><h3>전체 컬럼 · ${t.columns.length}</h3><table><thead><tr><th>컬럼 / 설명</th><th>타입 / NULL</th><th>키</th></tr></thead><tbody>${t.columns.map(c=>`<tr><td>${c.name}<small>${escapeHTML(c.comment)}</small><small title="${escapeHTML(c.definition)}">${escapeHTML(c.definition.replace(c.type,'').trim())}</small>${c.source!==t.source?`<small>추가: ${escapeHTML(c.source)}</small>`:''}</td><td>${escapeHTML(c.type)}<small>${c.nullable?'NULL 허용':'NOT NULL'}</small></td><td>${keys(c)}</td></tr>`).join('')}</tbody></table><h3>물리 FK 관계 · ${rels.length}</h3><p>FK에서 참조 키 방향으로 표시합니다. 코드값 등 FK가 없는 논리 관계는 추정하지 않습니다.</p>${rels.map(r=>`<button class="relation" data-table="${r.from===selected?r.to:r.from}">${escapeHTML(r.from+'.'+r.fromColumns.join(', '))}<br>→ ${escapeHTML(r.to+'.'+r.toColumns.join(', '))}<br><span class="source">${escapeHTML(r.name+' · '+r.rule)}</span></button>`).join('')||'<p>선언된 FK 관계가 없습니다.</p>'}<h3>제약조건 · ${t.constraints.length}</h3><p>UQ는 복합 UNIQUE의 구성원일 수 있습니다. 개별 컬럼의 유일성을 뜻하지 않습니다.</p>${t.constraints.map(c=>`<pre><b>${escapeHTML(c.name)}</b>\n${escapeHTML(c.sql)}</pre>`).join('')}<h3>인덱스 · ${t.indexes.length}</h3>${t.indexes.map(i=>`<pre><b>${escapeHTML(i.name)}</b> ${i.unique?'UNIQUE':''}\n${escapeHTML(i.sql)}</pre>`).join('')}<p class="source">${escapeHTML(data.source)}<br>DB 인증 미완료로 실제 적용 상태는 확인하지 않았습니다.</p>`;
+  $('closeDetail').onclick=()=>{selected='';$('detail').hidden=true;render()};
+}
+document.addEventListener('click',e=>{const button=e.target.closest('[data-table]');if(button)selectTable(button.dataset.table)});
+['search','group','allColumns','onlyRelated'].forEach(id=>$(id).addEventListener(id==='search'?'input':'change',render));
+$('plus').onclick=()=>changeZoom(zoom*1.2);$('minus').onclick=()=>changeZoom(zoom/1.2);
+$('fit').onclick=()=>{changeZoom(Math.min(($('viewport').clientWidth-30)/width,($('viewport').clientHeight-30)/height));$('viewport').scrollTo(0,0)};
+$('reset').onclick=()=>{selected='';zoom=.8;$('search').value='';$('group').value='';$('allColumns').checked=false;$('onlyRelated').checked=false;$('detail').hidden=true;render();$('viewport').scrollTo(0,0)};
+$('viewport').addEventListener('wheel',e=>{if(e.ctrlKey||e.metaKey){e.preventDefault();changeZoom(zoom*(e.deltaY<0?1.1:1/1.1))}},{passive:false});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){$('detail').hidden=true;selected='';render()}});
+render();
+</script>
+</body>
+</html>
