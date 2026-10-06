@@ -186,6 +186,21 @@
          WHERE o.order_seq = #{orderSeq}
     </select>
 
+    <select id="selectForUpdate" resultMap="orderMap" flushCache="true">
+        SELECT <include refid="orderColumns"/>
+        <include refid="orderFrom"/>
+         WHERE o.order_seq = #{orderSeq}
+         FOR UPDATE OF o
+    </select>
+
+    <select id="countActiveOutbounds" resultType="int">
+        SELECT COUNT(DISTINCT o.outbound_seq)
+          FROM tb_outbound o
+          JOIN tb_outbound_line ol ON ol.outbound_seq = o.outbound_seq
+          JOIN tb_order_line l ON l.line_seq = ol.order_line_seq
+         WHERE l.order_seq = #{orderSeq} AND o.outbound_status != 'CANCELED'
+    </select>
+
     <select id="selectByNo" resultMap="orderMap">
         SELECT <include refid="orderColumns"/>
         <include refid="orderFrom"/>

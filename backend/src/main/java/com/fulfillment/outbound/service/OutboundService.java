@@ -11,6 +11,8 @@ import com.fulfillment.common.security.LoginUser;
 import com.fulfillment.common.security.PermissionChecker;
 import com.fulfillment.common.web.PageResponse;
 import com.fulfillment.domain.Order;
+import com.fulfillment.domain.Courier;
+import com.fulfillment.delivery.courier.dao.CourierDao;
 import com.fulfillment.domain.Notification;
 import com.fulfillment.domain.Outbound;
 import com.fulfillment.domain.OutboundLine;
@@ -87,7 +89,6 @@ public class OutboundService {
 	private static final String BOX_TYPE = "BOX_TYPE";
 	/** 송장. 밖으로 나가는 문서라 박스를 다루는 권한과 무게가 다르다 */
 	private static final String PERM_WAYBILL = "OUT_WAYBILL";
-	private static final String COURIER = "COURIER";
 	private static final String REASON_WB_CANCEL = "REASON_WB_CANCEL";
 	private static final String TABLE_WAYBILL = "tb_waybill";
 	/**
@@ -103,6 +104,7 @@ public class OutboundService {
 	private static final String TABLE = "tb_outbound";
 
 	private final OutboundDao outboundDao;
+	private final CourierDao courierDao;
 	private final SalesOrderDao orderDao;
 	private final UserDao userDao;
 	private final StockLedger stockLedger;
@@ -113,12 +115,13 @@ public class OutboundService {
 	private final AuditRecorder auditRecorder;
 	private final Notifier notifier;
 
-	public OutboundService(OutboundDao outboundDao, SalesOrderDao orderDao,
+	public OutboundService(OutboundDao outboundDao, CourierDao courierDao, SalesOrderDao orderDao,
 			UserDao userDao, StockLedger stockLedger,
 			CodeValues codeValues, DocNumbers docNumbers,
 			PermissionChecker permissionChecker, DataScopeResolver dataScopes,
 			AuditRecorder auditRecorder, Notifier notifier) {
 		this.outboundDao = outboundDao;
+		this.courierDao = courierDao;
 		this.orderDao = orderDao;
 		this.userDao = userDao;
 		this.stockLedger = stockLedger;
@@ -165,6 +168,7 @@ public class OutboundService {
 	@Transactional(readOnly = true)
 	public List<OutboundLine> targetLines(LoginUser actor, Long orderSeq) {
 		permissionChecker.require(actor, PERM_TARGET, "R");
+		requireTargetScope(actor, orderSeq, PERM_TARGET);
 		return outboundDao.selectLinesToInstruct(orderSeq);
 	}
 
@@ -187,7 +191,7 @@ public class OutboundService {
 	@Transactional(readOnly = true)
 	public OutboundResponse get(LoginUser actor, Long outboundSeq) {
 		permissionChecker.require(actor, PERM, "R");
-		Outbound outbound = mustFind(outboundSeq);
+		Outbound outbound = mustFindInScope(actor, outboundSeq, PERM);
 		return OutboundResponse.of(outbound, outboundDao.selectLines(outboundSeq));
 	}
 
@@ -226,7 +230,7 @@ public class OutboundService {
 
 	/** 주문 한 건을 지시로. 실패는 예외로 던지고 위에서 모은다. */
 	private OutboundResponse instructOne(LoginUser actor, Long orderSeq, String remark) {
-		Order order = orderDao.selectBySeq(orderSeq);
+		Order order = orderDao.selectForUpdate(orderSeq);
 		if (order == null) {
 			throw new BusinessException(ErrorCode.NOT_FOUND,
 					"주문을 찾을 수 없습니다. (순번 %d)".formatted(orderSeq));
@@ -257,6 +261,7 @@ public class OutboundService {
 							+ "없습니다.").formatted(order.getOrderNo()));
 		}
 
+		requireTargetScope(actor, orderSeq, PERM);
 		Long plantSeq = requireSinglePlant(order, orderSeq);
 
 		// 단포 — 줄이 하나이고 그 수량이 1. 피킹 동선이 다르다.
@@ -286,7 +291,7 @@ public class OutboundService {
 					.build());
 		}
 
-		Outbound saved = mustFind(outbound.getOutboundSeq());
+		Outbound saved = mustFindInScope(actor, outbound.getOutboundSeq(), PERM);
 		auditRecorder.recordAction(actor, "CREATE", TABLE, saved.getOutboundNo(),
 				"출고지시 %s — %d 줄 %d 개%s".formatted(
 						order.getOrderNo(), lineNo, nz(saved.getTotalInstructedQty()),
@@ -311,7 +316,7 @@ public class OutboundService {
 			OutboundCancelRequest request) {
 		permissionChecker.require(actor, PERM, "D");
 
-		Outbound outbound = mustFind(outboundSeq);
+		Outbound outbound = mustLockInScope(actor, outboundSeq, PERM);
 		codeValues.require(REASON_OUT_CANCEL, request.reasonCode(), "취소 사유");
 
 		if (outbound.isCanceled()) {
@@ -343,7 +348,7 @@ public class OutboundService {
 							+ "고쳐 현재 상태를 확인하세요.").formatted(outbound.getOutboundNo()));
 		}
 
-		Outbound after = mustFind(outboundSeq);
+		Outbound after = mustLockInScope(actor, outboundSeq, PERM);
 		auditRecorder.recordAction(actor, "CANCEL", TABLE, after.getOutboundNo(),
 				"출고지시 취소 — " + reason);
 		return OutboundResponse.of(after, outboundDao.selectLines(outboundSeq));
@@ -381,11 +386,7 @@ public class OutboundService {
 		List<String> failed = new ArrayList<>();
 
 		for (Long seq : request.outboundSeqs()) {
-			Outbound outbound = outboundDao.selectBySeq(seq);
-			if (outbound == null) {
-				failed.add("지시를 찾을 수 없습니다. (순번 %d)".formatted(seq));
-				continue;
-			}
+			Outbound outbound = mustLockInScope(actor, seq, PERM_ASSIGN);
 			// 끝난 지시는 맡길 것이 없다. 질의도 막지만 이유를 여기서 말한다.
 			if (!outbound.isOpen()) {
 				failed.add("%s 은(는) 이미 끝났습니다. (%s)".formatted(
@@ -393,7 +394,7 @@ public class OutboundService {
 				continue;
 			}
 			outboundDao.updateAssignee(seq, userId, actorId(actor));
-			done.add(OutboundResponse.of(mustFind(seq)));
+			done.add(OutboundResponse.of(mustLockInScope(actor, seq, PERM_ASSIGN)));
 		}
 
 		if (done.isEmpty()) {
@@ -417,7 +418,7 @@ public class OutboundService {
 	@Transactional(readOnly = true)
 	public List<PickTaskResponse> pickTasks(LoginUser actor, Long outboundSeq) {
 		permissionChecker.require(actor, PERM_PICK, "R");
-		mustFind(outboundSeq);
+		mustFindInScope(actor, outboundSeq, PERM_PICK);
 		return outboundDao.selectPickTasks(outboundSeq);
 	}
 
@@ -439,13 +440,22 @@ public class OutboundService {
 	public OutboundResponse pick(LoginUser actor, Long outboundSeq, PickRequest request) {
 		permissionChecker.require(actor, PERM_PICK, "C");
 
-		Outbound outbound = mustFind(outboundSeq);
+		Outbound outbound = mustLockInScope(actor, outboundSeq, PERM_PICK);
 		requirePickable(outbound);
 
 		OutboundLine line = outboundDao.selectLine(request.lineSeq());
 		if (line == null || !outboundSeq.equals(line.getOutboundSeq())) {
 			throw new BusinessException(ErrorCode.NOT_FOUND,
 					"이 지시의 줄이 아닙니다. (순번 %s)".formatted(request.lineSeq()));
+		}
+
+		Integer allocated = outboundDao.lockPickAllocation(request.allocSeq(), request.lineSeq(), request.stockSeq());
+		if (allocated == null) {
+			throw new BusinessException(ErrorCode.INVALID_INPUT, "이 지시의 SKU·센터·재고·할당이 일치하지 않습니다.");
+		}
+		int totalPicked = outboundDao.sumPickedByAlloc(request.allocSeq());
+		if (request.qty() > 0 && (long) totalPicked + request.qty() > allocated) {
+			throw new BusinessException(ErrorCode.INVALID_INPUT, "이 재고의 할당수량을 초과하여 피킹할 수 없습니다.");
 		}
 
 		int qty = request.qty();
@@ -462,7 +472,7 @@ public class OutboundService {
 		 * 빈별로는 틀려서, 출고확정이 B 빈 재고를 3 개 줄이려다 못 줄인다.
 		 */
 		if (qty < 0) {
-			int already = outboundDao.sumPicked(request.lineSeq(), request.stockSeq());
+			int already = outboundDao.sumPickedByLineAlloc(request.lineSeq(), request.allocSeq());
 			if (already + qty < 0) {
 				throw new BusinessException(ErrorCode.INVALID_INPUT,
 						("이 빈에서 집은 것은 %d 개뿐입니다. %d 개를 되돌릴 수 "
@@ -490,7 +500,7 @@ public class OutboundService {
 				.build());
 
 		syncPickingStatus(actor, outbound);
-		return OutboundResponse.of(mustFind(outboundSeq), outboundDao.selectLines(outboundSeq));
+		return OutboundResponse.of(mustLockInScope(actor, outboundSeq, PERM_PICK), outboundDao.selectLines(outboundSeq));
 	}
 
 	/**
@@ -512,7 +522,7 @@ public class OutboundService {
 			PickShortageRequest request) {
 		permissionChecker.require(actor, PERM_SHORTAGE, "C");
 
-		Outbound outbound = mustFind(outboundSeq);
+		Outbound outbound = mustLockInScope(actor, outboundSeq, PERM_SHORTAGE);
 		requirePickable(outbound);
 		codeValues.require(REASON_PICK_SHORT, request.reasonCode(), "결품 사유");
 
@@ -538,7 +548,7 @@ public class OutboundService {
 
 		syncPickingStatus(actor, outbound);
 
-		Outbound after = mustFind(outboundSeq);
+		Outbound after = mustLockInScope(actor, outboundSeq, PERM_SHORTAGE);
 		auditRecorder.recordAction(actor, "UPDATE", TABLE, after.getOutboundNo(),
 				"피킹 결품 %s %d 개 — %s".formatted(line.getSkuId(), request.qty(), reason));
 
@@ -584,7 +594,7 @@ public class OutboundService {
 	@Transactional(readOnly = true)
 	public List<OutboundPick> picks(LoginUser actor, Long outboundSeq) {
 		permissionChecker.require(actor, PERM_PICK, "R");
-		mustFind(outboundSeq);
+		mustFindInScope(actor, outboundSeq, PERM_PICK);
 		return outboundDao.selectPicks(outboundSeq);
 	}
 
@@ -653,7 +663,7 @@ public class OutboundService {
 	@Transactional(readOnly = true)
 	public List<OutInspectTaskResponse> inspectTasks(LoginUser actor, Long outboundSeq) {
 		permissionChecker.require(actor, PERM_PICK, "R");
-		mustFind(outboundSeq);
+		mustFindInScope(actor, outboundSeq, PERM_PICK);
 		return outboundDao.selectInspectTasks(outboundSeq);
 	}
 
@@ -670,7 +680,7 @@ public class OutboundService {
 	public OutboundResponse inspect(LoginUser actor, Long outboundSeq, OutInspectRequest request) {
 		permissionChecker.require(actor, PERM_PICK, "C");
 
-		Outbound outbound = mustFind(outboundSeq);
+		Outbound outbound = mustLockInScope(actor, outboundSeq, PERM_PICK);
 		requireInspectable(outbound);
 
 		OutboundLine line = outboundDao.selectLine(request.lineSeq());
@@ -694,7 +704,7 @@ public class OutboundService {
 		}
 
 		syncPackingStatus(actor, outbound);
-		return OutboundResponse.of(mustFind(outboundSeq), outboundDao.selectLines(outboundSeq));
+		return OutboundResponse.of(mustLockInScope(actor, outboundSeq, PERM_PICK), outboundDao.selectLines(outboundSeq));
 	}
 
 	/**
@@ -708,7 +718,7 @@ public class OutboundService {
 	public OutboundResponse inspectAll(LoginUser actor, Long outboundSeq) {
 		permissionChecker.require(actor, PERM_PICK, "C");
 
-		Outbound outbound = mustFind(outboundSeq);
+		Outbound outbound = mustLockInScope(actor, outboundSeq, PERM_PICK);
 		requireInspectable(outbound);
 
 		int counted = 0;
@@ -724,7 +734,7 @@ public class OutboundService {
 		}
 
 		syncPackingStatus(actor, outbound);
-		Outbound after = mustFind(outboundSeq);
+		Outbound after = mustLockInScope(actor, outboundSeq, PERM_PICK);
 		auditRecorder.recordAction(actor, "UPDATE", TABLE, after.getOutboundNo(),
 				"출고검수 일괄 %d 개".formatted(counted));
 		return OutboundResponse.of(after, outboundDao.selectLines(outboundSeq));
@@ -737,7 +747,7 @@ public class OutboundService {
 	@Transactional(readOnly = true)
 	public List<PackBoxResponse> boxes(LoginUser actor, Long outboundSeq) {
 		permissionChecker.require(actor, PERM_PACK, "R");
-		mustFind(outboundSeq);
+		mustFindInScope(actor, outboundSeq, PERM_PACK);
 		return outboundDao.selectBoxes(outboundSeq).stream()
 				.map(b -> PackBoxResponse.of(b, outboundDao.selectBoxLines(b.getBoxSeq())))
 				.toList();
@@ -754,7 +764,7 @@ public class OutboundService {
 	public PackBoxResponse addBox(LoginUser actor, Long outboundSeq, BoxSaveRequest request) {
 		permissionChecker.require(actor, PERM_PACK, "C");
 
-		Outbound outbound = mustFind(outboundSeq);
+		Outbound outbound = mustLockInScope(actor, outboundSeq, PERM_PACK);
 		requirePackable(outbound);
 		if (request.boxType() != null) {
 			codeValues.require(BOX_TYPE, request.boxType(), "박스 규격");
@@ -782,6 +792,7 @@ public class OutboundService {
 		permissionChecker.require(actor, PERM_PACK, "U");
 
 		PackBox box = mustFindBox(boxSeq);
+		requirePackable(mustLockInScope(actor, box.getOutboundSeq(), PERM_PACK));
 		if (request.boxType() != null) {
 			codeValues.require(BOX_TYPE, request.boxType(), "박스 규격");
 		}
@@ -819,7 +830,8 @@ public class OutboundService {
 		permissionChecker.require(actor, PERM_PACK, "C");
 
 		PackBox box = mustFindBox(boxSeq);
-		Outbound outbound = mustFind(box.getOutboundSeq());
+		Outbound outbound = mustLockInScope(actor, box.getOutboundSeq(), PERM_PACK);
+		box = mustFindBox(box.getBoxSeq());
 		requirePackable(outbound);
 		if (box.isClosed()) {
 			throw new BusinessException(ErrorCode.IN_USE,
@@ -891,7 +903,8 @@ public class OutboundService {
 		permissionChecker.require(actor, PERM_PACK, "U");
 
 		PackBox box = mustFindBox(boxSeq);
-		Outbound outbound = mustFind(box.getOutboundSeq());
+		Outbound outbound = mustLockInScope(actor, box.getOutboundSeq(), PERM_PACK);
+		box = mustFindBox(box.getBoxSeq());
 		requirePackable(outbound);
 
 		int changed = outboundDao.closeBox(boxSeq, actorId(actor));
@@ -903,7 +916,7 @@ public class OutboundService {
 		}
 
 		syncPackingStatus(actor, outbound);
-		Outbound after = mustFind(box.getOutboundSeq());
+		Outbound after = mustLockInScope(actor, box.getOutboundSeq(), PERM_PACK);
 		auditRecorder.recordAction(actor, "UPDATE", TABLE, after.getOutboundNo(),
 				"%d 번 박스 닫음".formatted(box.getBoxNo()));
 		return PackBoxResponse.of(mustFindBox(boxSeq), outboundDao.selectBoxLines(boxSeq));
@@ -920,9 +933,13 @@ public class OutboundService {
 		permissionChecker.require(actor, PERM_PACK, "U");
 
 		PackBox box = mustFindBox(boxSeq);
-		Outbound outbound = mustFind(box.getOutboundSeq());
+		Outbound outbound = mustLockInScope(actor, box.getOutboundSeq(), PERM_PACK);
+		box = mustFindBox(box.getBoxSeq());
 		requirePackable(outbound);
 
+		if (outboundDao.selectLiveWaybillOfBox(boxSeq) != null) {
+			throw new BusinessException(ErrorCode.IN_USE, "유효한 송장이 있습니다. 송장을 취소한 뒤 박스를 다시 여세요.");
+		}
 		int changed = outboundDao.reopenBox(boxSeq, actorId(actor));
 		if (changed == 0) {
 			throw new BusinessException(ErrorCode.IN_USE,
@@ -938,7 +955,8 @@ public class OutboundService {
 		permissionChecker.require(actor, PERM_PACK, "U");
 
 		PackBox box = mustFindBox(boxSeq);
-		Outbound outbound = mustFind(box.getOutboundSeq());
+		Outbound outbound = mustLockInScope(actor, box.getOutboundSeq(), PERM_PACK);
+		box = mustFindBox(box.getBoxSeq());
 		requirePackable(outbound);
 
 		if (outboundDao.deleteBox(boxSeq) == 0) {
@@ -946,7 +964,7 @@ public class OutboundService {
 					("%d 번 박스에 담은 것이 있습니다. 먼저 빼세요.")
 							.formatted(box.getBoxNo()));
 		}
-		syncPackingStatus(actor, mustFind(box.getOutboundSeq()));
+		syncPackingStatus(actor, mustLockInScope(actor, box.getOutboundSeq(), PERM_PACK));
 	}
 
 	/* ------------------------------------------------------------------ */
@@ -1044,7 +1062,7 @@ public class OutboundService {
 	@Transactional(readOnly = true)
 	public List<WaybillResponse> waybillsOf(LoginUser actor, Long outboundSeq) {
 		permissionChecker.require(actor, PERM_WAYBILL, "R");
-		mustFind(outboundSeq);
+		mustFindInScope(actor, outboundSeq, PERM_WAYBILL);
 		return outboundDao.selectWaybillsOfOutbound(outboundSeq).stream()
 				.map(WaybillResponse::of)
 				.toList();
@@ -1070,8 +1088,9 @@ public class OutboundService {
 		permissionChecker.require(actor, PERM_WAYBILL, "C");
 
 		PackBox box = mustFindBox(boxSeq);
-		Outbound outbound = mustFind(box.getOutboundSeq());
-		codeValues.require(COURIER, request.courierCode(), "택배사");
+		Outbound outbound = mustLockInScope(actor, box.getOutboundSeq(), PERM_WAYBILL);
+		box = mustFindBox(box.getBoxSeq());
+		requireActiveCourier(request.courierCode());
 
 		if (!outbound.isOpen()) {
 			throw new BusinessException(ErrorCode.IN_USE,
@@ -1116,7 +1135,7 @@ public class OutboundService {
 		Waybill waybill = mustFindWaybill(waybillSeq);
 		codeValues.require(REASON_WB_CANCEL, request.reasonCode(), "취소 사유");
 
-		Outbound outbound = mustFind(waybill.getOutboundSeq());
+		Outbound outbound = mustLockInScope(actor, waybill.getOutboundSeq(), PERM_WAYBILL);
 		if (outbound.isShipped()) {
 			throw new BusinessException(ErrorCode.IN_USE,
 					("이미 나간 지시의 송장입니다. (%s) 물건이 택배사에 넘어갔으니 "
@@ -1157,7 +1176,12 @@ public class OutboundService {
 
 		Waybill old = mustFindWaybill(waybillSeq);
 		PackBox box = mustFindBox(old.getBoxSeq());
-		codeValues.require(COURIER, request.courierCode(), "택배사");
+		Outbound outbound = mustLockInScope(actor, box.getOutboundSeq(), PERM_WAYBILL);
+		box = mustFindBox(box.getBoxSeq());
+		if (!outbound.isOpen() || !box.isClosed()) {
+			throw new BusinessException(ErrorCode.IN_USE, "진행 중인 출고의 닫힌 박스만 송장을 재발행할 수 있습니다.");
+		}
+		requireActiveCourier(request.courierCode());
 		codeValues.require(REASON_WB_CANCEL, request.reasonCode(), "취소 사유");
 
 		if (request.waybillNo().equals(old.getWaybillNo())
@@ -1256,7 +1280,7 @@ public class OutboundService {
 			throw new BusinessException(ErrorCode.NOT_FOUND,
 					"출고지시를 찾을 수 없습니다. (순번 %d)".formatted(outboundSeq));
 		}
-		Outbound outbound = mustFind(outboundSeq);
+		Outbound outbound = mustLockInScope(actor, outboundSeq, PERM_SHIP);
 		requireShippable(outbound);
 
 		List<OutboundPick> picks = outboundDao.selectPicksToShip(outboundSeq);
@@ -1271,17 +1295,34 @@ public class OutboundService {
 			int qty = nz(p.getPickedQty());
 
 			/*
-			 * 보유를 줄이고, 잡아 둔 할당을 같이 푼다.
+			 * 잡아 둔 할당을 풀고, 보유를 줄인다.
 			 *
-			 * 순서는 중요하지 않다 — 같은 트랜잭션 안이라 밖에서는 둘이
-			 * 동시에 일어난 것으로 보인다. 중요한 것은 <b>따로 커밋되지
-			 * 않는다</b>는 것이다.
+			 * <b>순서가 중요하다.</b> 둘이 한 트랜잭션 안이라 밖에서는 동시에
+			 * 일어난 것으로 보이지만, ck_stock_available 은 <b>문장마다</b>
+			 * 평가된다 — PostgreSQL 에서 CHECK 는 지연시킬 수 없다
+			 * (DEFERRABLE 은 UNIQUE · FK 뿐이다). 중간 상태도 제약을
+			 * 만족해야 한다.
+			 *
+			 *   ck_stock_available  CHECK (보유 - 할당 - 판매불가 >= 0)
+			 *
+			 * 보유를 먼저 깎으면 할당이 아직 안 풀린 채로 가용이 그만큼
+			 * 내려간다. 내보내는 수량은 이미 할당에 잡혀 있어 가용에 안
+			 * 들어 있으므로, <b>가용 &lt; 출고수량이면 반드시 터진다.</b>
+			 *
+			 *   보유 15 · 할당 10 · 불가 5 (가용 0) 에서 3 개를 내보내면
+			 *     보유 먼저   12 - 10 - 5 = -3   위반
+			 *     할당 먼저   15 -  7 - 5 =  3   통과 → 12 - 7 - 5 = 0
+			 *
+			 * 할당을 먼저 푸는 것은 가용이 늘어나는 방향이라 언제나 안전하다.
+			 * 판매불가가 0 인 동안에는 가용에 여유가 있어 드러나지 않았다.
+			 * StockMoveService 가 '출발지는 판매불가 먼저, 보유 나중' 으로
+			 * 두는 것도 같은 이유다.
 			 */
 			stockLedger.apply(actor, p.getStockSeq(), StockLedger.Movement.of(
-					MOVE_ISSUE, StockLedger.ON_HAND, -qty,
+					MOVE_ISSUE, StockLedger.ALLOCATED, -qty,
 					REF_OUTBOUND, outbound.getOutboundNo()));
 			stockLedger.apply(actor, p.getStockSeq(), StockLedger.Movement.of(
-					MOVE_ISSUE, StockLedger.ALLOCATED, -qty,
+					MOVE_ISSUE, StockLedger.ON_HAND, -qty,
 					REF_OUTBOUND, outbound.getOutboundNo()));
 
 			// 이 할당은 출고로 소진됐다. 해제된 것과 구분해 둔다 —
@@ -1304,7 +1345,7 @@ public class OutboundService {
 		// 주문 쪽이 판정한다 — 한 주문이 여러 지시로 나뉘어 나갈 수 있다.
 		syncOrderShipped(actor, outboundSeq);
 
-		Outbound after = mustFind(outboundSeq);
+		Outbound after = mustLockInScope(actor, outboundSeq, PERM_SHIP);
 		auditRecorder.recordAction(actor, "UPDATE", TABLE, after.getOutboundNo(),
 				"출고확정 %d 개 — 보유 · 할당에서 차감".formatted(shipped));
 		return OutboundResponse.of(after, outboundDao.selectLines(outboundSeq));
@@ -1400,7 +1441,8 @@ public class OutboundService {
 				failed.add("%s — 그 송장이 없습니다. 취소된 번호는 아닌지 확인하세요.".formatted(no));
 				continue;
 			}
-			Outbound outbound = mustFind(box.getOutboundSeq());
+			Outbound outbound = mustLockInScope(actor, box.getOutboundSeq(), PERM_SHIP);
+			box = mustFindBox(box.getBoxSeq());
 			if (!outbound.isShipped()) {
 				failed.add("%s — %s 은(는) 아직 출고확정 전입니다. (%s)".formatted(
 						no, outbound.getOutboundNo(),
@@ -1493,6 +1535,37 @@ public class OutboundService {
 							.formatted(order.getOrderNo(), plants.size()));
 		}
 		return plants.get(0);
+	}
+
+	private void requireActiveCourier(String code) {
+		Courier courier = courierDao.selectByCode(code);
+		if (courier == null || !courier.isActive()) {
+			throw new BusinessException(ErrorCode.INVALID_INPUT, "등록된 사용중 택배사를 선택하세요.");
+		}
+	}
+
+	private void requireTargetScope(LoginUser actor, Long orderSeq, String perm) {
+		Order order = orderDao.selectBySeq(orderSeq);
+		if (order == null) throw new BusinessException(ErrorCode.NOT_FOUND, "주문을 찾을 수 없습니다.");
+		var scope = dataScopes.forRead(actor, perm);
+		if (scope.unrestricted() || scope.allowsOwner(order.getCreatedBy())) return;
+		List<Long> orgs = outboundDao.selectTargetOrgs(orderSeq);
+		if (orgs.isEmpty() || orgs.stream().anyMatch(org -> !scope.allowsOrg(org))) {
+			throw new BusinessException(ErrorCode.SCOPE_VIOLATION, "접근 가능한 센터의 출고대상이 아닙니다.");
+		}
+	}
+
+	private Outbound mustFindInScope(LoginUser actor, Long seq, String perm) {
+		Outbound outbound = mustFind(seq);
+		dataScopes.forRead(actor, perm).requireOrgOrOwner(outbound.getOrgSeq(),
+				outbound.getInstructedBy(), "출고지시");
+		return outbound;
+	}
+
+	private Outbound mustLockInScope(LoginUser actor, Long seq, String perm) {
+		mustFindInScope(actor, seq, perm);
+		outboundDao.lockOutbound(seq);
+		return mustFindInScope(actor, seq, perm);
 	}
 
 	private Outbound mustFind(Long outboundSeq) {

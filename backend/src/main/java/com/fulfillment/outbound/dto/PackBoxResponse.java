@@ -18,6 +18,7 @@ public record PackBoxResponse(
 		boolean closed,
 		/** 아무것도 안 든 박스. 지울 수 있다 */
 		boolean empty,
+		boolean waybillIssued,
 
 		String boxType,
 		Integer weightG,
@@ -42,7 +43,7 @@ public record PackBoxResponse(
 	public static PackBoxResponse of(PackBox b, List<PackBoxLine> lines) {
 		return new PackBoxResponse(
 				b.getBoxSeq(), b.getOutboundSeq(), b.getBoxNo(),
-				b.getBoxStatus(), b.isOpen(), b.isClosed(), b.isEmpty(),
+				b.getBoxStatus(), b.isOpen(), b.isClosed(), b.isEmpty(), b.isWaybillIssued(),
 				b.getBoxType(), b.getWeightG(), b.getWidthMm(), b.getHeightMm(), b.getDepthMm(),
 				b.getClosedBy(), b.getClosedByName(), b.getClosedAt(), b.getRemark(),
 				b.getLineCount(), b.getTotalPackedQty(),

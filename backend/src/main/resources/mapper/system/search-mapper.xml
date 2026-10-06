@@ -34,7 +34,8 @@
                'purchase-requests'          AS route
           FROM tb_purchase_request r
           LEFT JOIN tb_plant pl ON pl.plant_seq = r.plant_seq
-         WHERE r.request_no ILIKE '%' || #{q} || '%'
+         WHERE (r.request_no ILIKE '%' || #{q} || '%')
+           AND <include refid="documentVisible"><property name="documentKind" value="'PUR_REQUEST'"/><property name="documentSeq" value="r.request_seq"/></include>
          ORDER BY r.request_seq DESC
          LIMIT #{limit}
     </select>
@@ -53,7 +54,8 @@
           FROM tb_purchase_order o
           LEFT JOIN tb_plant   pl ON pl.plant_seq   = o.plant_seq
           LEFT JOIN tb_partner pt ON pt.partner_seq = o.supplier_seq
-         WHERE o.order_no ILIKE '%' || #{q} || '%'
+         WHERE (o.order_no ILIKE '%' || #{q} || '%')
+           AND <include refid="documentVisible"><property name="documentKind" value="'PUR_ORDER'"/><property name="documentSeq" value="o.order_seq"/></include>
          ORDER BY o.order_seq DESC
          LIMIT #{limit}
     </select>
@@ -72,7 +74,8 @@
           FROM tb_inbound i
           LEFT JOIN tb_plant   pl ON pl.plant_seq   = i.plant_seq
           LEFT JOIN tb_partner pt ON pt.partner_seq = i.supplier_seq
-         WHERE i.inbound_no ILIKE '%' || #{q} || '%'
+         WHERE (i.inbound_no ILIKE '%' || #{q} || '%')
+           AND <include refid="documentVisible"><property name="documentKind" value="'INBOUND'"/><property name="documentSeq" value="i.inbound_seq"/></include>
          ORDER BY i.inbound_seq DESC
          LIMIT #{limit}
     </select>
@@ -96,10 +99,11 @@
                NULL                         AS plant_name,
                'orders'                     AS route
           FROM tb_order o
-         WHERE o.order_no       ILIKE '%' || #{q} || '%'
+         WHERE (o.order_no       ILIKE '%' || #{q} || '%'
             OR o.ext_order_no   ILIKE '%' || #{q} || '%'
             OR o.receiver_name  ILIKE '%' || #{q} || '%'
-            OR REPLACE(o.receiver_phone, '-', '') ILIKE '%' || REPLACE(#{q}, '-', '') || '%'
+            OR REPLACE(o.receiver_phone, '-', '') ILIKE '%' || REPLACE(#{q}, '-', '') || '%')
+           AND <include refid="documentVisible"><property name="documentKind" value="'ORDER'"/><property name="documentSeq" value="o.order_seq"/></include>
          ORDER BY o.order_seq DESC
          LIMIT #{limit}
     </select>
@@ -117,7 +121,8 @@
                'outbounds'                  AS route
           FROM tb_outbound o
           LEFT JOIN tb_plant pl ON pl.plant_seq = o.plant_seq
-         WHERE o.outbound_no ILIKE '%' || #{q} || '%'
+         WHERE (o.outbound_no ILIKE '%' || #{q} || '%')
+           AND <include refid="documentVisible"><property name="documentKind" value="'OUTBOUND'"/><property name="documentSeq" value="o.outbound_seq"/></include>
          ORDER BY o.outbound_seq DESC
          LIMIT #{limit}
     </select>
@@ -144,7 +149,8 @@
           LEFT JOIN tb_pack_box b  ON b.box_seq       = w.box_seq
           LEFT JOIN tb_outbound o  ON o.outbound_seq  = b.outbound_seq
           LEFT JOIN tb_plant    pl ON pl.plant_seq    = o.plant_seq
-         WHERE REPLACE(w.waybill_no, '-', '') ILIKE '%' || REPLACE(#{q}, '-', '') || '%'
+         WHERE (REPLACE(w.waybill_no, '-', '') ILIKE '%' || REPLACE(#{q}, '-', '') || '%')
+           AND <include refid="documentVisible"><property name="documentKind" value="'WAYBILL'"/><property name="documentSeq" value="w.waybill_seq"/></include>
          ORDER BY w.waybill_seq DESC
          LIMIT #{limit}
     </select>
@@ -169,10 +175,11 @@
                'stocks'                     AS route
           FROM tb_sku k
           LEFT JOIN tb_product pr ON pr.product_seq = k.product_seq
-         WHERE k.sku_id       ILIKE '%' || #{q} || '%'
+         WHERE (k.sku_id       ILIKE '%' || #{q} || '%'
             OR k.barcode      ILIKE '%' || #{q} || '%'
             OR pr.product_id  ILIKE '%' || #{q} || '%'
-            OR pr.product_name ILIKE '%' || #{q} || '%'
+            OR pr.product_name ILIKE '%' || #{q} || '%')
+           AND <include refid="documentVisible"><property name="documentKind" value="'SKU'"/><property name="documentSeq" value="k.sku_seq"/></include>
          ORDER BY k.sku_seq DESC
          LIMIT #{limit}
     </select>
@@ -373,6 +380,51 @@
                   AND l.order_seq     = #{orderSeq})
 
          ORDER BY 9, 4
+    </select>
+
+
+    <!-- 검색 결과와 직접 연결 조회에 동일한 문서별 범위를 적용한다. -->
+    <sql id="documentVisible">
+        EXISTS (SELECT 1 FROM (
+            SELECT 'PUR_REQUEST' AS kind, r.request_seq AS seq, pl.org_seq, r.created_by AS owner
+              FROM tb_purchase_request r LEFT JOIN tb_plant pl ON pl.plant_seq = r.plant_seq
+            UNION ALL
+            SELECT 'PUR_ORDER', o.order_seq, pl.org_seq, o.created_by
+              FROM tb_purchase_order o LEFT JOIN tb_plant pl ON pl.plant_seq = o.plant_seq
+            UNION ALL
+            SELECT 'INBOUND', i.inbound_seq, pl.org_seq, i.created_by
+              FROM tb_inbound i LEFT JOIN tb_plant pl ON pl.plant_seq = i.plant_seq
+            UNION ALL
+            SELECT 'OUTBOUND', o.outbound_seq, pl.org_seq, o.instructed_by
+              FROM tb_outbound o LEFT JOIN tb_plant pl ON pl.plant_seq = o.plant_seq
+            UNION ALL
+            SELECT 'WAYBILL', w.waybill_seq, pl.org_seq, w.issued_by
+              FROM tb_waybill w JOIN tb_pack_box b ON b.box_seq = w.box_seq
+              JOIN tb_outbound o ON o.outbound_seq = b.outbound_seq
+              LEFT JOIN tb_plant pl ON pl.plant_seq = o.plant_seq
+            UNION ALL
+            SELECT 'ORDER', o.order_seq, pl.org_seq, o.created_by
+              FROM tb_order o JOIN tb_order_line ol ON ol.order_seq = o.order_seq
+              LEFT JOIN tb_stock_alloc a ON a.order_line_seq = ol.line_seq
+              LEFT JOIN tb_stock s ON s.stock_seq = a.stock_seq
+              LEFT JOIN tb_location l ON l.location_seq = s.location_seq
+              LEFT JOIN tb_warehouse wh ON wh.warehouse_seq = l.warehouse_seq
+              LEFT JOIN tb_plant pl ON pl.plant_seq = wh.plant_seq
+            UNION ALL
+            SELECT 'SKU', k.sku_seq, NULL::bigint, k.created_by FROM tb_sku k
+        ) access
+        WHERE access.kind = ${documentKind} AND access.seq = ${documentSeq}
+        <if test="!scope.unrestricted">
+            AND (access.kind = 'SKU' OR access.owner = #{scope.ownerId}
+            <if test="!scope.hasNoOrg">
+                OR access.org_seq IN
+                <foreach collection="scope.orgSeqs" item="org" open="(" separator="," close=")">#{org}</foreach>
+            </if>)
+        </if>)
+    </sql>
+
+    <select id="canAccess" resultType="boolean">
+        SELECT <include refid="documentVisible"><property name="documentKind" value="#{kind}"/><property name="documentSeq" value="#{seq}"/></include>
     </select>
 
 </mapper>

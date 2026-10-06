@@ -190,11 +190,12 @@ async function allocatePending() {
   <div>
     <div class="page-head">
       <div>
-        <h1 class="page-title">결품 관리</h1>
+        <h1 class="page-title">전사재고 결품관리</h1>
         <p class="page-desc">
-          할당이 주문한 만큼 못 잡은 줄입니다. 대부분은
-          <strong>재고가 들어오면 풀립니다</strong> — 들어온 줄 아무도 모르는 것이 문제라,
-          줄마다 지금 재고를 함께 보여 줍니다.
+          할당이 주문한 만큼 못 잡은 줄입니다 — <strong>전사 어디에도 재고가 없어서</strong>
+          못 잡은 것입니다. 대부분은 <strong>재고가 들어오면 풀립니다</strong> — 들어온 줄
+          아무도 모르는 것이 문제라, 줄마다 지금 재고를 함께 보여 줍니다.
+          전산에는 있는데 <strong>빈에 없던</strong> 것은 출고 · 패킹의 <strong>피킹 결품</strong>입니다.
         </p>
       </div>
       <div class="page-head-actions">

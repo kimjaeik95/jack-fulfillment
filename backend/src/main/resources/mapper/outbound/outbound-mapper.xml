@@ -11,6 +11,45 @@
 -->
 <mapper namespace="com.fulfillment.outbound.dao.OutboundDao">
 
+    <select id="lockOutbound" resultType="long" flushCache="true">
+        SELECT outbound_seq FROM tb_outbound WHERE outbound_seq = #{outboundSeq} FOR UPDATE
+    </select>
+
+    <select id="lockPickAllocation" resultType="int" flushCache="true">
+        SELECT a.qty_allocated - a.qty_released
+          FROM tb_stock_alloc a
+          JOIN tb_stock s ON s.stock_seq = a.stock_seq
+          JOIN tb_location l ON l.location_seq = s.location_seq
+          JOIN tb_warehouse w ON w.warehouse_seq = l.warehouse_seq
+          JOIN tb_outbound_line ol ON ol.order_line_seq = a.order_line_seq
+          JOIN tb_outbound o ON o.outbound_seq = ol.outbound_seq
+         WHERE a.alloc_seq = #{allocSeq} AND a.stock_seq = #{stockSeq}
+           AND ol.line_seq = #{lineSeq} AND s.sku_seq = ol.sku_seq
+           AND w.plant_seq = o.plant_seq AND a.qty_allocated &gt; a.qty_released
+         FOR UPDATE OF a
+    </select>
+
+    <select id="sumPickedByAlloc" resultType="int">
+        SELECT COALESCE(SUM(p.picked_qty), 0) FROM tb_outbound_pick p
+          JOIN tb_outbound o ON o.outbound_seq = p.outbound_seq
+         WHERE p.alloc_seq = #{allocSeq} AND o.outbound_status NOT IN ('CANCELED','SHIPPED')
+    </select>
+
+    <select id="sumPickedByLineAlloc" resultType="int">
+        SELECT COALESCE(SUM(picked_qty), 0) FROM tb_outbound_pick
+         WHERE line_seq = #{lineSeq} AND alloc_seq = #{allocSeq}
+    </select>
+
+    <select id="selectTargetOrgs" resultType="long">
+        SELECT DISTINCT pl.org_seq FROM tb_stock_alloc a
+          JOIN tb_order_line ol ON ol.line_seq = a.order_line_seq
+          JOIN tb_stock s ON s.stock_seq = a.stock_seq
+          JOIN tb_location l ON l.location_seq = s.location_seq
+          JOIN tb_warehouse w ON w.warehouse_seq = l.warehouse_seq
+          JOIN tb_plant pl ON pl.plant_seq = w.plant_seq
+         WHERE ol.order_seq = #{orderSeq} AND a.qty_allocated &gt; a.qty_released
+    </select>
+
     <resultMap id="outboundMap" type="com.fulfillment.domain.Outbound">
         <id     property="outboundSeq"       column="outbound_seq"/>
         <result property="outboundNo"        column="outbound_no"/>
@@ -602,7 +641,7 @@
               SELECT COALESCE(SUM(p.picked_qty), 0) AS picked
                 FROM tb_outbound_pick p
                WHERE p.line_seq  = ol.line_seq
-                 AND p.stock_seq = s.stock_seq
+                   AND p.alloc_seq = a.alloc_seq
           ) pk ON TRUE
          WHERE ol.outbound_seq = #{outboundSeq}
          ORDER BY lo.location_id, ol.line_no
@@ -811,6 +850,7 @@
 
     <resultMap id="boxMap" type="com.fulfillment.domain.PackBox">
         <id     property="boxSeq"         column="box_seq"/>
+        <result property="waybillIssued" column="waybill_issued"/>
         <result property="outboundSeq"    column="outbound_seq"/>
         <result property="boxNo"          column="box_no"/>
         <result property="boxStatus"      column="box_status"/>
@@ -912,6 +952,7 @@
     <!-- 박스 (PAC-PG-001) -->
 
     <sql id="boxColumns">
+		EXISTS (SELECT 1 FROM tb_waybill wb WHERE wb.box_seq = b.box_seq AND wb.waybill_status = 'ISSUED') AS waybill_issued,
         b.box_seq, b.outbound_seq, b.box_no, b.box_status, b.box_type,
         b.weight_g, b.width_mm, b.height_mm, b.depth_mm,
         b.closed_by, b.closed_at, b.remark,

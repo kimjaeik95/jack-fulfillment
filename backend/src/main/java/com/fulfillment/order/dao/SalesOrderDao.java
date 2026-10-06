@@ -25,6 +25,10 @@ public interface SalesOrderDao {
 
 	Order selectBySeq(@Param("orderSeq") Long orderSeq);
 
+	Order selectForUpdate(@Param("orderSeq") Long orderSeq);
+
+	int countActiveOutbounds(@Param("orderSeq") Long orderSeq);
+
 	Order selectByNo(@Param("orderNo") String orderNo);
 
 	/**

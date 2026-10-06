@@ -1,0 +1,13 @@
+import {assert,num,dir} from './integration-client.mjs';
+import {sku,receive,order,o,pp,mgr,amount,alloc} from './integration-fixtures.mjs';
+import fs from 'node:fs';
+const s=await sku();await receive(s,6);const r=await order(s);await o.ok('POST',`/orders/${r.orderSeq}/allocate`,{});await receive(s,4);await o.ok('POST',`/orders/${r.orderSeq}/allocate`,{});
+const f=(await mgr.ok('POST','/outbounds',{orderSeqs:[r.orderSeq]})).made[0];const path=`/outbounds/${f.outboundSeq}/picks`;
+let tasks=await pp.ok('GET',`/outbounds/${f.outboundSeq}/pick-tasks`);assert.equal(tasks.length,2);assert.equal(tasks[0].stockSeq,tasks[1].stockSeq);const [x,y]=tasks;
+await pp.ok('POST',path,{lineSeq:x.lineSeq,stockSeq:x.stockSeq,allocSeq:x.allocSeq,qty:x.allocQty});
+await pp.no('POST',path,{lineSeq:y.lineSeq,stockSeq:y.stockSeq,allocSeq:y.allocSeq,qty:-1});
+tasks=await pp.ok('GET',`/outbounds/${f.outboundSeq}/pick-tasks`);assert.equal(tasks.find(t=>t.allocSeq===y.allocSeq).toPickQty,y.allocQty);
+await pp.ok('POST',path,{lineSeq:y.lineSeq,stockSeq:y.stockSeq,allocSeq:y.allocSeq,qty:y.allocQty});
+assert.equal(num(`select sum(picked_qty) from tb_outbound_pick where outbound_seq=${f.outboundSeq}`),10);
+await pp.ok('POST',`/outbounds/${f.outboundSeq}/inspects`,{lineSeq:x.lineSeq,qty:10});const box=await pp.ok('POST',`/outbounds/${f.outboundSeq}/boxes`,{});await pp.ok('POST',`/outbounds/boxes/${box.boxSeq}/lines`,{lineSeq:x.lineSeq,qty:10});await pp.ok('POST',`/outbounds/boxes/${box.boxSeq}/close`,{});await pp.ok('POST',`/outbounds/boxes/${box.boxSeq}/waybill`,{courierCode:'CJ',waybillNo:'MULTI'+Date.now()});await mgr.ok('POST',`/outbounds/${f.outboundSeq}/ship`,{});assert.equal(amount(s),0);assert.equal(alloc(s),0);
+fs.writeFileSync(dir+'/multiple-allocations.json',JSON.stringify({status:'통과',sku:s,order:r.orderNo,outbound:f.outboundNo,checks:'동일 빈 할당6+4·다른 할당 되돌림 거부·할당별 잔량·피킹10·출고후 보유0/할당0'},null,2));console.log('PASS multiple allocations on the same stock');

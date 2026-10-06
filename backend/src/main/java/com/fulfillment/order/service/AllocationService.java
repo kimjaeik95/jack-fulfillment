@@ -181,7 +181,7 @@ public class AllocationService {
 	 */
 	@Transactional
 	public Result allocateOne(LoginUser actor, Long orderSeq) {
-		Order order = mustFind(orderSeq);
+		Order order = lockOrder(orderSeq);
 		if (!order.isAllocatable() && !Order.ALLOCATED.equals(order.getOrderStatus())) {
 			throw new BusinessException(ErrorCode.IN_USE,
 					("%s 은(는) 확정 상태가 아니어서 할당할 수 없습니다. (현재 %s) "
@@ -189,6 +189,7 @@ public class AllocationService {
 							.formatted(order.getOrderNo(), statusLabel(order.getOrderStatus())));
 		}
 
+		allocDao.lockCandidateStocks(orderSeq);
 		List<AllocCandidate> candidates = allocDao.selectCandidates(orderSeq);
 		if (candidates.isEmpty()) {
 			throw new BusinessException(ErrorCode.INVALID_INPUT,
@@ -280,7 +281,8 @@ public class AllocationService {
 	 */
 	@Transactional
 	public Result releaseAll(LoginUser actor, Long orderSeq, String reasonCode) {
-		Order order = mustFind(orderSeq);
+		Order order = lockOrder(orderSeq);
+		requireNoOutbound(orderSeq);
 		if (Order.PICKING.equals(order.getOrderStatus())
 				|| Order.SHIPPED.equals(order.getOrderStatus())) {
 			throw new BusinessException(ErrorCode.IN_USE,
@@ -346,6 +348,8 @@ public class AllocationService {
 	 */
 	@Transactional
 	public int releaseLine(LoginUser actor, Order order, Long lineSeq, String reasonCode) {
+		lockOrder(order.getOrderSeq());
+		requireNoOutbound(order.getOrderSeq());
 		int released = 0;
 		for (StockAlloc alloc : allocDao.selectLiveByLine(lineSeq)) {
 			int qty = alloc.getQtyAllocated() - alloc.getQtyReleased();
@@ -441,9 +445,9 @@ public class AllocationService {
 	 * 빈은 재고가 많은 순이다 (질의가 그 순서로 준다). 한 빈에서 다 차면
 	 * 그 줄은 더 돌지 않는다.
 	 *
-	 * StockLedger 가 행을 잠그고 다시 세므로, 후보를 읽은 뒤 남이 가져간
-	 * 재고는 여기서 예외로 걸린다. 그때 통째로 실패시키지 않고 그 빈만
-	 * 건너뛴다 — 다음 빈이나 다음 센터에 남아 있을 수 있다.
+	 * 후보 재고는 순번 순서로 잠근 뒤 읽었으므로 가용량이 도중에 바뀌지 않는다.
+	 * 재고 변경 실패를 잡아 계속 진행하면 트랜잭션이 rollback-only인 상태로
+	 * 성공 응답을 만들 수 있으므로, 예외는 그대로 전파한다.
 	 */
 	private void allocateInPlant(LoginUser actor, Order order, List<AllocCandidate> candidates,
 			Long plantSeq, Map<Long, Integer> need, Map<Long, Integer> got) {
@@ -458,14 +462,12 @@ public class AllocationService {
 			}
 
 			int take = Math.min(left, c.getQtyAvailable());
-			try {
-				stockLedger.apply(actor, c.getStockSeq(),
-						StockLedger.Movement.of(MOVE_ALLOCATE, StockLedger.ALLOCATED, take,
-								REF_ORDER, order.getOrderNo()));
-			} catch (BusinessException e) {
-				// 읽은 뒤 남이 가져간 빈이다. 이 빈만 포기하고 다음으로 간다.
+			if (take <= 0) {
 				continue;
 			}
+			stockLedger.apply(actor, c.getStockSeq(),
+					StockLedger.Movement.of(MOVE_ALLOCATE, StockLedger.ALLOCATED, take,
+							REF_ORDER, order.getOrderNo()));
 
 			allocDao.insertAlloc(StockAlloc.builder()
 					.stockSeq(c.getStockSeq())
@@ -548,6 +550,21 @@ public class AllocationService {
 					"주문을 찾을 수 없습니다. (%s)".formatted(orderSeq));
 		}
 		return order;
+	}
+
+	private Order lockOrder(Long orderSeq) {
+		Order order = orderDao.selectForUpdate(orderSeq);
+		if (order == null) {
+			throw new BusinessException(ErrorCode.NOT_FOUND, "주문을 찾을 수 없습니다.");
+		}
+		return order;
+	}
+
+	private void requireNoOutbound(Long orderSeq) {
+		if (orderDao.countActiveOutbounds(orderSeq) > 0) {
+			throw new BusinessException(ErrorCode.IN_USE,
+					"출고지시가 있어 주문 취소·할당해제를 할 수 없습니다. 출고지시를 먼저 취소하세요.");
+		}
 	}
 
 	private String statusLabel(String status) {

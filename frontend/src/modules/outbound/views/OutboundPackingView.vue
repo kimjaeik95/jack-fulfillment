@@ -523,8 +523,8 @@ const columns = [
           <button
             v-else
             class="btn btn-sm"
-            :disabled="!canManageBox"
-            title="송장이 붙기 전까지는 다시 담을 수 있습니다"
+            :disabled="!canManageBox || b.waybillIssued"
+            :title="b.waybillIssued ? '송장을 취소한 뒤 다시 담을 수 있습니다' : '송장이 붙기 전까지는 다시 담을 수 있습니다'"
             @click="reopenBox(b)"
           >
             다시 담기

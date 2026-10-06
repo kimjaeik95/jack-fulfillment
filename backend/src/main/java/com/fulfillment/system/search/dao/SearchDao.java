@@ -3,6 +3,7 @@ package com.fulfillment.system.search.dao;
 import com.fulfillment.system.search.dto.SearchHit;
 import com.fulfillment.system.search.dto.SearchResponse.ChainStep;
 import org.apache.ibatis.annotations.Param;
+import com.fulfillment.common.security.ScopeFilter;
 
 import java.util.List;
 
@@ -15,23 +16,25 @@ import java.util.List;
  */
 public interface SearchDao {
 
+	boolean canAccess(@Param("kind") String kind, @Param("seq") Long seq, @Param("scope") ScopeFilter scope);
+
 	/* ── 무엇이 걸리나 ──────────────────────────────────────── */
 
-	List<SearchHit> findPurchaseRequests(@Param("q") String q, @Param("limit") int limit);
+	List<SearchHit> findPurchaseRequests(@Param("q") String q, @Param("limit") int limit, @Param("scope") ScopeFilter scope);
 
-	List<SearchHit> findPurchaseOrders(@Param("q") String q, @Param("limit") int limit);
+	List<SearchHit> findPurchaseOrders(@Param("q") String q, @Param("limit") int limit, @Param("scope") ScopeFilter scope);
 
-	List<SearchHit> findInbounds(@Param("q") String q, @Param("limit") int limit);
+	List<SearchHit> findInbounds(@Param("q") String q, @Param("limit") int limit, @Param("scope") ScopeFilter scope);
 
 	/** 주문번호 · 외부주문번호 · 수령인 · 연락처로 찾는다 */
-	List<SearchHit> findOrders(@Param("q") String q, @Param("limit") int limit);
+	List<SearchHit> findOrders(@Param("q") String q, @Param("limit") int limit, @Param("scope") ScopeFilter scope);
 
-	List<SearchHit> findOutbounds(@Param("q") String q, @Param("limit") int limit);
+	List<SearchHit> findOutbounds(@Param("q") String q, @Param("limit") int limit, @Param("scope") ScopeFilter scope);
 
 	/** 취소된 송장도 찾는다. '취소됐다' 가 답인 경우가 많다 */
-	List<SearchHit> findWaybills(@Param("q") String q, @Param("limit") int limit);
+	List<SearchHit> findWaybills(@Param("q") String q, @Param("limit") int limit, @Param("scope") ScopeFilter scope);
 
-	List<SearchHit> findSkus(@Param("q") String q, @Param("limit") int limit);
+	List<SearchHit> findSkus(@Param("q") String q, @Param("limit") int limit, @Param("scope") ScopeFilter scope);
 
 	/* ── 구매 사슬 ──────────────────────────────────────────── */
 

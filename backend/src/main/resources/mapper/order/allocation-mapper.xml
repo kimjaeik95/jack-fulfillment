@@ -12,6 +12,14 @@
 -->
 <mapper namespace="com.fulfillment.order.dao.AllocationDao">
 
+    <!-- 모든 주문이 같은 순서로 잠근 뒤, 최신 가용량으로 후보를 다시 계산한다. -->
+    <select id="lockCandidateStocks" resultType="long" flushCache="true">
+        SELECT s.stock_seq FROM tb_stock s
+         WHERE s.sku_seq IN (SELECT sku_seq FROM tb_order_line
+                            WHERE order_seq = #{orderSeq} AND line_status != 'CANCELED')
+         ORDER BY s.stock_seq FOR UPDATE OF s
+    </select>
+
     <resultMap id="candidateMap" type="com.fulfillment.order.dto.AllocCandidate">
         <result property="lineSeq"      column="line_seq"/>
         <result property="lineNo"       column="line_no"/>

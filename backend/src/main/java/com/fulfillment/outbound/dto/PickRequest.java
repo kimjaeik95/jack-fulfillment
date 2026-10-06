@@ -23,6 +23,7 @@ public record PickRequest(
 		Long stockSeq,
 
 		/** 소진한 할당. 화면이 집을 목록에서 그대로 돌려준다 */
+		@NotNull(message = "피킹할 할당을 선택하세요.")
 		Long allocSeq,
 
 		@NotNull(message = "집은 수량을 입력하세요.")

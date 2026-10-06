@@ -32,7 +32,7 @@ export const routes = [
     path: '/orders/shortages',
     name: 'order-shortages',
     component: () => import('./views/ShortageView.vue'),
-    meta: { title: '결품 관리', perm: 'ORD_ALLOC' },
+    meta: { title: '전사재고 결품관리', perm: 'ORD_ALLOC' },
   },
 ]
 

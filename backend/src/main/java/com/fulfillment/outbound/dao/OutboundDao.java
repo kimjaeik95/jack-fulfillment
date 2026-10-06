@@ -29,6 +29,17 @@ import java.util.List;
  */
 public interface OutboundDao {
 
+	Long lockOutbound(@Param("outboundSeq") Long outboundSeq);
+
+	Integer lockPickAllocation(@Param("allocSeq") Long allocSeq,
+			@Param("lineSeq") Long lineSeq, @Param("stockSeq") Long stockSeq);
+
+	int sumPickedByAlloc(@Param("allocSeq") Long allocSeq);
+
+	int sumPickedByLineAlloc(@Param("lineSeq") Long lineSeq, @Param("allocSeq") Long allocSeq);
+
+	List<Long> selectTargetOrgs(@Param("orderSeq") Long orderSeq);
+
 	/* ── 출고대상 (OUT-PG-001) ──────────────────────────────── */
 
 	/** 할당까지 끝났는데 아직 지시가 안 만들어진 주문 */

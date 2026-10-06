@@ -50,7 +50,7 @@ async function fetchPage() {
     const data = await outboundApi.chain({
       keyword: filters.keyword.trim() || null,
       plantId: filters.plantId || null,
-      brokenOnly: filters.brokenOnly || null,
+      brokenOnly: filters.brokenOnly || 'N',
       fromDate: filters.fromDate || null,
       toDate: filters.toDate || null,
       page: page.value,

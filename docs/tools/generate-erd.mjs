@@ -105,7 +105,7 @@ assert(tables.get('tb_user').columns.some(c => c.name === 'locked_until'));
 assert(tables.get('tb_inbound').columns.some(c => c.name === 'closed_at'));
 assert(!tables.get('tb_location').constraints.some(c => c.name === 'uk_location_id'));
 const groups = [
-  { name: '공통 · 운영', color: '#64748b', tables: ['code_group', 'code', 'menu', 'policy', 'audit_log', 'audit_log_detail', 'upload_history', 'upload_error', 'doc_number'] },
+  { name: '공통 · 운영', color: '#64748b', tables: ['code_group', 'code', 'menu', 'policy', 'audit_log', 'audit_log_detail', 'upload_history', 'upload_error', 'doc_number', 'notification', 'notification_read'] },
   { name: '조직 · 권한', color: '#6366f1', tables: ['company', 'org', 'user', 'role', 'user_role', 'permission', 'permission_action', 'role_permission', 'role_org_scope'] },
   { name: '거점 · 거래처', color: '#0891b2', tables: ['plant', 'warehouse', 'location', 'partner', 'partner_address'] },
   { name: '상품 · 채널', color: '#0d9488', tables: ['category', 'brand', 'product', 'sku', 'channel', 'channel_sku'] },
@@ -114,6 +114,7 @@ const groups = [
   { name: '입고 · 검수', color: '#e11d48', tables: ['inbound', 'inbound_line', 'inbound_inspect', 'inbound_putaway', 'inbound_correct', 'inbound_correct_line'] },
   { name: '주문', color: '#2563eb', tables: ['order', 'order_line'] },
   { name: '출고 · 피킹', color: '#7c3aed', tables: ['outbound', 'outbound_line', 'outbound_pick'] },
+  { name: '패킹 · 배송', color: '#059669', tables: ['pack_box', 'pack_box_line', 'waybill', 'courier', 'delivery_event'] },
 ];
 groups.forEach((g, i) => g.tables.forEach(n => { const t = tables.get('tb_' + n); assert(t, n); t.group = i; }));
 assert([...tables.values()].every(t => Number.isInteger(t.group)));

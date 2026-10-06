@@ -28,6 +28,8 @@ public interface AllocationDao {
 	 */
 	List<AllocCandidate> selectCandidates(@Param("orderSeq") Long orderSeq);
 
+	List<Long> lockCandidateStocks(@Param("orderSeq") Long orderSeq);
+
 	void insertAlloc(StockAlloc alloc);
 
 	/** 푼 것까지 포함한 전체 내역 — 경위를 보여 준다 */

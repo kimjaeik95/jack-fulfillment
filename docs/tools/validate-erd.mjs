@@ -14,12 +14,12 @@ try {
   page.on('request', r => { if (/^https?:/.test(r.url())) requests.push(r.url()); });
   await page.goto(new URL('../erd.html', import.meta.url).href);
   assert.deepEqual(errors, [], 'Browser startup errors');
-  assert.equal(await page.locator('.card').count(), 51);
-  assert.equal(await page.locator('.edge').count(), 81);
+  assert.equal(await page.locator('.card').count(), 58);
+  assert.equal(await page.locator('.edge').count(), 92);
   await page.locator('#allColumns').check();
-  assert.equal(await page.locator('.card .row').count(), 665);
+  assert.equal(await page.locator('.card .row').count(), 756);
   assert.equal(await page.locator('#card-tb_user [data-col="locked_until"]').count(), 1);
-  assert.equal(await page.locator('#versionRange').textContent(), 'V1–V21');
+  assert.equal(await page.locator('#versionRange').textContent(), 'V1–V37');
   const schema = await page.locator('#schema').textContent().then(JSON.parse);
   const outboundLine = schema.tables.find(t => t.name === 'tb_outbound_line');
   assert.equal(outboundLine.columns.filter(c => c.name === 'remain_qty').length, 1);
@@ -27,6 +27,16 @@ try {
   assert.equal(schema.relationships.filter(r => r.from === 'tb_outbound_pick').length, 4);
   assert(schema.tables.some(t => t.name === 'tb_partner'));
   assert(!schema.tables.some(t => t.name === 'tb_supplier'));
+  const inbound = schema.tables.find(t => t.name === 'tb_inbound');
+  assert(inbound.constraints.find(c => c.name === 'ck_inbound_type').sql.includes("'DIRECT'"));
+  for (const name of ['box_count', 'pallet_count']) assert(inbound.columns.some(c => c.name === name));
+  assert(outboundLine.columns.some(c => c.name === 'inspected_qty'));
+  const waybill = schema.tables.find(t => t.name === 'tb_waybill');
+  assert(waybill.columns.some(c => c.name === 'delivery_status'));
+  assert(waybill.indexes.find(i => i.name === 'ux_waybill_box').sql.includes("WHERE waybill_status = 'ISSUED'"));
+  assert(schema.relationships.some(r => r.name === 'fk_waybill_redlv' && r.from === r.to));
+  const notificationRead = schema.tables.find(t => t.name === 'tb_notification_read');
+  assert.deepEqual(notificationRead.columns.filter(c => c.pk).map(c => c.name), ['notification_seq', 'user_seq']);
   const overlaps = await page.locator('.card').evaluateAll(cards => {
     const boxes = cards.map(c => ({ name: c.id, x: c.offsetLeft, y: c.offsetTop, w: c.offsetWidth, h: c.offsetHeight }));
     return boxes.flatMap((a, i) => boxes.slice(i + 1).filter(b => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y).map(b => [a.name, b.name]));
@@ -39,7 +49,7 @@ try {
   assert((await page.locator('#detail').textContent()).includes('locked_until'));
   await page.locator('#search').fill('');
   await page.locator('#onlyRelated').check();
-  assert((await page.locator('.card').count()) < 51);
+  assert((await page.locator('.card').count()) < 58);
   assert((await page.locator('.edge.hot').count()) > 0);
   const target = page.locator('#detail .relation').first();
   const destination = await target.getAttribute('data-table');
@@ -56,6 +66,16 @@ try {
   assert.equal(await page.locator('#detail .relation').count(), 4);
   await page.locator('#detail [data-table="tb_stock"]').click();
   assert.equal(await page.locator('#detail h2').textContent(), 'tb_stock');
+  await page.locator('#reset').click();
+  await page.locator('#group').selectOption('9');
+  assert.equal(await page.locator('.card').count(), 5);
+  await page.locator('#nav [data-table="tb_waybill"]').click();
+  await page.locator('#detail [data-table="tb_delivery_event"]').click();
+  assert.equal(await page.locator('#detail h2').textContent(), 'tb_delivery_event');
+  await page.locator('#reset').click();
+  await page.locator('#search').fill('tb_notification_read');
+  await page.locator('#nav [data-table="tb_notification_read"]').click();
+  assert.equal(await page.locator('#detail .relation').count(), 2);
   await page.locator('#search').fill('does_not_exist');
   assert(await page.locator('#empty').isVisible());
   await page.locator('#reset').click();
@@ -66,5 +86,5 @@ try {
   const screenshot = path.join(dir, 'erd.png');
   await page.screenshot({ path: screenshot });
   assert.deepEqual(errors, []); assert.deepEqual(requests, []);
-  console.log(JSON.stringify({ status: 'passed', checks: ['51 tables', '665 columns', '81 FK edges', 'ALTER columns', 'no card overlaps', 'search', 'relation navigation', 'group filter', 'empty state', 'zoom', 'offline', 'no browser errors'], screenshot, html: fileURLToPath(new URL('../erd.html', import.meta.url)) }));
+  console.log(JSON.stringify({ status: 'passed', checks: ['58 tables', '756 columns', '92 FK edges', 'V1–V37', 'ALTER columns and constraints', 'partial indexes', 'self references', 'composite PK', 'no card overlaps', 'search', 'relation navigation', 'group filter', 'empty state', 'zoom', 'offline', 'no browser errors'], screenshot, html: fileURLToPath(new URL('../erd.html', import.meta.url)) }));
 } finally { await browser.close(); }

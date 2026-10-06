@@ -29,6 +29,7 @@ import java.util.List;
 @NoArgsConstructor(access = AccessLevel.PUBLIC)
 @AllArgsConstructor(access = AccessLevel.PRIVATE)
 public class PackBox {
+	private boolean waybillIssued;
 
 	private Long boxSeq;
 	private Long outboundSeq;

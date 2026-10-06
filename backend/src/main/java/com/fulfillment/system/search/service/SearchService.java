@@ -1,6 +1,10 @@
 package com.fulfillment.system.search.service;
 
 import com.fulfillment.common.security.LoginUser;
+import com.fulfillment.common.security.DataScopeResolver;
+import com.fulfillment.common.security.ScopeFilter;
+import com.fulfillment.common.exception.BusinessException;
+import com.fulfillment.common.exception.ErrorCode;
 import com.fulfillment.common.security.PermissionChecker;
 import com.fulfillment.system.search.dao.SearchDao;
 import com.fulfillment.system.search.dto.SearchHit;
@@ -12,7 +16,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.function.BiFunction;
+
 
 /**
  * 통합검색 (COM-PG-013).
@@ -42,16 +46,23 @@ public class SearchService {
 	private static final int LIMIT = 20;
 
 	private final SearchDao searchDao;
+	private final DataScopeResolver dataScopes;
 	private final PermissionChecker permissionChecker;
 
-	public SearchService(SearchDao searchDao, PermissionChecker permissionChecker) {
+	public SearchService(SearchDao searchDao, PermissionChecker permissionChecker, DataScopeResolver dataScopes) {
 		this.searchDao = searchDao;
+		this.dataScopes = dataScopes;
 		this.permissionChecker = permissionChecker;
 	}
 
 	/** 문서 종류 하나 — 무슨 권한이 필요하고 어떻게 찾나 */
 	private record Kind(String code, String label, String perm,
-			BiFunction<String, Integer, List<SearchHit>> finder) {
+			Finder finder) {
+	}
+
+	@FunctionalInterface
+	private interface Finder {
+		List<SearchHit> apply(String q, int limit, ScopeFilter scope);
 	}
 
 	private List<Kind> kinds() {
@@ -84,7 +95,7 @@ public class SearchService {
 				hidden.add(kind.label());
 				continue;
 			}
-			hits.addAll(kind.finder().apply(q, LIMIT));
+			hits.addAll(kind.finder().apply(q, LIMIT, dataScopes.forRead(actor, kind.perm())));
 		}
 
 		/*
@@ -104,8 +115,17 @@ public class SearchService {
 		return chainOf(actor, new SearchHit(kind, null, null, seq, null, null, null, null, null, null));
 	}
 
+	private boolean visible(LoginUser actor, String code, Long seq) {
+		Kind kind = kinds().stream().filter(k -> k.code().equals(code)).findFirst().orElse(null);
+		return kind != null && permissionChecker.can(actor, kind.perm(), "R")
+				&& searchDao.canAccess(code, seq, dataScopes.forRead(actor, kind.perm()));
+	}
+
 	private DocumentChain chainOf(LoginUser actor, SearchHit hit) {
 		String kind = hit.kind();
+		if (!visible(actor, kind, hit.seq())) {
+			throw new BusinessException(ErrorCode.SCOPE_VIOLATION, "접근할 수 없는 문서입니다.");
+		}
 
 		// 구매 사슬
 		if (List.of("PUR_REQUEST", "PUR_ORDER", "INBOUND").contains(kind)) {
@@ -115,7 +135,8 @@ public class SearchService {
 				// 펼치지 않는다 — 발주 화면이 그 아래를 보여 준다.
 				return null;
 			}
-			List<ChainStep> steps = searchDao.purchaseChain(requestSeq);
+			List<ChainStep> steps = searchDao.purchaseChain(requestSeq).stream()
+					.filter(step -> visible(actor, step.kind(), step.seq())).toList();
 			return steps.isEmpty() ? null
 					: new DocumentChain("PURCHASE", "구매요청 → 발주 → 입고", steps);
 		}
@@ -126,7 +147,8 @@ public class SearchService {
 			if (orderSeq == null) {
 				return null;
 			}
-			List<ChainStep> steps = searchDao.salesChain(orderSeq);
+			List<ChainStep> steps = searchDao.salesChain(orderSeq).stream()
+					.filter(step -> visible(actor, step.kind(), step.seq())).toList();
 			return steps.isEmpty() ? null
 					: new DocumentChain("SALES", "주문 → 출고지시 → 송장 → 배송", steps);
 		}
