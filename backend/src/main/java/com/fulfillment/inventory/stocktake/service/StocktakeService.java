@@ -262,7 +262,7 @@ public class StocktakeService {
 		}
 		if (keyword != null && bySku == 0) {
 			return head + (" SKU 조건 '%s' 에 맞는 재고가 이 창고에 없습니다. 창고 전체에는 "
-					+ "%d 건이 있습니다 — 제품명 일부나 SKU 코드 일부로 넣거나, 재고에서 "
+					+ "%d 건이 있습니다 — 스타일명 일부나 SKU 코드 일부로 넣거나, 재고에서 "
 					+ "직접 고르세요.").formatted(keyword, all);
 		}
 		// 각각은 걸리는데 함께 걸면 0 — 겹치는 재고가 없다는 뜻이다

@@ -12,7 +12,7 @@
  * 계산한다 — 화면이 보낸 변동량을 믿으면 화면이 낡은 수량을 보고 있었을 때
  * 엉뚱한 값이 반영된다. 화면은 미리보기만 한다.
  */
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { codeLabel, codeOptions } from '@/api/codes.js'
 import * as opsApi from '@/api/stockOps.js'
@@ -43,12 +43,12 @@ const loading = ref(false)
 const loadError = ref('')
 
 const filters = reactive({
-  keyword: '',
+  keyword: String(route.query.keyword || ''),
   plantId: '',
   warehouseId: '',
   adjustStatus: '',
-  fromDate: stockApi.daysAgo(30),
-  toDate: stockApi.daysAgo(0),
+  fromDate: route.query.keyword ? '' : stockApi.daysAgo(30),
+  toDate: route.query.keyword ? '' : stockApi.daysAgo(0),
 })
 
 async function fetchPage() {
@@ -79,6 +79,12 @@ async function goPage(n) {
   page.value = n
   await fetchPage()
 }
+
+watch(() => route.query.keyword, (keyword) => {
+  Object.assign(filters, { keyword: String(keyword || ''), plantId: '', warehouseId: '',
+    adjustStatus: '', fromDate: keyword ? '' : stockApi.daysAgo(30), toDate: keyword ? '' : stockApi.daysAgo(0) })
+  search()
+})
 
 onMounted(async () => {
   await Promise.all([hierarchy.loadPlants(false), hierarchy.loadWarehouses(false)])

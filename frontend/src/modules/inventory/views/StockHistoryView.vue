@@ -62,10 +62,10 @@ const hFilters = reactive({
   warehouseId: '',
   moveType: '',
   qtyField: '',
-  refType: '',
-  refNo: '',
-  fromDate: defaultFrom(),
-  toDate: stockApi.daysAgo(0),
+  refType: String(route.query.refType || ''),
+  refNo: String(route.query.refNo || ''),
+  fromDate: String(route.query.fromDate || defaultFrom()),
+  toDate: String(route.query.toDate || stockApi.daysAgo(0)),
 })
 
 async function fetchHistory() {
@@ -182,13 +182,18 @@ function clearStock() {
  * 남아 전체를 보는 줄 알고 한 줄만 보게 된다.
  */
 watch(
-  () => [route.query.stockSeq, route.query.tab],
-  ([seq, t]) => {
+  () => [route.query.stockSeq, route.query.tab, route.query.refNo, route.query.refType,
+    route.query.fromDate, route.query.toDate],
+  ([seq, t, refNo, refType, fromDate, toDate]) => {
     const next = seq ? Number(seq) : null
     if (t === 'alloc' || t === 'history') tab.value = t
-    if (next === stockSeq.value) return
     stockSeq.value = next
-    hFilters.fromDate = defaultFrom()
+    Object.assign(hFilters, {
+      keyword: '', plantId: '', warehouseId: '', moveType: '', qtyField: '',
+      refNo: String(refNo || ''), refType: String(refType || ''),
+      fromDate: String(fromDate || defaultFrom()),
+      toDate: String(toDate || stockApi.daysAgo(0)),
+    })
     aFilters.fromDate = defaultFrom()
     refresh()
   },
@@ -295,10 +300,11 @@ const QTY_FIELD = { ON_HAND: '보유', ALLOCATED: '할당', UNSELLABLE: '판매�
           v-model="hFilters.keyword"
           class="grow"
           label="검색어"
-          placeholder="SKU / 제품명 / 빈코드 / 전표번호"
+          placeholder="SKU / 스타일명 / 빈코드 / 전표번호"
           @enter="searchHistory()"
         />
         <FormField v-model="hFilters.fromDate" label="시작일" type="date" @change="searchHistory()" />
+        <FormField v-model="hFilters.refNo" label="전표번호" placeholder="DEF-20261006-0001" @enter="searchHistory()" />
         <FormField v-model="hFilters.toDate" label="종료일" type="date" @change="searchHistory()" />
         <FormField
           v-model="hFilters.plantId"
@@ -416,7 +422,7 @@ const QTY_FIELD = { ON_HAND: '보유', ALLOCATED: '할당', UNSELLABLE: '판매�
           v-model="aFilters.keyword"
           class="grow"
           label="검색어"
-          placeholder="SKU / 제품명 / 빈코드 / 주문번호"
+          placeholder="SKU / 스타일명 / 빈코드 / 주문번호"
           @enter="searchAllocs()"
         />
         <FormField v-model="aFilters.orderNo" label="주문번호" mono @enter="searchAllocs()" />

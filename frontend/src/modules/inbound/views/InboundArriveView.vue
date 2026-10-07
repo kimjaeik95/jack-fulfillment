@@ -388,7 +388,7 @@ const denyReason = computed(() => session.denyReason('INB_ARRIVE', 'C'))
           <tr>
             <th style="width: 36px" class="right">#</th>
             <th style="width: 175px">SKU</th>
-            <th style="width: 170px">제품</th>
+            <th style="width: 170px">스타일</th>
             <th style="width: 76px" class="right">예정</th>
             <th style="width: 96px">내린 개수</th>
             <th style="width: 76px" class="right">차이</th>

@@ -191,7 +191,7 @@ function openCreate() {
 /**
  * SKU 를 담을 때 단가를 미리 채운다.
  *
- * 비워 두면 서버가 제품 원가를 복사하지만, 화면에서 금액을 못 보면
+ * 비워 두면 서버가 스타일 원가를 복사하지만, 화면에서 금액을 못 보면
  * 얼마짜리 발주를 내는지 모르는 채로 확정하게 된다.
  */
 function addLine(sku) {
@@ -840,7 +840,7 @@ const createDenyReason = computed(() => session.denyReason('PUR_PO_ISSUE', 'C'))
         <thead>
           <tr>
             <th style="width: 170px">SKU</th>
-            <th style="width: 160px">제품</th>
+            <th style="width: 160px">스타일</th>
             <th style="width: 88px">발주수량</th>
             <th style="width: 104px">단가</th>
             <th style="width: 96px" class="right">금액</th>
@@ -868,7 +868,7 @@ const createDenyReason = computed(() => session.denyReason('PUR_PO_ISSUE', 'C'))
                 type="number"
                 class="input"
                 min="0"
-                placeholder="제품 원가"
+                placeholder="스타일 원가"
               />
             </td>
             <td class="num">{{ won(Number(l.orderQty || 0) * Number(l.unitPrice || 0)) }}</td>
@@ -953,7 +953,7 @@ const createDenyReason = computed(() => session.denyReason('PUR_PO_ISSUE', 'C'))
           <tr>
             <th style="width: 32px" class="right">#</th>
             <th style="width: 170px">SKU</th>
-            <th style="width: 150px">제품</th>
+            <th style="width: 150px">스타일</th>
             <th style="width: 64px" class="right">발주</th>
             <th style="width: 64px" class="right">입고</th>
             <th style="width: 64px" class="right">잔량</th>

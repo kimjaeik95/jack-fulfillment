@@ -293,7 +293,7 @@ const denyReason = computed(() => session.denyReason('PUR_PO_ISSUE', 'R'))
           <tr>
             <th style="width: 32px" class="right">#</th>
             <th style="width: 170px">SKU</th>
-            <th style="width: 160px">제품</th>
+            <th style="width: 160px">스타일</th>
             <th style="width: 64px" class="right">발주</th>
             <th style="width: 64px" class="right">입고</th>
             <th style="width: 64px" class="right">잔량</th>

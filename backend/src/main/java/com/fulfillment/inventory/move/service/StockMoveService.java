@@ -110,10 +110,11 @@ public class StockMoveService {
 									stock.locationFullCode(), stock.getSkuId()));
 		}
 
+		String refNo = docNumbers.next(DocNumbers.UNSELLABLE);
 		ledger.apply(actor, stock.getStockSeq(), new Movement(
 				"UNSELLABLE", StockLedger.UNSELLABLE, delta,
 				request.reasonCode(), REASON_INSPECT, request.remark(),
-				null, null));
+				"UNSELLABLE", refNo));
 
 		Stock after = stockDao.selectBySeq(stock.getStockSeq());
 		auditRecorder.recordAction(actor,
@@ -123,7 +124,7 @@ public class StockMoveService {
 						delta > 0 ? "판매불가 전환" : "정상 복귀", Math.abs(delta),
 						request.reasonCode()));
 
-		return MoveResultResponse.of(null, 1, List.of(StockResponse.of(after)));
+		return MoveResultResponse.of(refNo, 1, List.of(StockResponse.of(after)));
 	}
 
 	/* ------------------------------------------------------------------ */

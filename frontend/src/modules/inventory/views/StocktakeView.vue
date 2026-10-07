@@ -16,6 +16,7 @@
  * '없는 값을 없는 대로 그리는' 것이다.
  */
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { codeOptions } from '@/api/codes.js'
 import * as opsApi from '@/api/stockOps.js'
 import * as stockApi from '@/api/stock.js'
@@ -31,6 +32,7 @@ import CodeBadge from '@/components/CodeBadge.vue'
 import StockPicker from '../components/StockPicker.vue'
 import SkuPicker from '@/components/SkuPicker.vue'
 
+const route = useRoute()
 const hierarchy = useHierarchyStore()
 const session = useSessionStore()
 const toast = useToastStore()
@@ -46,13 +48,13 @@ const loading = ref(false)
 const loadError = ref('')
 
 const filters = reactive({
-  keyword: '',
+  keyword: String(route.query.keyword || ''),
   plantId: '',
   warehouseId: '',
   takeStatus: '',
-  openOnly: 'Y',
-  fromDate: stockApi.daysAgo(180),
-  toDate: stockApi.daysAgo(-365),
+  openOnly: route.query.keyword ? '' : 'Y',
+  fromDate: route.query.keyword ? '' : stockApi.daysAgo(180),
+  toDate: route.query.keyword ? '' : stockApi.daysAgo(-365),
 })
 
 async function fetchPage() {
@@ -83,6 +85,13 @@ async function goPage(n) {
   page.value = n
   await fetchPage()
 }
+
+watch(() => route.query.keyword, (keyword) => {
+  Object.assign(filters, { keyword: String(keyword || ''), plantId: '', warehouseId: '',
+    takeStatus: '', openOnly: keyword ? '' : 'Y',
+    fromDate: keyword ? '' : stockApi.daysAgo(180), toDate: keyword ? '' : stockApi.daysAgo(-365) })
+  search()
+})
 
 onMounted(async () => {
   await Promise.all([hierarchy.loadPlants(false), hierarchy.loadWarehouses(false)])
@@ -351,7 +360,7 @@ const clearTargets = () => {
  *
  * 조건으로 훑는 것과 달리 창고의 재고 목록에서 고른다. 지정실사는
  * "이것만 세라" 라서 조건으로 표현되지 않는 경우가 많고, 무엇보다
- * 목록에서 고르면 <b>없는 제품을 넣을 방법이 없다</b>.
+ * 목록에서 고르면 <b>없는 스타일을 넣을 방법이 없다</b>.
  *
  * 고른 재고를 바로 보낸다. 담을 것이 보통 몇 건이고, 모아 두었다
  * 한꺼번에 보내면 "담았는데 왜 목록에 없지" 가 된다.
@@ -579,7 +588,7 @@ const extra = reactive({ locationId: '', skuId: '', qty: 1, reasonCode: '', rema
  * 고른 SKU 의 전체 정보.
  *
  * extra.skuId 만 두면 화면에 코드밖에 안 남아, 고른 뒤에 그것이 맞는 물건인지
- * 확인할 길이 없다. 현장에서 바코드를 보고 고르는 화면이라 제품명이 보여야 한다.
+ * 확인할 길이 없다. 현장에서 바코드를 보고 고르는 화면이라 스타일명이 보여야 한다.
  */
 const extraSku = ref(null)
 const pickingExtraSku = ref(false)
@@ -852,7 +861,7 @@ const progressPct = (t) =>
           "
         />
         <!--
-          정확한 SKU 코드를 적는 칸이 아니다. SKU코드와 제품명에 부분일치로
+          정확한 SKU 코드를 적는 칸이 아니다. SKU코드와 스타일명에 부분일치로
           걸어 대상을 좁히는 검색어이고, 비우면 창고 전체다. 라벨이 'SKU'
           로 시작하면 PRD-24001-BK-M 을 적고 싶어지는데 그럴 필요가 없다.
 
@@ -863,7 +872,7 @@ const progressPct = (t) =>
           v-model="form.targetSkuKeyword"
           label="품목 검색어"
           placeholder="예: 티셔츠, 24001, BK"
-          help="정확한 코드가 아니어도 됩니다. 제품명·SKU코드에 이 글자가 들어간 것만 셉니다. 비우면 창고 전체입니다."
+          help="정확한 코드가 아니어도 됩니다. 스타일명·SKU코드에 이 글자가 들어간 것만 셉니다. 비우면 창고 전체입니다."
         />
         <FormField
           v-model="form.blindYn"
@@ -974,7 +983,7 @@ const progressPct = (t) =>
             대상 생성
           </button>
           <!-- 조건으로 표현되지 않는 '이것만' 을 위해. 목록에서 고르므로
-               없는 제품을 넣을 방법이 없다. -->
+               없는 스타일을 넣을 방법이 없다. -->
           <button
             class="btn"
             :disabled="detailBusy || !canCount"
@@ -1312,8 +1321,8 @@ const progressPct = (t) =>
       @confirm="doCancel()"
     />
 
-    <!-- 창고의 재고에서 직접 고른다. 목록에서 고르므로 없는 제품을 넣을
-         방법이 없고, 제품명을 외울 필요도 없다. -->
+    <!-- 창고의 재고에서 직접 고른다. 목록에서 고르므로 없는 스타일을 넣을
+         방법이 없고, 스타일명을 외울 필요도 없다. -->
     <!--
       multi 를 켠다. 실사 대상은 수십~수백 건을 담는 일이라 한 건씩 창이
       닫히면 검색 조건을 매번 다시 넣어야 한다. 조정 · 이동 · 판매불가는

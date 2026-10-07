@@ -20,7 +20,7 @@ import java.util.List;
  * 이 들어오고, 그 번호로 재고 이력에서 짝이 되는 두 줄을 함께 찾을 수 있다.
  */
 public record MoveResultResponse(
-		/** 전표번호. 판매불가 전환처럼 전표가 없는 경우에는 비어 있다. */
+		/** 전표번호. 이동은 MOV, 판매불가 전환 · 정상 복구는 DEF. */
 		String refNo,
 		/** 이 변경이 남긴 이력 건수 — 이동은 최대 4 줄이다 */
 		int historyCount,

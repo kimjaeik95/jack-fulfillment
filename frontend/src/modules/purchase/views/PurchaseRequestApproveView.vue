@@ -367,7 +367,7 @@ const overdueCount = computed(() => rows.value.filter((r) => r.overdue).length)
           <tr>
             <th style="width: 36px" class="right">#</th>
             <th style="width: 175px">SKU</th>
-            <th style="width: 160px">제품</th>
+            <th style="width: 160px">스타일</th>
             <th style="width: 76px" class="right">현재 가용</th>
             <th style="width: 70px" class="right">요청</th>
             <th style="width: 92px">승인수량</th>

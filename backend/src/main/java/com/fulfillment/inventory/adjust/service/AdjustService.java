@@ -412,13 +412,24 @@ public class AdjustService {
 	 */
 	private void requireWithinLimit(LoginUser actor, StockAdjust adjust,
 			List<StockAdjustLine> lines) {
+		boolean invalid = actor.getPolicies().stream()
+				.filter(p -> "LIMIT".equals(p.getPolicyType()))
+				.filter(p -> p.getPermId() == null || PERM_APPROVE.equals(p.getPermId()))
+				.anyMatch(p -> p.getPermId() == null
+						|| (p.getLimitAmount() != null && p.getLimitAmount() > 0)
+						|| p.getLimitQty() == null || p.getLimitQty() <= 0
+						|| !("BLOCK".equals(p.getEnforceLevel()) || "APPROVAL".equals(p.getEnforceLevel())));
+		if (invalid) {
+			throw new BusinessException(ErrorCode.POLICY_BLOCKED,
+					"지원하지 않거나 잘못된 재고조정 한도 설정입니다. 관리자가 대상 기능·양수 수량 한도·차단 강도를 확인해야 합니다. 금액 한도는 지원하지 않습니다.");
+		}
 		Policy limit = actor.limitOf(PERM_APPROVE).orElse(null);
-		if (limit == null || limit.getLimitQty() == null || limit.getLimitQty() <= 0) {
+		if (limit == null) {
 			return;
 		}
 
-		int moved = lines.stream()
-				.mapToInt(l -> Math.abs(l.getQtyDelta() == null ? 0 : l.getQtyDelta()))
+		long moved = lines.stream()
+				.mapToLong(l -> Math.abs(l.getQtyDelta() == null ? 0L : (long) l.getQtyDelta()))
 				.sum();
 		if (moved <= limit.getLimitQty()) {
 			return;

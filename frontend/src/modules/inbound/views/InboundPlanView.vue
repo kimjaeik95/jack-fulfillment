@@ -637,7 +637,7 @@ const createDenyReason = computed(() => session.denyReason('INB_PLAN', 'C'))
         <thead>
           <tr>
             <th style="width: 175px">SKU</th>
-            <th style="width: 170px">제품</th>
+            <th style="width: 170px">스타일</th>
             <th style="width: 92px">예정수량</th>
             <th style="width: 84px" class="right">발주 잔량</th>
             <th>비고</th>
@@ -894,7 +894,7 @@ const createDenyReason = computed(() => session.denyReason('INB_PLAN', 'C'))
           <tr>
             <th style="width: 36px" class="right">#</th>
             <th style="width: 175px">SKU</th>
-            <th style="width: 170px">제품</th>
+            <th style="width: 170px">스타일</th>
             <th style="width: 76px" class="right">예정</th>
             <th style="width: 76px" class="right">입하</th>
             <th style="width: 76px" class="right">차이</th>

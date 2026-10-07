@@ -6,7 +6,7 @@
  * 본사 구매 담당이 결재해야 발주로 넘어간다.
  *
  * 한 요청에 여러 SKU 를 담는다. SKU 단위인 이유는 발주가 색상 · 사이즈별로
- * 나가기 때문이다 (PUR-002). 제품 단위로 올리면 그 아래 무엇을 얼마나
+ * 나가기 때문이다 (PUR-002). 스타일 단위로 올리면 그 아래 무엇을 얼마나
  * 사야 할지는 아무도 모른다.
  *
  * 담을 때 그 SKU 의 현재 판매가능 수량을 함께 보여 준다. 얼마나 부족한지를
@@ -478,7 +478,7 @@ const mine = (row) => row.requestedBy === myId.value
         <thead>
           <tr>
             <th style="width: 175px">SKU</th>
-            <th style="width: 170px">제품</th>
+            <th style="width: 170px">스타일</th>
             <th style="width: 80px" class="right">현재 가용</th>
             <th style="width: 92px">요청수량</th>
             <th style="width: 140px">희망 공급처</th>
@@ -570,7 +570,7 @@ const mine = (row) => row.requestedBy === myId.value
           <tr>
             <th style="width: 36px" class="right">#</th>
             <th style="width: 175px">SKU</th>
-            <th style="width: 170px">제품</th>
+            <th style="width: 170px">스타일</th>
             <th style="width: 76px" class="right">현재 가용</th>
             <th style="width: 76px" class="right">요청</th>
             <th style="width: 76px" class="right">승인</th>

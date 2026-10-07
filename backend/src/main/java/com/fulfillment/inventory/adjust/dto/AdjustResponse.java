@@ -37,7 +37,7 @@ public record AdjustResponse(
 		String decideRemark,
 		Integer lineCount,
 		/** 라인 변동량의 합. 늘리는 줄과 줄이는 줄이 섞이면 상쇄된다. */
-		Integer totalDelta,
+		Long totalDelta,
 		/** 요청 뒤 장부가 움직인 줄의 수 */
 		int staleLineCount,
 		List<AdjustLineResponse> lines

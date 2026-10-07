@@ -17,7 +17,8 @@
  * 입고 라인에 걸면 어느 자리에서 뺄지를 시스템이 멋대로 정하게 되고 창고에
  * 가 보면 없는 자리에서 뺀 것이 된다.
  */
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import * as inboundApi from '@/api/inbound.js'
 import * as correctApi from '@/api/inboundCorrect.js'
 import { codeLabel, codeOptions } from '@/api/codes.js'
@@ -30,6 +31,7 @@ import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import FormField from '@/components/FormField.vue'
 import CodeBadge from '@/components/CodeBadge.vue'
 
+const route = useRoute()
 const hierarchy = useHierarchyStore()
 const session = useSessionStore()
 const toast = useToastStore()
@@ -83,12 +85,19 @@ const doneColumns = [
 
 const myRows = ref([])
 const myLoading = ref(false)
-const myFilters = reactive({ correctStatus: '' })
+const myFilters = reactive({ correctStatus: '', keyword: String(route.query.keyword || '') })
+
+watch(() => route.query.keyword, (keyword) => {
+  myFilters.keyword = String(keyword || '')
+  myFilters.correctStatus = ''
+  fetchMine()
+})
 
 async function fetchMine() {
   myLoading.value = true
   try {
     const page = await correctApi.list({
+      keyword: myFilters.keyword,
       correctStatus: myFilters.correctStatus || undefined,
       size: correctApi.PAGE_SIZE,
     })
@@ -388,6 +397,7 @@ async function doCancel() {
           :options="codeOptions('CORRECT_STATUS')"
           @change="fetchMine()"
         />
+        <FormField v-model="myFilters.keyword" label="전표번호" placeholder="INBC-…" @enter="fetchMine()" />
         <div class="toolbar-actions">
           <button class="btn" :disabled="myLoading" @click="fetchMine()">새로고침</button>
         </div>

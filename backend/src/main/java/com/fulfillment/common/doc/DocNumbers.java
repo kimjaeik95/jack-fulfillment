@@ -29,6 +29,8 @@ public class DocNumbers {
 	public static final String ADJUST = "ADJ";
 	/** 로케이션간 이동 */
 	public static final String MOVE = "MOV";
+	/** 판매불가 전환 · 정상 복구 */
+	public static final String UNSELLABLE = "DEF";
 	/** 재고실사 */
 	public static final String STOCKTAKE = "TAKE";
 	/** 구매요청 */

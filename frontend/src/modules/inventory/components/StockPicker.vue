@@ -96,7 +96,7 @@ onMounted(async () => {
 const columns = [
   { key: 'locationFullCode', label: '재고주소', width: '175px', cls: 'code' },
   { key: 'skuId', label: 'SKU', width: '160px', cls: 'code' },
-  { key: 'productName', label: '제품', width: '150px' },
+  { key: 'productName', label: '스타일', width: '150px' },
   { key: 'qtyOnHand', label: '보유', width: '68px', align: 'right' },
   { key: 'qtyAllocated', label: '할당', width: '68px', align: 'right' },
   { key: 'qtyUnsellable', label: '판매불가', width: '78px', align: 'right' },
@@ -139,7 +139,7 @@ function confirmMulti() {
         v-model="filters.keyword"
         class="grow"
         label="검색어"
-        placeholder="바코드를 찍거나 SKU · 제품명 · 빈코드를 입력"
+        placeholder="바코드를 찍거나 SKU · 스타일명 · 빈코드를 입력"
         @enter="search()"
       />
       <FormField

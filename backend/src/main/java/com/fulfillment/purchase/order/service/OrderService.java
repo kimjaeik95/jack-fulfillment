@@ -522,7 +522,7 @@ public class OrderService {
 			return sku.getCostAmount();
 		}
 		throw new BusinessException(ErrorCode.INVALID_INPUT,
-				("%d 번째 줄(%s)의 단가를 정할 수 없습니다. 제품에 원가가 없으니 발주 단가를 "
+				("%d 번째 줄(%s)의 단가를 정할 수 없습니다. 스타일에 원가가 없으니 발주 단가를 "
 						+ "직접 입력하세요 — 금액을 모르는 발주는 낼 수 없습니다.")
 						.formatted(lineNo, rl.skuId()));
 	}

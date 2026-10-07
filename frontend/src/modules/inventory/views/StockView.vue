@@ -156,7 +156,7 @@ onMounted(async () => {
 const columns = [
   { key: 'locationFullCode', label: '재고주소', width: '180px', cls: 'code' },
   { key: 'skuId', label: 'SKU', width: '165px', cls: 'code' },
-  { key: 'productName', label: '제품', width: '180px' },
+  { key: 'productName', label: '스타일', width: '180px' },
   { key: 'vendorName', label: '거래처', width: '110px' },
   { key: 'qtyOnHand', label: '보유', width: '82px', align: 'right' },
   { key: 'qtyAllocated', label: '할당', width: '82px', align: 'right' },
@@ -254,7 +254,7 @@ const lockedCount = computed(() => rows.value.filter((r) => r.locked).length)
           v-model="filters.keyword"
           class="grow"
           label="검색어"
-          placeholder="SKU / 제품명 / 빈코드 / 바코드"
+          placeholder="SKU / 스타일명 / 빈코드 / 바코드"
           @enter="search()"
         />
         <FormField
@@ -295,7 +295,7 @@ const lockedCount = computed(() => rows.value.filter((r) => r.locked).length)
         />
         <FormField
           v-model="filters.productId"
-          label="제품코드"
+          label="스타일코드"
           mono
           placeholder="PRD-24001"
           @enter="search()"
@@ -466,11 +466,11 @@ const lockedCount = computed(() => rows.value.filter((r) => r.locked).length)
         </div>
         <div><span class="dt">빈</span><span class="dd code">{{ picked.locationId }}</span></div>
         <div><span class="dt">SKU</span><span class="dd code">{{ picked.skuId }}</span></div>
-        <div><span class="dt">제품</span><span class="dd">{{ picked.productName }} ({{ picked.productId }})</span></div>
+        <div><span class="dt">스타일</span><span class="dd">{{ picked.productName }} ({{ picked.productId }})</span></div>
         <div>
           <span class="dt">색상 / 사이즈</span>
           <span class="dd">
-            <CodeBadge group="COLOR" :code="picked.colorCode" />
+            <span class="badge">{{ picked.colorCode }}</span>
             <span class="badge">{{ picked.sizeCode }}</span>
           </span>
         </div>

@@ -105,7 +105,7 @@ const limit = computed(() => Number(filters.delayDays) || 3)
 
 const columns = [
   { key: 'skuId', label: 'SKU', width: '170px' },
-  { key: 'productName', label: '제품', width: '200px' },
+  { key: 'productName', label: '스타일', width: '200px' },
   { key: 'transitQty', label: '운송중', width: '80px', align: 'right' },
   { key: 'waybillCount', label: '송장', width: '68px', align: 'right' },
   { key: 'oldestDays', label: '가장 오래', width: '86px', align: 'right' },
@@ -173,7 +173,7 @@ const columns = [
           v-model="filters.keyword"
           class="grow"
           label="검색어"
-          placeholder="SKU / 상품코드 / 제품명"
+          placeholder="SKU / 상품코드 / 스타일명"
           @enter="search()"
         />
         <FormField

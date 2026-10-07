@@ -97,7 +97,7 @@ async function submit() {
       reasonCode: reasonCode.value,
       remark: remark.value || null,
     })
-    done.value = result.stocks[0]
+    done.value = { ...result.stocks[0], refNo: result.refNo }
     // 같은 재고를 이어서 다룰 수 있게 바뀐 값으로 갈아 끼운다.
     // 목록으로 돌려보내면 방금 고른 줄을 다시 찾아야 한다.
     stock.value = result.stocks[0]
@@ -280,6 +280,7 @@ const readDenyReason = computed(() => session.denyReason('QRY_STOCK', 'R'))
     />
 
     <ModalDialog v-if="done" title="처리했습니다" @close="done = null">
+      <p class="mb-2">불량처리전표 <strong class="code">{{ done.refNo }}</strong></p>
       <div class="qty-grid">
         <div class="qty-cell">
           <span class="qty-label">보유</span>

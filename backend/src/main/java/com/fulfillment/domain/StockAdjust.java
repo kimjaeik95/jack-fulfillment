@@ -67,7 +67,7 @@ public class StockAdjust {
 	private String decidedByName;
 	/** 라인 수와 변동 합계. 목록에서 전표를 열지 않고도 규모를 보려면 필요하다. */
 	private Integer lineCount;
-	private Integer totalDelta;
+	private Long totalDelta;
 
 	/** 라인. 단건 조회에서만 채운다 — 목록에서 전부 읽으면 전표 수만큼 질의가 는다. */
 	@Builder.Default

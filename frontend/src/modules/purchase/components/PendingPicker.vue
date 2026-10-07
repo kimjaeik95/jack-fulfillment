@@ -91,7 +91,7 @@ const d = (v) => (v ? String(v).slice(0, 10) : '-')
 
 const columns = [
   { key: 'skuId', label: 'SKU', width: '160px' },
-  { key: 'productName', label: '제품명', width: '180px' },
+  { key: 'productName', label: '스타일명', width: '180px' },
   { key: 'requestNo', label: '요청', width: '150px', cls: 'code' },
   { key: 'requiredDate', label: '필요일', width: '104px' },
   { key: 'remainQty', label: '남은수량', width: '92px', align: 'right' },
@@ -110,7 +110,7 @@ const columns = [
         v-model="keyword"
         class="grow"
         label="검색어"
-        placeholder="요청번호 / SKU / 제품명"
+        placeholder="요청번호 / SKU / 스타일명"
         @enter="load()"
       />
       <div class="toolbar-actions">
