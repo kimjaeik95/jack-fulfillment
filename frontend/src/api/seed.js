@@ -38,7 +38,7 @@ export const ROLES = [
     roleId: 'HQ_MASTER',
     roleName: '본사 기준정보 담당',
     orgScope: 'HQ',
-    summary: '제품/SKU/브랜드/채널/가격/공급처 관리',
+    summary: '스타일/SKU/브랜드/채널/가격/공급처 관리',
     restriction: 'SKU 폐기는 재고 0 및 미처리 건 0',
     dataScope: 'ALL',
     sortOrder: 20,
@@ -139,7 +139,7 @@ export const PERMISSIONS = [
   { permId: 'SYS_POLICY', permName: '공통정책 관리', module: 'SYS', actions: ['R', 'C', 'U', 'D'], menuPath: '시스템 > 공통정책', useYn: 'Y' },
 
   // 기준정보
-  { permId: 'MST_SKU', permName: '제품/SKU 관리', module: 'MST', actions: ['R', 'C', 'U', 'D'], menuPath: '기준정보 > SKU', useYn: 'Y' },
+  { permId: 'MST_SKU', permName: '스타일/SKU 관리', module: 'MST', actions: ['R', 'C', 'U', 'D'], menuPath: '기준정보 > SKU', useYn: 'Y' },
   { permId: 'MST_BRAND', permName: '브랜드 관리', module: 'MST', actions: ['R', 'C', 'U', 'D'], menuPath: '기준정보 > 브랜드', useYn: 'Y' },
   { permId: 'MST_CHANNEL', permName: '채널 관리', module: 'MST', actions: ['R', 'C', 'U', 'D'], menuPath: '기준정보 > 채널', useYn: 'Y' },
   { permId: 'MST_PRICE', permName: '가격 관리', module: 'MST', actions: ['R', 'C', 'U'], menuPath: '기준정보 > 가격', useYn: 'Y' },

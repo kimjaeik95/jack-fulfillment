@@ -244,7 +244,7 @@ async function allocatePending() {
         v-model="filters.keyword"
         class="grow"
         label="검색"
-        placeholder="주문번호 / 수령인 / SKU / 제품명"
+        placeholder="주문번호 / 수령인 / SKU / 스타일명"
         @enter="search()"
       />
       <FormField
