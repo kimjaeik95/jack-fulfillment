@@ -34,8 +34,9 @@ import java.util.List;
  *   policyType    무엇을 통제하나 (금지 · 필수 · 조건 · 직무분리 · 범위 · 한도 · 읽기전용 · 마스킹)
  *   enforceLevel  얼마나 강하게   (차단 · 상위승인 · 경고 · 기록만)
  *
- * 로그인 시 사용중인 정책이 세션에 실려 PermissionChecker 가 판정한다.
- * 즉 여기서 저장한 규칙이 곧 그 사람이 실제로 막히는 지점이 된다.
+ * DENY/READONLY/MASKING 및 재고조정 LIMIT은 설정으로 동작한다.
+ * CONDITION/REQUIRED/SOD/SCOPE의 설명은 실행하지 않는다. 고정 업무 규칙은
+ * 각 서비스에서 보장하며 정책 설명의 편집이나 삭제로 해제되지 않는다.
  */
 @Service
 public class PolicyService {
@@ -225,7 +226,19 @@ public class PolicyService {
 		if (NEEDS_TARGET_FIELD.contains(request.policyType()) && request.targetField() == null) {
 			problems.add("필수입력(REQUIRED) 정책은 대상 항목이 있어야 합니다. 어느 항목을 비울 수 없는지 지정하세요.");
 		}
+		if ("DENY".equals(request.policyType()) && request.conditionExpr() != null) {
+			problems.add("DENY는 조건을 평가하지 않고 기능을 차단합니다. 조건부 업무 규칙은 CONDITION으로 기록하세요.");
+		}
 		if (TYPE_LIMIT.equals(request.policyType())) {
+			if (!"INV_ADJ_APPROVE".equals(request.permId())) {
+				problems.add("현재 한도 검사는 재고조정 승인(INV_ADJ_APPROVE)에만 연결되어 있습니다.");
+			}
+			if (request.limitAmount() != null && request.limitAmount() > 0) {
+				problems.add("금액 한도 검사는 아직 지원하지 않습니다. 금액 한도는 비우고 수량 한도를 입력하세요.");
+			}
+			if (!List.of("BLOCK", "APPROVAL").contains(request.enforceLevel())) {
+				problems.add("수량 한도는 차단(BLOCK) 또는 상위승인(APPROVAL)으로 설정하세요.");
+			}
 			boolean hasAmount = request.limitAmount() != null && request.limitAmount() > 0;
 			boolean hasQty = request.limitQty() != null && request.limitQty() > 0;
 			if (!hasAmount && !hasQty) {
@@ -262,6 +275,9 @@ public class PolicyService {
 	 * 잘못은 아니다 — 권한을 나중에 줄 수도 있으므로 막지 않고 알리기만 한다.
 	 */
 	private String warnIfNotGranted(PolicySaveRequest request) {
+		if (List.of("CONDITION", "REQUIRED", "SOD", "SCOPE").contains(request.policyType())) {
+			return "업무 규칙 안내를 저장했습니다. 조건 설명·사용여부 변경은 업무 코드의 검사 동작을 변경하지 않습니다. 새로운 규칙은 코드 구현이 필요합니다.";
+		}
 		if (request.permId() == null) {
 			return null;
 		}

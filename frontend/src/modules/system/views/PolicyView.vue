@@ -171,7 +171,7 @@ const {
     if (f.policyType === 'REQUIRED' && !f.targetField?.trim())
       e.targetField = '필수입력 정책은 대상 필드를 지정해야 합니다.'
     if (f.policyType === 'CONDITION' && !f.conditionExpr?.trim())
-      e.conditionExpr = '조건충족 정책은 조건식이 필요합니다.'
+      e.conditionExpr = '조건충족(CONDITION) 정책은 조건 설명이 있어야 합니다. 무엇을 보고 막는지가 적혀 있어야 합니다.'
     if (f.policyType === 'LIMIT' && Number(f.limitAmount) <= 0 && Number(f.limitQty) <= 0)
       e.limitAmount = '한도금액 또는 한도수량 중 하나는 0보다 커야 합니다.'
     if (f.enforceLevel === 'APPROVAL' && !f.altProcess?.trim())
@@ -298,8 +298,8 @@ async function downloadAs(format) {
       <div>
         <h1 class="page-title">공통정책 관리</h1>
         <p class="page-desc">
-          역할별 제한·승인 규칙(금지/필수/조건/직무분리/범위제한/한도/읽기전용/마스킹)을 등록합니다. 여기에 등록된 정책이
-          실제 화면 동작(버튼 비활성, 저장 차단, 상위승인 요구)을 결정합니다.
+          역할별 제한 설정과 기본 업무 규칙을 관리합니다. 조건·필수·직무분리·범위 유형은 규칙 안내이며,
+          설명을 수정하거나 미사용으로 바꿔도 기본 업무 검사는 유지됩니다. 설정 변경은 재로그인 후 반영됩니다.
         </p>
       </div>
       <div class="page-head-actions">
@@ -342,7 +342,7 @@ async function downloadAs(format) {
 
     <div class="card">
       <div class="toolbar">
-        <FormField v-model="filters.keyword" class="grow" label="검색어" placeholder="정책명 / 메시지 / 조건식" />
+        <FormField v-model="filters.keyword" class="grow" label="검색어" placeholder="정책명 / 메시지 / 조건 설명" />
         <FormField v-model="filters.roleId" label="적용 역할" type="select" empty-option="전체" :options="roleStore.roleOptions" />
         <FormField
           v-model="filters.policyType"
@@ -417,7 +417,7 @@ async function downloadAs(format) {
         <template #cell-targetField="{ row, value }">
           <span class="small">{{ value || '-' }}</span>
           <div v-if="row.policyType === 'LIMIT'" class="small dim">
-            한도 {{ (row.limitAmount ?? 0).toLocaleString() }}원 / {{ row.limitQty ?? 0 }}EA
+            수량 한도 {{ row.limitQty ?? '미설정' }}EA<span v-if="row.limitAmount"> · 금액 한도 미지원</span>
           </div>
         </template>
 
@@ -514,14 +514,20 @@ async function downloadAs(format) {
           :error="errors.targetField"
           :required="form.policyType === 'REQUIRED'"
         />
+        <!--
+          '조건식' 이라고만 쓰면 시스템이 이걸 읽어서 판정하는 것처럼 보인다.
+          평가 엔진이 없어 실제 판정은 서비스 코드와 매퍼의 WHERE 가 하고,
+          이 칸은 그 규칙을 사람이 읽도록 적어 두는 자리다. 식처럼 생겼기
+          때문에 더 그렇게 읽히므로 라벨과 안내로 분명히 해 둔다.
+        -->
         <FormField
           v-model="form.conditionExpr"
-          label="조건식"
+          label="조건 설명 (참고용)"
           mono
           placeholder='sku.onHandQty == 0 && sku.openTxCount == 0'
           :error="errors.conditionExpr"
           :required="form.policyType === 'CONDITION'"
-          help="조건이 참일 때 허용됩니다."
+          help="실제 판정은 코드가 합니다 — 이 칸은 규칙을 적어 두는 메모입니다. 어디서 막는지는 아래 비고에 적습니다."
         />
 
         <template v-if="isLimit">
@@ -530,9 +536,9 @@ async function downloadAs(format) {
             label="한도금액 (원)"
             type="number"
             :error="errors.limitAmount"
-            help="초과 시 상위 승인 필요"
+            help="금액 한도 검사는 현재 지원하지 않습니다. 사용자 승인한도도 적용되지 않습니다."
           />
-          <FormField v-model="form.limitQty" label="한도수량 (EA)" type="number" />
+          <FormField v-model="form.limitQty" label="한도수량 (EA)" type="number" help="재고조정 승인에만 적용합니다. 전표 각 줄의 변동량 절대값을 합산하며, 초과하면 승인을 차단합니다." />
         </template>
 
         <FormField
@@ -574,7 +580,7 @@ async function downloadAs(format) {
       v-if="askDelete"
       title="정책 삭제"
       :message="deleteMessage"
-      detail="정책을 삭제하면 해당 통제가 즉시 해제됩니다. 일시 중지는 '사용여부 = 미사용'을 사용하세요."
+      detail="설정형 정책은 삭제 후 재로그인 시 해제됩니다. 폐기 선행조건·자기 승인 금지 등 기본 업무 규칙은 삭제해도 유지됩니다."
       confirm-label="삭제"
       danger
       :busy="deleting"
