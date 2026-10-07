@@ -76,7 +76,7 @@ for (const file of files) {
       assert(target, `Unknown comment target ${m[2]}.${m[3]}`); target.comment = m[4].replace(/''/g, "'");
     } else if ((m = statement.match(/^CREATE\s+(UNIQUE\s+)?INDEX\s+(\w+)\s+ON\s+(\w+)\s+([\s\S]+)$/i))) {
       tables.get(m[3]).indexes.push({ name: m[2], unique: !!m[1], sql: m[4].replace(/\s+/g, ' '), source: file });
-    } else if (!/^(INSERT|UPDATE|DELETE)\b/i.test(statement)) throw new Error(`Unhandled SQL: ${statement.slice(0, 160)}`);
+    } else if (!/^(INSERT|UPDATE|DELETE|LOCK TABLE|CREATE TEMP TABLE)\b/i.test(statement)) throw new Error(`Unhandled SQL: ${statement.slice(0, 160)}`);
   }
 }
 const relationships = [];
@@ -108,7 +108,7 @@ const groups = [
   { name: '공통 · 운영', color: '#64748b', tables: ['code_group', 'code', 'menu', 'policy', 'audit_log', 'audit_log_detail', 'upload_history', 'upload_error', 'doc_number', 'notification', 'notification_read'] },
   { name: '조직 · 권한', color: '#6366f1', tables: ['company', 'org', 'user', 'role', 'user_role', 'permission', 'permission_action', 'role_permission', 'role_org_scope'] },
   { name: '거점 · 거래처', color: '#0891b2', tables: ['plant', 'warehouse', 'location', 'partner', 'partner_address'] },
-  { name: '상품 · 채널', color: '#0d9488', tables: ['category', 'brand', 'product', 'sku', 'channel', 'channel_sku'] },
+  { name: '상품 · 채널', color: '#0d9488', tables: ['category', 'brand', 'product', 'product_option', 'sku', 'channel', 'channel_sku'] },
   { name: '재고 · 실사', color: '#d97706', tables: ['stock', 'stock_history', 'stock_alloc', 'stock_adjust', 'stock_adjust_line', 'stocktake', 'stocktake_line'] },
   { name: '구매 · 발주', color: '#c026d3', tables: ['purchase_request', 'purchase_request_line', 'purchase_order', 'purchase_order_line'] },
   { name: '입고 · 검수', color: '#e11d48', tables: ['inbound', 'inbound_line', 'inbound_inspect', 'inbound_putaway', 'inbound_correct', 'inbound_correct_line'] },

@@ -14,12 +14,12 @@ try {
   page.on('request', r => { if (/^https?:/.test(r.url())) requests.push(r.url()); });
   await page.goto(new URL('../erd.html', import.meta.url).href);
   assert.deepEqual(errors, [], 'Browser startup errors');
-  assert.equal(await page.locator('.card').count(), 58);
-  assert.equal(await page.locator('.edge').count(), 92);
+  assert.equal(await page.locator('.card').count(), 59);
+  assert.equal(await page.locator('.edge').count(), 93);
   await page.locator('#allColumns').check();
-  assert.equal(await page.locator('.card .row').count(), 756);
+  assert.equal(await page.locator('.card .row').count(), 765);
   assert.equal(await page.locator('#card-tb_user [data-col="locked_until"]').count(), 1);
-  assert.equal(await page.locator('#versionRange').textContent(), 'V1–V37');
+  assert.equal(await page.locator('#versionRange').textContent(), 'V1–V43');
   const schema = await page.locator('#schema').textContent().then(JSON.parse);
   const outboundLine = schema.tables.find(t => t.name === 'tb_outbound_line');
   assert.equal(outboundLine.columns.filter(c => c.name === 'remain_qty').length, 1);
@@ -86,5 +86,5 @@ try {
   const screenshot = path.join(dir, 'erd.png');
   await page.screenshot({ path: screenshot });
   assert.deepEqual(errors, []); assert.deepEqual(requests, []);
-  console.log(JSON.stringify({ status: 'passed', checks: ['58 tables', '756 columns', '92 FK edges', 'V1–V37', 'ALTER columns and constraints', 'partial indexes', 'self references', 'composite PK', 'no card overlaps', 'search', 'relation navigation', 'group filter', 'empty state', 'zoom', 'offline', 'no browser errors'], screenshot, html: fileURLToPath(new URL('../erd.html', import.meta.url)) }));
+  console.log(JSON.stringify({ status: 'passed', checks: ['59 tables', '765 columns', '93 FK edges', 'V1–V43', 'ALTER columns and constraints', 'partial indexes', 'self references', 'composite PK', 'no card overlaps', 'search', 'relation navigation', 'group filter', 'empty state', 'zoom', 'offline', 'no browser errors'], screenshot, html: fileURLToPath(new URL('../erd.html', import.meta.url)) }));
 } finally { await browser.close(); }

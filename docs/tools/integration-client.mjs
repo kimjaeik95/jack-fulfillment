@@ -7,7 +7,7 @@ export {assert};
 export const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');
 export const dir=path.join(root,'docs/test-results',process.env.IT_RUN||'20261006');
 fs.mkdirSync(dir,{recursive:true});
-export const base='http://127.0.0.1:18080/api';
+export const base=process.env.IT_BASE||'http://127.0.0.1:18080/api';
 export const stateFile=path.join(dir,'state.json');
 export const state=fs.existsSync(stateFile)?JSON.parse(fs.readFileSync(stateFile,'utf8')):{};
 export function save(){fs.writeFileSync(stateFile,JSON.stringify(state,null,2));}
