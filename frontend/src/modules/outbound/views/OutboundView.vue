@@ -339,7 +339,7 @@ const columns = [
           <tr>
             <th style="width: 44px">#</th>
             <th style="width: 170px">SKU</th>
-            <th style="width: 180px">제품</th>
+            <th style="width: 180px">스타일</th>
             <th style="width: 130px">집을 빈</th>
             <th style="width: 80px" class="right">지시</th>
             <th style="width: 80px" class="right">집음</th>

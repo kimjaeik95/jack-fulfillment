@@ -600,7 +600,7 @@ const columns = [
           <tr>
             <th style="width: 120px">빈</th>
             <th style="width: 160px">SKU</th>
-            <th style="width: 170px">제품</th>
+            <th style="width: 170px">스타일</th>
             <th style="width: 70px" class="right">잡음</th>
             <th style="width: 70px" class="right">집음</th>
             <th style="width: 70px" class="right">남음</th>

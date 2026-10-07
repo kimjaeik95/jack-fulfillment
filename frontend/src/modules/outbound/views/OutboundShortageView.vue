@@ -114,7 +114,7 @@ const reasonNoteOf = (v) => {
 
 const columns = [
   { key: 'skuId', label: 'SKU', width: '160px' },
-  { key: 'productName', label: '제품', width: '180px' },
+  { key: 'productName', label: '스타일', width: '180px' },
   { key: 'locationHint', label: '찾았어야 할 빈', width: '130px', cls: 'code' },
   { key: 'shortageQty', label: '지시 / 집음 / 결품', width: '150px', align: 'right' },
   { key: 'shortageReason', label: '사유', width: '150px' },
@@ -196,7 +196,7 @@ function goAdjust(row) {
         v-model="filters.keyword"
         class="grow"
         label="검색어"
-        placeholder="지시번호 / 주문번호 / SKU / 제품명"
+        placeholder="지시번호 / 주문번호 / SKU / 스타일명"
         @enter="search()"
       />
       <FormField

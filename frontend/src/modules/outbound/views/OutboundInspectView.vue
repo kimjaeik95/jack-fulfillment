@@ -347,7 +347,7 @@ const columns = [
         <thead>
           <tr>
             <th style="width: 170px">SKU</th>
-            <th style="width: 190px">제품</th>
+            <th style="width: 190px">스타일</th>
             <th style="width: 70px" class="right">지시</th>
             <th style="width: 70px" class="right">집음</th>
             <th style="width: 70px" class="right">센 것</th>

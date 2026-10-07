@@ -440,56 +440,19 @@ const columns = [
         그때는 '어느 박스' 가 물을 것도 없는 질문이다. 나눠 담을 때만
         줄마다 수량을 고친다.
       -->
-      <div v-if="activeBox?.open && leftQty" class="to-pack">
-        <div class="to-pack-head">
-          <span>
-            <strong>{{ activeBox.boxNo }}번 박스</strong>에 담습니다 ·
-            남은 것 {{ num(leftQty) }}개
-          </span>
-          <button
-            class="btn btn-primary"
-            :disabled="busy || !canPack"
-            title="남은 것을 모두 이 박스에 담습니다"
-            @click="packAllHere()"
-          >
-            <span v-if="busy" class="spinner"></span>
-            남은 것 전부 {{ activeBox.boxNo }}번에
-          </button>
-        </div>
+      <!--
+        박스 하나가 한 자리다.
 
-        <table class="table sub">
-          <tr v-for="t in openTasks" :key="t.lineSeq">
-            <td class="code">{{ t.skuId }}</td>
-            <td class="small dim">{{ t.colorCode }} / {{ t.sizeCode }}</td>
-            <td class="small">{{ t.productName }}</td>
-            <td class="right small dim">
-              검수 {{ num(t.inspectedQty) }} · 담음 {{ num(t.packed) }}
-            </td>
-            <td class="right" style="width: 170px">
-              <input
-                v-model.number="draft[t.lineSeq]"
-                class="input pack-qty"
-                type="number"
-                min="1"
-                :max="roomOf(t)"
-                :disabled="busy || !canPack"
-                :title="`${roomOf(t)} 개까지`"
-                @keyup.enter="submitPack(t, draft[t.lineSeq])"
-              />
-              <button
-                class="btn btn-sm"
-                :disabled="busy || !canPack || !!qtyErrorOf(t)"
-                @click="submitPack(t, draft[t.lineSeq])"
-              >
-                {{ activeBox.boxNo }}번에
-              </button>
-            </td>
-          </tr>
-        </table>
-      </div>
-
-      <!-- 박스별 내용 -->
-      <div v-for="b in boxes" :key="b.boxSeq" class="box-card" :class="{ closed: b.closed }">
+        전에는 '담을 것' 을 박스 목록 위에 따로 두었는데, 같은 SKU 가 위에도
+        아래에도 나와 두 창처럼 보였다. 담는 일과 담긴 것은 <b>같은 박스의
+        앞뒤</b>라 한 카드 안에 둔다.
+      -->
+      <div
+        v-for="b in boxes"
+        :key="b.boxSeq"
+        class="box-card"
+        :class="{ closed: b.closed, active: b.boxSeq === activeBoxSeq && b.open }"
+      >
         <div class="box-head">
           <strong>{{ b.boxNo }}번 박스</strong>
           <CodeBadge group="BOX_STATUS" :code="b.boxStatus" />
@@ -539,26 +502,81 @@ const columns = [
           </button>
         </div>
 
-        <div v-if="!b.lines.length" class="small dim empty-box">비어 있습니다.</div>
-        <table v-else class="table sub">
-          <tr v-for="l in b.lines" :key="l.boxLineSeq">
-            <td class="code">{{ l.skuId }}</td>
-            <td class="small dim">{{ l.colorCode }} / {{ l.sizeCode }}</td>
-            <td class="small">{{ l.productName }}</td>
-            <td class="right"><strong>{{ num(l.packedQty) }}</strong></td>
-            <td class="right">
-              <button
-                v-if="b.open"
-                class="btn btn-sm"
-                :disabled="!canPack"
-                title="이 박스에서 뺍니다"
-                @click="unpack(b, l)"
-              >
-                빼기
-              </button>
-            </td>
-          </tr>
-        </table>
+        <!-- ── 이 박스에 담긴 것 ─────────────────────────── -->
+        <div v-if="!b.lines.length" class="small dim empty-box">아직 담은 것이 없습니다.</div>
+        <template v-else>
+          <div class="part-title">담긴 것</div>
+          <table class="table sub">
+            <tr v-for="l in b.lines" :key="l.boxLineSeq">
+              <td class="code">{{ l.skuId }}</td>
+              <td class="small dim">{{ l.colorCode }} / {{ l.sizeCode }}</td>
+              <td class="small">{{ l.productName }}</td>
+              <td class="right"><strong>{{ num(l.packedQty) }}</strong>개</td>
+              <td class="right" style="width: 64px">
+                <button
+                  v-if="b.open"
+                  class="btn btn-sm"
+                  :disabled="!canPack"
+                  title="이 박스에서 뺍니다"
+                  @click="unpack(b, l)"
+                >
+                  빼기
+                </button>
+              </td>
+            </tr>
+          </table>
+        </template>
+
+        <!--
+          ── 더 담을 것 ───────────────────────────────────
+
+          지금 고른 박스에만 띄운다. 모든 박스에 띄우면 '어디에 담는 중인지'
+          가 흐려지고, 닫힌 박스에는 담을 수 없다.
+        -->
+        <template v-if="b.boxSeq === activeBoxSeq && b.open && leftQty">
+          <div class="part-title with-act">
+            <span>더 담을 것 <span class="dim">· 남음 {{ num(leftQty) }}개</span></span>
+            <button
+              class="btn btn-sm btn-primary"
+              :disabled="busy || !canPack"
+              title="남은 것을 모두 이 박스에 담습니다"
+              @click="packAllHere()"
+            >
+              <span v-if="busy" class="spinner"></span>
+              남은 것 전부 담기
+            </button>
+          </div>
+          <table class="table sub">
+            <tr v-for="t in openTasks" :key="t.lineSeq">
+              <td class="code">{{ t.skuId }}</td>
+              <td class="small dim">{{ t.colorCode }} / {{ t.sizeCode }}</td>
+              <td class="small">{{ t.productName }}</td>
+              <td class="right small dim">
+                검수 {{ num(t.inspectedQty) }} · 담음 {{ num(t.packed) }} ·
+                <span class="warn">남음 {{ num(roomOf(t)) }}</span>
+              </td>
+              <td class="right" style="width: 150px">
+                <input
+                  v-model.number="draft[t.lineSeq]"
+                  class="input pack-qty"
+                  type="number"
+                  min="1"
+                  :max="roomOf(t)"
+                  :disabled="busy || !canPack"
+                  :title="`${roomOf(t)} 개까지`"
+                  @keyup.enter="submitPack(t, draft[t.lineSeq])"
+                />
+                <button
+                  class="btn btn-sm"
+                  :disabled="busy || !canPack || !!qtyErrorOf(t)"
+                  @click="submitPack(t, draft[t.lineSeq])"
+                >
+                  담기
+                </button>
+              </td>
+            </tr>
+          </table>
+        </template>
       </div>
 
       <template #footer>
@@ -647,20 +665,19 @@ const columns = [
   opacity: 0.6;
   cursor: default;
 }
-/* 담을 것 — 박스 고르기 바로 아래 */
-.to-pack {
-  margin-bottom: 12px;
-  padding: 10px 12px;
-  border-radius: 6px;
-  border: 1px solid var(--line, #e5e7eb);
+/* 카드 안의 작은 구분 — '담긴 것' 과 '더 담을 것' */
+.part-title {
+  margin: 10px 0 4px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-2);
 }
-.to-pack-head {
+.part-title.with-act {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
   flex-wrap: wrap;
-  margin-bottom: 6px;
 }
 .pack-qty {
   width: 72px;
@@ -671,12 +688,19 @@ const columns = [
 }
 .box-card {
   margin-top: 10px;
-  padding: 8px 12px;
-  border-radius: 6px;
-  border: 1px solid var(--line, #e5e7eb);
+  padding: 10px 12px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+/* 지금 담고 있는 박스 — 어느 상자에 넣는 중인지가 한눈에 보여야 한다 */
+.box-card.active {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-soft);
 }
 .box-card.closed {
-  background: var(--bg-2, #f6f7f9);
+  background: var(--surface-2);
+  color: var(--text-2);
 }
 .box-head {
   display: flex;

@@ -172,7 +172,7 @@ const columns = [
         v-model="filters.keyword"
         class="grow"
         label="검색어"
-        placeholder="지시번호 / 주문번호 / SKU / 제품명"
+        placeholder="지시번호 / 주문번호 / SKU / 스타일명"
         @enter="search()"
       />
       <FormField
