@@ -179,14 +179,14 @@ const columns = [
   { key: 'extCodeLabel', label: '플랫폼 상품/옵션코드', width: '190px', cls: 'code' },
   { key: 'extProductName', label: '플랫폼 상품명', width: '200px' },
   { key: 'skuId', label: 'SKU', width: '175px', sortable: true, cls: 'code' },
-  { key: 'productName', label: '제품', width: '160px', sortable: true },
+  { key: 'productName', label: '스타일', width: '160px', sortable: true },
   { key: 'mappingStatus', label: '매핑상태', width: '96px', align: 'center', sortable: true },
   { key: '_act', label: '', width: '112px', align: 'right' },
 ]
 
 const unmappedColumns = [
   { key: 'skuId', label: 'SKU', width: '180px', sortable: true, cls: 'code' },
-  { key: 'productName', label: '제품', width: '200px', sortable: true },
+  { key: 'productName', label: '스타일', width: '200px', sortable: true },
   { key: 'colorCode', label: '색상', width: '84px', align: 'center' },
   { key: 'sizeCode', label: '사이즈', width: '76px', align: 'center' },
   { key: 'status', label: 'SKU 상태', width: '96px', align: 'center' },
@@ -353,7 +353,7 @@ const stoppedInList = computed(
           v-model="filters.keyword"
           class="grow"
           label="검색어"
-          placeholder="외부코드 / 플랫폼 상품명 / SKU / 제품명"
+          placeholder="외부코드 / 플랫폼 상품명 / SKU / 스타일명"
           @keyup.enter="search()"
         />
         <FormField
@@ -366,7 +366,7 @@ const stoppedInList = computed(
         />
         <FormField
           v-model="filters.productId"
-          label="제품"
+          label="스타일"
           type="select"
           empty-option="전체"
           :options="catalog.productOptions"
@@ -476,7 +476,7 @@ const stoppedInList = computed(
           v-model="unmappedFilters.keyword"
           class="grow"
           label="검색어"
-          placeholder="SKU 코드 / 제품명"
+          placeholder="SKU 코드 / 스타일명"
           @keyup.enter="searchUnmapped()"
         />
         <div class="toolbar-actions">
@@ -518,7 +518,7 @@ const stoppedInList = computed(
           empty-text="매핑이 빠진 SKU 가 없습니다."
         >
           <template #cell-colorCode="{ value }">
-            <CodeBadge group="COLOR" :code="value" />
+            <span class="badge">{{ value }}</span>
           </template>
 
           <template #cell-sizeCode="{ value }">

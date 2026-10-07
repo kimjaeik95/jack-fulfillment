@@ -71,7 +71,7 @@ onMounted(search)
 const columns = computed(() => [
   ...(props.multi ? [{ key: '_sel', label: '', width: '38px', align: 'center' }] : []),
   { key: 'skuId', label: 'SKU', width: '175px', cls: 'code' },
-  { key: 'productName', label: '제품', width: '180px' },
+  { key: 'productName', label: '스타일', width: '180px' },
   { key: 'colorCode', label: '색상', width: '84px', align: 'center' },
   { key: 'sizeCode', label: '사이즈', width: '76px', align: 'center' },
   { key: 'status', label: '상태', width: '86px', align: 'center' },
@@ -130,23 +130,19 @@ function submitMany() {
         v-model="filters.keyword"
         class="grow"
         label="검색어"
-        placeholder="SKU 코드 / 제품명"
+        placeholder="SKU 코드 / 스타일명"
         @enter="search()"
       />
       <FormField
         v-model="filters.colorCode"
         label="색상"
-        type="select"
-        empty-option="전체"
-        :options="codeOptions('COLOR')"
+        placeholder="색상코드"
         @change="search()"
       />
       <FormField
         v-model="filters.sizeCode"
         label="사이즈"
-        type="select"
-        empty-option="전체"
-        :options="codeOptions('SIZE')"
+        placeholder="사이즈코드"
         @change="search()"
       />
       <div class="toolbar-actions">
@@ -182,8 +178,8 @@ function submitMany() {
         <span class="code">{{ value }}</span>
         <span v-if="already(row)" class="small dim"> · 담음</span>
       </template>
-      <template #cell-colorCode="{ value }">
-        <CodeBadge group="COLOR" :code="value" />
+      <template #cell-colorCode="{ row, value }">
+        <span class="badge">{{ row.colorName || value }} ({{ value }})</span>
       </template>
       <template #cell-sizeCode="{ value }">
         <span class="badge">{{ value }}</span>

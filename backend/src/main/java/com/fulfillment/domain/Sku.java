@@ -35,10 +35,12 @@ public class Sku {
 	private Long skuSeq;
 	private String skuId;
 	private Long productSeq;
-	/** 코드그룹 COLOR. 옵션이 없으면 FREE */
+	/** 스타일에 등록된 색상코드 */
 	private String colorCode;
-	/** 코드그룹 SIZE. 옵션이 없으면 FREE */
+	/** 스타일에 등록된 사이즈코드 */
 	private String sizeCode;
+	private String colorName;
+	private String sizeName;
 	private String barcode;
 	/** 코드그룹 SKU_STATUS (ACTIVE/HOLD/DISCARDED) */
 	private String status;

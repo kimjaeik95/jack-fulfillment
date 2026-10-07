@@ -2,7 +2,7 @@
 /**
  * 브랜드 관리 (MST-PG-006).
  *
- * 요구사항 5장의 '식별코드' 가 브랜드코드다. 제품이 이 코드로 브랜드를
+ * 요구사항 5장의 '식별코드' 가 브랜드코드다. 스타일이 이 코드로 브랜드를
  * 부르므로 등록 후에는 바꿀 수 없다.
  *
  * 판정은 모두 서버가 한다. 여기서 막는 것은 왕복을 줄이기 위한 편의일 뿐이다.
@@ -59,7 +59,7 @@ const columns = [
   { key: 'brandId', label: '브랜드코드', width: '110px', sortable: true, cls: 'code' },
   { key: 'brandName', label: '브랜드명', width: '200px', sortable: true },
   { key: 'countryCode', label: '국가', width: '110px', align: 'center', sortable: true },
-  { key: 'productCount', label: '제품', width: '70px', align: 'right', sortable: true },
+  { key: 'productCount', label: '스타일', width: '70px', align: 'right', sortable: true },
   { key: 'useYn', label: '사용', width: '64px', align: 'center', sortable: true },
   { key: '_act', label: '', width: '112px', align: 'right' },
 ]
@@ -127,9 +127,9 @@ const deleteDetail = computed(() => {
   const row = askDelete.value
   if (!row) return ''
   if (row.productCount) {
-    return `이 브랜드의 제품 ${row.productCount}개가 있어 삭제할 수 없습니다. 제품을 먼저 정리하세요. 더 이상 취급하지 않는 브랜드라면 사용여부를 '미사용'으로 바꾸세요.`
+    return `이 브랜드의 스타일 ${row.productCount}개가 있어 삭제할 수 없습니다. 스타일을 먼저 정리하세요. 더 이상 취급하지 않는 브랜드라면 사용여부를 '미사용'으로 바꾸세요.`
   }
-  return '이 브랜드의 제품이 있으면 서버가 삭제를 거부합니다.'
+  return '이 브랜드의 스타일이 있으면 서버가 삭제를 거부합니다.'
 })
 
 const readDenyReason = computed(() => session.denyReason('MST_BRAND', 'R'))
@@ -141,7 +141,7 @@ const readDenyReason = computed(() => session.denyReason('MST_BRAND', 'R'))
       <div>
         <h1 class="page-title">브랜드 관리</h1>
         <p class="page-desc">
-          제품이 속한 브랜드를 관리합니다. 브랜드코드는 제품이 브랜드를 부르는 이름이라
+          스타일이 속한 브랜드를 관리합니다. 브랜드코드는 스타일이 브랜드를 부르는 이름이라
           등록 후에는 바꿀 수 없습니다.
         </p>
       </div>

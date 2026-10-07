@@ -18,7 +18,7 @@ public record SkuSaveRequest(
 		@Pattern(regexp = CODE_PATTERN, message = CODE_MESSAGE)
 		String skuId,
 
-		@NotBlank(message = "제품은 필수입니다.")
+		@NotBlank(message = "스타일은 필수입니다.")
 		String productId,
 
 		/** 옵션이 없는 제품은 FREE 를 쓴다 — 이유는 tb_sku 주석 참고 */

@@ -138,7 +138,7 @@ public class CategoryService {
 		int products = categoryDao.countProducts(before.getCategorySeq());
 		if (products > 0) {
 			throw new BusinessException(ErrorCode.IN_USE,
-					("이 분류의 제품 %d개가 있어 삭제할 수 없습니다. 제품을 다른 분류로 옮긴 뒤 "
+					("이 분류의 스타일 %d개가 있어 삭제할 수 없습니다. 스타일을 다른 분류로 옮긴 뒤 "
 							+ "삭제하세요. 더 이상 쓰지 않는 분류라면 사용여부를 미사용으로 바꾸세요.")
 							.formatted(products));
 		}
@@ -251,7 +251,7 @@ public class CategoryService {
 		if (children == 0 && products == 0) {
 			return null;
 		}
-		return ("%s을(를) 미사용으로 바꿨습니다. 하위 분류 %d개와 제품 %d개는 그대로 남지만, "
+		return ("%s을(를) 미사용으로 바꿨습니다. 하위 분류 %d개와 스타일 %d개는 그대로 남지만, "
 				+ "이 분류로는 더 이상 새로 등록할 수 없습니다.")
 				.formatted(before.getCategoryName(), children, products);
 	}

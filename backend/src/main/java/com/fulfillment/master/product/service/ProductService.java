@@ -102,7 +102,7 @@ public class ProductService {
 
 		if (productDao.countByProductId(request.productId()) > 0) {
 			throw new BusinessException(ErrorCode.DUPLICATE,
-					"이미 사용 중인 제품코드입니다. (%s)".formatted(request.productId()));
+					"이미 사용 중인 스타일코드입니다. (%s)".formatted(request.productId()));
 		}
 		Category category = validateCategory(request.categoryId());
 		Brand brand = mustFindBrand(request.brandId());
@@ -114,10 +114,10 @@ public class ProductService {
 
 		Product saved = mustFind(request.productId());
 		auditRecorder.recordCreate(actor, TABLE, saved.getProductId(), saved, AUDIT_FIELDS,
-				defaultReason(request.reason(), "제품 등록"));
+				defaultReason(request.reason(), "스타일 등록"));
 		// 제품만으로는 팔 수 없다. SKU 를 만들어야 재고가 붙는다.
 		return new Result(ProductResponse.of(saved),
-				"제품을 등록했습니다. 색상·사이즈 SKU 를 등록해야 재고를 잡을 수 있습니다.");
+				"스타일을 등록했습니다. 옵션 관리에서 색상·사이즈를 지정한 뒤 SKU를 등록하세요.");
 	}
 
 	/* ------------------------------------------------------------------ */
@@ -142,7 +142,7 @@ public class ProductService {
 		Product after = mustFind(productId);
 		// 실제로 바뀐 컬럼만 전/후로 기록한다 (COM-PG-009)
 		auditRecorder.recordUpdate(actor, TABLE, productId, before, after, AUDIT_FIELDS,
-				defaultReason(request.reason(), "제품 수정"));
+				defaultReason(request.reason(), "스타일 수정"));
 		return new Result(ProductResponse.of(after), warning);
 	}
 
@@ -159,14 +159,14 @@ public class ProductService {
 		int skus = productDao.countSkus(before.getProductSeq());
 		if (skus > 0) {
 			throw new BusinessException(ErrorCode.IN_USE,
-					("이 제품의 SKU %d개가 있어 삭제할 수 없습니다. SKU 를 먼저 삭제하세요. "
-							+ "더 이상 팔지 않는 제품이라면 상태를 단종으로 바꾸세요.")
+					("이 스타일의 SKU %d개가 있어 삭제할 수 없습니다. SKU 를 먼저 삭제하세요. "
+							+ "더 이상 팔지 않는 스타일이라면 상태를 단종으로 바꾸세요.")
 							.formatted(skus));
 		}
 
 		productDao.delete(before.getProductSeq());
 		auditRecorder.recordDelete(actor, TABLE, productId, before, AUDIT_FIELDS,
-				defaultReason(reason, "제품 삭제"));
+				defaultReason(reason, "스타일 삭제"));
 	}
 
 	/* ------------------------------------------------------------------ */
@@ -188,7 +188,7 @@ public class ProductService {
 		}
 		if (category.getLevelNo() != LEAF_LEVEL) {
 			throw new BusinessException(ErrorCode.INVALID_INPUT,
-					("제품은 소분류(3단계)에만 등록할 수 있습니다. %s은(는) %d단계입니다.")
+					("스타일은 소분류(3단계)에만 등록할 수 있습니다. %s은(는) %d단계입니다.")
 							.formatted(category.getCategoryName(), category.getLevelNo()));
 		}
 		return category;
@@ -204,7 +204,7 @@ public class ProductService {
 	}
 
 	private void validateCodes(ProductSaveRequest request) {
-		codeValues.require(CodeGroups.PRODUCT_STATUS, request.status(), "제품상태");
+		codeValues.require(CodeGroups.PRODUCT_STATUS, request.status(), "스타일상태");
 		codeValues.requireIfPresent(CodeGroups.COUNTRY, request.originCountry(), "생산지");
 		codeValues.requireIfPresent(CodeGroups.SEASON, request.season(), "시즌");
 	}
@@ -224,7 +224,7 @@ public class ProductService {
 		if (skus == null || skus == 0) {
 			return null;
 		}
-		return ("제품을 단종으로 바꿨습니다. SKU %d개와 그 재고는 그대로 남아 소진될 때까지 "
+		return ("스타일을 단종으로 바꿨습니다. SKU %d개와 그 재고는 그대로 남아 소진될 때까지 "
 				+ "판매됩니다. 완전히 내리려면 SKU 를 폐기해야 하며, 폐기는 재고 0 · 미처리 0 "
 				+ "일 때만 가능합니다.").formatted(skus);
 	}
@@ -235,7 +235,7 @@ public class ProductService {
 		Product product = productDao.selectByProductId(productId);
 		if (product == null) {
 			throw new BusinessException(ErrorCode.NOT_FOUND,
-					"제품을 찾을 수 없습니다. (%s)".formatted(productId));
+					"스타일을 찾을 수 없습니다. (%s)".formatted(productId));
 		}
 		return product;
 	}

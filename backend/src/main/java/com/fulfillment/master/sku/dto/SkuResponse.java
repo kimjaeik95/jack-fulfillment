@@ -23,6 +23,8 @@ public record SkuResponse(
 		String brandName,
 		String colorCode,
 		String sizeCode,
+		String colorName,
+		String sizeName,
 		String barcode,
 		String labelBarcode,
 		/**
@@ -46,7 +48,7 @@ public record SkuResponse(
 		return new SkuResponse(
 				s.getSkuId(), s.getProductId(), s.getProductName(), s.getProductStatus(),
 				s.getCategoryName(), s.getBrandName(),
-				s.getColorCode(), s.getSizeCode(), s.getBarcode(), s.barcodeOrId(),
+				s.getColorCode(), s.getSizeCode(), s.getColorName(), s.getSizeName(), s.getBarcode(), s.barcodeOrId(),
 				s.getCostAmount(),
 				s.getStatus(), s.getSortOrder(), s.getUseYn(),
 				s.getCreatedBy(), s.getCreatedAt(), s.getUpdatedBy(), s.getUpdatedAt());

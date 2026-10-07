@@ -22,7 +22,7 @@ import java.util.List;
  */
 public record SkuBulkRequest(
 
-		@NotEmpty(message = "만들 항목이 없습니다. 제품과 색상·사이즈를 골라 추가하세요.")
+		@NotEmpty(message = "만들 항목이 없습니다. 스타일과 색상·사이즈를 골라 추가하세요.")
 		@Valid
 		List<SkuBulkItem> items,
 

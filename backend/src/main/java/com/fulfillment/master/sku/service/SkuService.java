@@ -12,6 +12,7 @@ import com.fulfillment.common.web.PageResponse;
 import com.fulfillment.domain.Product;
 import com.fulfillment.domain.Sku;
 import com.fulfillment.master.product.dao.ProductDao;
+import com.fulfillment.master.product.service.ProductOptionService;
 import com.fulfillment.master.sku.dao.SkuDao;
 import com.fulfillment.master.sku.dto.SkuBulkCombo;
 import com.fulfillment.master.sku.dto.SkuBulkItem;
@@ -42,9 +43,8 @@ import java.util.regex.Pattern;
  *   동일 제품 내 옵션 조합 유일 (MST-005)
  *   바코드 전역 유일            (MST-006)
  *
- * 폐기는 정책 P002 가 "재고 0 · 미처리 0" 을 선행조건으로 건다. 재고 기능이
- * 아직 없으므로 지금은 그 선행조건을 검사할 수 없다 — 검사 자리를 비워 두는
- * 대신, 폐기로 바꿀 때 경고로 알린다. 재고가 생기면 경고를 차단으로 바꾼다.
+ * 폐기는 모든 역할에 대해 전 센터 재고와 미처리 업무가 없어야 한다.
+ * P002는 이 고정 업무 규칙의 안내이며 정책 사용 여부로 검사를 우회할 수 없다.
  */
 @Service
 public class SkuService {
@@ -72,11 +72,13 @@ public class SkuService {
 	/** 제품 확인 — 제품 기능과 같은 조회를 쓴다 */
 	private final ProductDao productDao;
 	private final CodeValues codeValues;
+	private final ProductOptionService productOptions;
 	private final PermissionChecker permissionChecker;
 	private final AuditRecorder auditRecorder;
 
 	public SkuService(SkuDao skuDao, ProductDao productDao, CodeValues codeValues,
-			PermissionChecker permissionChecker, AuditRecorder auditRecorder) {
+			PermissionChecker permissionChecker, AuditRecorder auditRecorder, ProductOptionService productOptions) {
+		this.productOptions = productOptions;
 		this.skuDao = skuDao;
 		this.productDao = productDao;
 		this.codeValues = codeValues;
@@ -146,7 +148,7 @@ public class SkuService {
 		// 거래가 엉뚱한 제품의 것으로 읽힌다.
 		if (!before.getProductId().equals(request.productId())) {
 			throw new BusinessException(ErrorCode.INVALID_INPUT,
-					("SKU 의 제품은 바꿀 수 없습니다. 새 제품에 SKU 를 만들고 이 SKU 는 "
+					("SKU 의 스타일은 바꿀 수 없습니다. 새 스타일에 SKU 를 만들고 이 SKU 는 "
 							+ "폐기하세요."));
 		}
 		Product product = mustFindProduct(request.productId());
@@ -154,7 +156,7 @@ public class SkuService {
 		validateOption(product, request, before.getSkuSeq());
 		validateBarcode(request.barcode(), skuId);
 
-		String warning = warnOnDiscard(before, request);
+		requireDiscardable(before, request);
 
 		Sku target = request.toUpdatedSku(before.getSkuSeq(), product.getProductSeq(),
 				actorId(actor));
@@ -165,7 +167,7 @@ public class SkuService {
 		// 바코드를 재발급하면 여기에 이전 값이 남는다 (MST-006).
 		auditRecorder.recordUpdate(actor, TABLE, skuId, before, after, AUDIT_FIELDS,
 				defaultReason(request.reason(), "SKU 수정"));
-		return new Result(SkuResponse.of(after), warning);
+		return new Result(SkuResponse.of(after), null);
 	}
 
 	/* ------------------------------------------------------------------ */
@@ -185,7 +187,7 @@ public class SkuService {
 		// 미리보기는 등록 흐름의 일부다. 등록 권한이 없는 사람에게 "이걸
 		// 만들 수 있습니다" 를 보여 줄 이유가 없다.
 		permissionChecker.require(actor, PERM, "C");
-		return SkuBulkPreview.of(judgeAll(request).stream()
+		return SkuBulkPreview.of(judgeAll(request, false).stream()
 				.map(j -> SkuBulkItemPreview.of(j.product().getProductId(),
 						j.product().getProductName(), j.combos()))
 				.toList());
@@ -207,7 +209,7 @@ public class SkuService {
 	public SkuBulkResult createBulk(LoginUser actor, SkuBulkRequest request) {
 		permissionChecker.require(actor, PERM, "C");
 
-		List<Judged> judged = judgeAll(request);
+		List<Judged> judged = judgeAll(request, true);
 		List<SkuBulkItemResult> results = new ArrayList<>();
 
 		for (Judged j : judged) {
@@ -261,8 +263,8 @@ public class SkuService {
 	 * 요청 전체를 먼저 검증하고 시작한다. 세 번째 항목의 사이즈가 틀렸다면
 	 * 앞의 두 항목을 판정하기 전에 알아야 한다.
 	 */
-	private List<Judged> judgeAll(SkuBulkRequest request) {
-		validateBulk(request);
+	private List<Judged> judgeAll(SkuBulkRequest request, boolean lock) {
+		validateBulk(request, lock);
 
 		// 이 요청 안에서 이미 만들기로 한 것. 같은 제품을 두 번 담으면
 		// DB 에는 아직 없으므로 둘 다 '생성' 으로 판정되고, 두 번째 INSERT 가
@@ -304,7 +306,7 @@ public class SkuService {
 		}
 		if (claimed.contains(skuId)) {
 			return SkuBulkCombo.skip(colorCode, sizeCode, skuId,
-					("목록의 앞선 항목이 같은 조합을 만듭니다. (%s) 같은 제품을 두 번 담았는지 "
+					("목록의 앞선 항목이 같은 조합을 만듭니다. (%s) 같은 스타일을 두 번 담았는지 "
 							+ "확인하세요.").formatted(skuId));
 		}
 		if (!SKU_ID_FORMAT.matcher(skuId).matches()) {
@@ -314,7 +316,7 @@ public class SkuService {
 		}
 		if (skuDao.countBySkuId(skuId) > 0) {
 			return SkuBulkCombo.skip(colorCode, sizeCode, skuId,
-					("다른 제품의 SKU 가 이 코드를 쓰고 있습니다. (%s) SKU 코드는 전사에서 "
+					("다른 스타일의 SKU 가 이 코드를 쓰고 있습니다. (%s) SKU 코드는 전사에서 "
 							+ "유일해야 합니다.").formatted(skuId));
 		}
 		claimed.add(skuId);
@@ -340,7 +342,7 @@ public class SkuService {
 	 * 공통코드와 대조한 뒤에야 "너무 많습니다" 라고 말하는 것은 사용자에게도
 	 * 서버에게도 낭비다.
 	 */
-	private void validateBulk(SkuBulkRequest request) {
+	private void validateBulk(SkuBulkRequest request, boolean lock) {
 		int count = request.combinationCount();
 		if (count > SkuBulkRequest.MAX_COMBINATIONS) {
 			throw new BusinessException(ErrorCode.INVALID_INPUT,
@@ -349,14 +351,9 @@ public class SkuService {
 							.formatted(SkuBulkRequest.MAX_COMBINATIONS,
 									request.items().size(), count));
 		}
-		for (SkuBulkItem item : request.items()) {
+		for (SkuBulkItem item : request.items().stream().sorted(java.util.Comparator.comparing(SkuBulkItem::productId)).toList()) {
 			codeValues.require(CodeGroups.SKU_STATUS, item.status(), "SKU 상태");
-			for (String colorCode : item.colorCodes()) {
-				codeValues.require(CodeGroups.COLOR, colorCode, "색상");
-			}
-			for (String sizeCode : item.sizeCodes()) {
-				codeValues.require(CodeGroups.SIZE, sizeCode, "사이즈");
-			}
+			productOptions.requireAllowed(item.productId(), item.colorCodes(), item.sizeCodes(), lock);
 		}
 	}
 
@@ -388,8 +385,7 @@ public class SkuService {
 	/* ------------------------------------------------------------------ */
 
 	private void validateCodes(SkuSaveRequest request) {
-		codeValues.require(CodeGroups.COLOR, request.colorCode(), "색상");
-		codeValues.require(CodeGroups.SIZE, request.sizeCode(), "사이즈");
+		productOptions.requireAllowed(request.productId(), List.of(request.colorCode()), List.of(request.sizeCode()), true);
 		codeValues.require(CodeGroups.SKU_STATUS, request.status(), "SKU 상태");
 	}
 
@@ -439,24 +435,20 @@ public class SkuService {
 	/**
 	 * 폐기 전환 안내.
 	 *
-	 * 정책 P002 는 "재고 0 · 미처리 0 일 때만 폐기" 를 요구한다. 재고 기능이
-	 * 아직 없어 그 선행조건을 검사할 수 없으므로 지금은 막지 않고 알린다.
-	 * 재고(4차)가 생기면 이 경고를 차단으로 바꿔야 한다.
+	 * 폐기 상태를 저장하기 전에 전 센터의 재고 및 미처리 업무를 검사한다.
 	 */
-	private String warnOnDiscard(Sku before, SkuSaveRequest request) {
-		if (!DISCARDED.equals(request.status()) || DISCARDED.equals(before.getStatus())) {
-			return null;
+	private void requireDiscardable(Sku before, SkuSaveRequest request) {
+		if (DISCARDED.equals(request.status()) && skuDao.hasDiscardBlockers(before.getSkuSeq())) {
+			throw new BusinessException(ErrorCode.POLICY_BLOCKED,
+					"재고 또는 미처리 업무가 있는 SKU는 폐기할 수 없습니다. 재고 소진 및 구매·입출고·조정·실사·정정 업무를 완료하세요.");
 		}
-		return ("SKU 를 폐기로 바꿨습니다. 공통정책 P002 는 재고 0 · 미처리 0 일 때만 폐기를 "
-				+ "허용하는데, 재고 기능이 아직 없어 선행조건을 확인하지 못했습니다. "
-				+ "재고를 직접 확인하세요.");
 	}
 
 	private Product mustFindProduct(String productId) {
 		Product product = productDao.selectByProductId(productId);
 		if (product == null) {
 			throw new BusinessException(ErrorCode.NOT_FOUND,
-					"존재하지 않는 제품코드입니다. (%s)".formatted(productId));
+					"존재하지 않는 스타일코드입니다. (%s)".formatted(productId));
 		}
 		return product;
 	}

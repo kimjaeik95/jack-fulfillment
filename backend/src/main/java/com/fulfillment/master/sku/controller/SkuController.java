@@ -90,7 +90,7 @@ public class SkuController {
 		if (result.skippedCount() == 0) {
 			return null;
 		}
-		return ("%d건을 만들고 %d건은 건너뛰었습니다. 어느 제품의 무엇인지는 결과 목록에 "
+		return ("%d건을 만들고 %d건은 건너뛰었습니다. 어느 스타일의 무엇인지는 결과 목록에 "
 				+ "있습니다.").formatted(result.createdCount(), result.skippedCount());
 	}
 

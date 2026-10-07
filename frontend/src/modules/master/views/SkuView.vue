@@ -3,9 +3,9 @@
  * SKU 관리 (MST-PG-008).
  *
  * 재고 · 할당 · 입고 · 출고 · 주문이 전부 SKU 를 가리킨다. 그래서 서버가
- * 세 가지 유일성을 건다 — 내부코드 전역, 제품 내 옵션 조합, 바코드 전역.
+ * 세 가지 유일성을 건다 — 내부코드 전역, 스타일 내 옵션 조합, 바코드 전역.
  *
- * 제품 하나에 색상 × 사이즈 조합만큼 붙으므로 건수가 제품의 몇 배다.
+ * 스타일 하나에 색상 × 사이즈 조합만큼 붙으므로 건수가 스타일의 몇 배다.
  * **서버 페이징**을 쓰는 이유다.
  *
  * 바코드는 비워 둘 수 있다 — 아직 발급하지 않은 상태다. 그때 라벨에는
@@ -15,6 +15,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { codeOptions } from '@/api/codes.js'
 import * as skuApi from '@/api/sku.js'
+import * as optionApi from '@/api/productOptions.js'
 import { useCatalogStore } from '@/stores/catalog.js'
 import { useSessionStore } from '@/stores/session.js'
 import { useCrud } from '@/composables/useCrud.js'
@@ -40,7 +41,7 @@ const size = skuApi.PAGE_SIZE
 
 const filters = reactive({
   keyword: '',
-  // 일괄생성 화면에서 '만든 것 보기' 로 넘어오면 그 제품이 걸린 채로 열린다
+  // 일괄생성 화면에서 '만든 것 보기' 로 넘어오면 그 스타일이 걸린 채로 열린다
   productId: route.query.productId ?? '',
   categoryId: '',
   brandId: '',
@@ -107,8 +108,14 @@ async function search() {
   await fetchPage()
 }
 
+watch(() => route.query.productId, (productId) => {
+  resetFilters()
+  filters.productId = String(productId || '')
+  search()
+})
+
 onMounted(async () => {
-  // 제품·분류·브랜드 드롭다운이 필요하다
+  // 스타일·분류·브랜드 드롭다운이 필요하다
   await catalog.loadCategories(false)
   await catalog.loadBrands(false)
   await catalog.loadProducts(false)
@@ -131,7 +138,7 @@ const BARCODE_OPTIONS = [
 
 const columns = [
   { key: 'skuId', label: 'SKU 코드', width: '180px', sortable: true, cls: 'code' },
-  { key: 'productName', label: '제품', width: '170px', sortable: true },
+  { key: 'productName', label: '스타일', width: '170px', sortable: true },
   { key: 'colorCode', label: '색상', width: '84px', align: 'center', sortable: true },
   { key: 'sizeCode', label: '사이즈', width: '76px', align: 'center', sortable: true },
   { key: 'labelBarcode', label: '라벨 바코드', width: '140px', cls: 'code' },
@@ -160,8 +167,8 @@ const {
    * 등록하면 <b>목록을 그대로 두고</b> 방금 만든 것을 맨 위로 올린다.
    *
    * 전에는 검색어에 코드를 넣어 한 줄만 남겼다. 등록된 것을 확인하기에는
-   * 확실하지만, 그 한 줄 말고는 아무것도 안 보여서 <b>같은 제품의 다른
-   * 색·사이즈가 이미 있는지</b>를 볼 수가 없었다. SKU 는 한 제품에 여러
+   * 확실하지만, 그 한 줄 말고는 아무것도 안 보여서 <b>같은 스타일의 다른
+   * 색·사이즈가 이미 있는지</b>를 볼 수가 없었다. SKU 는 한 스타일에 여러
    * 개를 이어서 만드는 것이라 그게 제일 아쉽다.
    *
    * 서버 페이징이라 코드순으로 두면 새 줄이 몇 페이지에 떨어질지 모른다.
@@ -178,7 +185,7 @@ const {
     } else {
       await fetchPage()
     }
-    // 제품 목록의 SKU 수가 낡는다
+    // 스타일 목록의 SKU 수가 낡는다
     catalog.invalidate('products')
   },
   blank: () => ({
@@ -208,7 +215,7 @@ const {
   }),
   validate(f) {
     const e = {}
-    if (!f.productId) e.productId = '제품을 선택하세요.'
+    if (!f.productId) e.productId = '스타일을 선택하세요.'
     if (!f.skuId?.trim()) e.skuId = 'SKU 코드는 필수입니다.'
     else if (!/^[A-Z0-9][A-Z0-9-]{2,39}$/.test(f.skuId))
       e.skuId = '영문 대문자·숫자·하이픈 3~40자. 예) PRD-24001-BK-M'
@@ -222,17 +229,17 @@ const {
 })
 
 /**
- * 수정 중에는 제품을 바꿀 수 없다.
+ * 수정 중에는 스타일을 바꿀 수 없다.
  *
- * 재고와 주문이 이미 이 SKU 를 가리키고 있어서, 제품을 바꾸면 과거 거래가
- * 엉뚱한 제품의 것으로 읽힌다. 서버도 같은 이유로 거부한다.
+ * 재고와 주문이 이미 이 SKU 를 가리키고 있어서, 스타일을 바꾸면 과거 거래가
+ * 엉뚱한 스타일의 것으로 읽힌다. 서버도 같은 이유로 거부한다.
  */
 const productLocked = computed(() => mode.value === 'edit')
 
 /**
  * SKU 코드 제안.
  *
- * 제품코드-색상-사이즈 로 만드는 것이 관행이다. 현장에서 스캔 결과를
+ * 스타일코드-색상-사이즈 로 만드는 것이 관행이다. 현장에서 스캔 결과를
  * 사람이 읽을 수 있어야 하기 때문이다. 등록할 때만 제안하고, 사용자가
  * 직접 고친 뒤에는 건드리지 않는다.
  */
@@ -262,7 +269,7 @@ const discardNotice = computed(() => {
   return '공통정책 P002 는 재고 0 · 미처리 0 일 때만 폐기를 허용합니다. 재고 기능이 아직 없어 선행조건을 확인하지 못하니 재고를 직접 확인하세요.'
 })
 
-/** 일괄생성 화면으로 — 보고 있는 제품을 그대로 가져간다 */
+/** 일괄생성 화면으로 — 보고 있는 스타일을 그대로 가져간다 */
 function openBulk() {
   router.push({
     name: 'sku-bulk',
@@ -271,6 +278,22 @@ function openBulk() {
 }
 
 const readDenyReason = computed(() => session.denyReason('MST_SKU', 'R'))
+const styleOptions = ref([])
+const optionsLoading = ref(false)
+const optionsError = ref('')
+const colorOptions = computed(() => optionApi.choices(styleOptions.value, 'COLOR'))
+const sizeOptions = computed(() => optionApi.choices(styleOptions.value, 'SIZE'))
+let optionRequest = 0
+watch(() => [dlgOpen.value, form.value?.productId], async ([open, productId], previous) => {
+  const request = ++optionRequest
+  styleOptions.value = []; optionsError.value = ''; optionsLoading.value = false
+  if (!open || !productId) return
+  if (previous?.[0] && previous[1] !== productId) { form.value.colorCode = ''; form.value.sizeCode = '' }
+  optionsLoading.value = true
+  try { const rows = await optionApi.list(productId); if (request === optionRequest) styleOptions.value = rows }
+  catch (e) { if (request === optionRequest) optionsError.value = e.message }
+  finally { if (request === optionRequest) optionsLoading.value = false }
+})
 </script>
 
 <template>
@@ -280,12 +303,12 @@ const readDenyReason = computed(() => session.denyReason('MST_SKU', 'R'))
         <h1 class="page-title">SKU 관리</h1>
         <p class="page-desc">
           색상 × 사이즈 단위입니다. <strong>재고 · 입고 · 출고 · 주문이 모두 SKU 를 가리킵니다.</strong>
-          SKU 코드와 바코드는 전사에서 유일하고, 같은 제품 안에 같은 옵션 조합은 둘 수 없습니다.
+          SKU 코드와 바코드는 전사에서 유일하고, 같은 스타일 안에 같은 옵션 조합은 둘 수 없습니다.
           바코드는 나중에 발급해도 되며, 그때까지 라벨에는 SKU 코드가 찍힙니다.
         </p>
       </div>
       <div class="page-head-actions">
-        <!-- 색상 × 사이즈를 한 번에 만들 때. 보고 있는 제품을 걸고 넘어간다. -->
+        <!-- 색상 × 사이즈를 한 번에 만들 때. 보고 있는 스타일을 걸고 넘어간다. -->
         <button
           class="btn"
           :disabled="!canCreate"
@@ -321,12 +344,12 @@ const readDenyReason = computed(() => session.denyReason('MST_SKU', 'R'))
           v-model="filters.keyword"
           class="grow"
           label="검색어"
-          placeholder="SKU 코드 / 바코드 / 제품명"
+          placeholder="SKU 코드 / 바코드 / 스타일명"
           @keyup.enter="search()"
         />
         <FormField
           v-model="filters.productId"
-          label="제품"
+          label="스타일"
           type="select"
           empty-option="전체"
           :options="catalog.productOptions"
@@ -335,17 +358,13 @@ const readDenyReason = computed(() => session.denyReason('MST_SKU', 'R'))
         <FormField
           v-model="filters.colorCode"
           label="색상"
-          type="select"
-          empty-option="전체"
-          :options="codeOptions('COLOR')"
+          placeholder="색상코드"
           @change="search()"
         />
         <FormField
           v-model="filters.sizeCode"
           label="사이즈"
-          type="select"
-          empty-option="전체"
-          :options="codeOptions('SIZE')"
+          placeholder="사이즈코드"
           @change="search()"
         />
         <FormField
@@ -384,8 +403,8 @@ const readDenyReason = computed(() => session.denyReason('MST_SKU', 'R'))
         :muted-when="(s) => s.useYn !== 'Y'"
         empty-text="조건에 맞는 SKU 가 없습니다."
       >
-        <template #cell-colorCode="{ value }">
-          <CodeBadge group="COLOR" :code="value" />
+        <template #cell-colorCode="{ row, value }">
+          <span>{{ row.colorName || value }} <small v-if="row.colorName">({{ value }})</small></span>
         </template>
 
         <template #cell-sizeCode="{ value }">
@@ -439,7 +458,7 @@ const readDenyReason = computed(() => session.denyReason('MST_SKU', 'R'))
     <ModalDialog
       v-if="dlgOpen"
       :title="mode === 'create' ? 'SKU 등록' : 'SKU 수정'"
-      :subtitle="mode === 'edit' ? form.skuId : 'SKU 코드와 제품은 등록 후 변경할 수 없습니다.'"
+      :subtitle="mode === 'edit' ? form.skuId : 'SKU 코드와 스타일은 등록 후 변경할 수 없습니다.'"
       @close="close()"
     >
       <div v-if="serverError" class="alert alert-danger mb-2">
@@ -450,14 +469,14 @@ const readDenyReason = computed(() => session.denyReason('MST_SKU', 'R'))
       <div class="form-grid">
         <FormField
           v-model="form.productId"
-          label="제품"
+          label="스타일"
           type="select"
           required
           empty-option="선택하세요"
           :options="catalog.productOptions"
           :disabled="productLocked"
           :error="errors.productId"
-          :help="productLocked ? '제품은 바꿀 수 없습니다. 재고와 주문이 이 SKU 를 가리키고 있습니다.' : null"
+          :help="productLocked ? '스타일은 바꿀 수 없습니다. 재고와 주문이 이 SKU 를 가리키고 있습니다.' : null"
         />
         <FormField
           v-model="form.colorCode"
@@ -465,9 +484,9 @@ const readDenyReason = computed(() => session.denyReason('MST_SKU', 'R'))
           type="select"
           required
           empty-option="선택하세요"
-          :options="codeOptions('COLOR')"
+          :options="colorOptions" :disabled="optionsLoading || !form.productId"
           :error="errors.colorCode"
-          help="옵션이 없는 제품은 '단일'을 고르세요."
+          help="스타일의 옵션 관리에서 등록한 색상만 선택할 수 있습니다."
         />
         <FormField
           v-model="form.sizeCode"
@@ -475,7 +494,7 @@ const readDenyReason = computed(() => session.denyReason('MST_SKU', 'R'))
           type="select"
           required
           empty-option="선택하세요"
-          :options="codeOptions('SIZE')"
+          :options="sizeOptions" :disabled="optionsLoading || !form.productId"
           :error="errors.sizeCode"
         />
         <FormField
@@ -486,7 +505,7 @@ const readDenyReason = computed(() => session.denyReason('MST_SKU', 'R'))
           placeholder="PRD-24001-BK-M"
           :disabled="mode === 'edit'"
           :error="errors.skuId"
-          help="제품·색상·사이즈로 자동 제안됩니다. 고쳐도 됩니다."
+          help="스타일·색상·사이즈로 자동 제안됩니다. 고쳐도 됩니다."
           @input="codeTouched = true"
         />
         <FormField
@@ -509,6 +528,8 @@ const readDenyReason = computed(() => session.denyReason('MST_SKU', 'R'))
         <FormField v-model="form.useYn" label="사용여부" type="switch" />
       </div>
 
+      <p v-if="optionsError" class="alert alert-danger">{{ optionsError }}</p>
+      <p v-else-if="form.productId && !optionsLoading && (!colorOptions.length || !sizeOptions.length)" class="alert alert-warn">스타일 화면의 옵션 관리에서 색상과 사이즈를 먼저 등록하세요.</p>
       <div v-if="discardNotice" class="alert alert-warn mt-2">
         <span class="alert-icon">⚠</span><span>{{ discardNotice }}</span>
       </div>
@@ -516,7 +537,7 @@ const readDenyReason = computed(() => session.denyReason('MST_SKU', 'R'))
       <template #footer>
         <span class="left small dim">코드·옵션 조합·바코드 중복은 저장 시 서버가 다시 검증합니다.</span>
         <button class="btn" :disabled="busy" @click="close()">취소</button>
-        <button class="btn btn-primary" :disabled="busy" @click="submit()">
+        <button class="btn btn-primary" :disabled="busy || optionsLoading || !!optionsError || !colorOptions.length || !sizeOptions.length" @click="submit()">
           <span v-if="busy" class="spinner"></span>
           저장
         </button>

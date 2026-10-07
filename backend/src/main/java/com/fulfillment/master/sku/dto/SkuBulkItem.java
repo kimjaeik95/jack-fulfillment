@@ -17,7 +17,7 @@ import java.util.List;
  */
 public record SkuBulkItem(
 
-		@NotBlank(message = "제품은 필수입니다.")
+		@NotBlank(message = "스타일은 필수입니다.")
 		String productId,
 
 		@NotEmpty(message = "색상을 하나 이상 고르세요.")

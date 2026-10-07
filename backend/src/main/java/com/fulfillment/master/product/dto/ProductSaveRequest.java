@@ -18,22 +18,22 @@ import java.time.LocalDate;
  */
 public record ProductSaveRequest(
 
-		@NotBlank(message = "제품코드는 필수입니다.")
+		@NotBlank(message = "스타일코드는 필수입니다.")
 		@Pattern(regexp = "^[A-Z0-9][A-Z0-9-]{2,29}$",
-				message = "제품코드는 영문 대문자·숫자·하이픈 3~30자여야 합니다. 예) PRD-24001")
+				message = "스타일코드는 영문 대문자·숫자·하이픈 3~30자여야 합니다. 예) PRD-24001")
 		String productId,
 
-		@NotBlank(message = "제품명은 필수입니다.")
-		@Size(max = 200, message = "제품명은 200자 이하여야 합니다.")
+		@NotBlank(message = "스타일명은 필수입니다.")
+		@Size(max = 200, message = "스타일명은 200자 이하여야 합니다.")
 		String productName,
 
-		@NotBlank(message = "제품분류는 필수입니다.")
+		@NotBlank(message = "스타일분류는 필수입니다.")
 		String categoryId,
 
 		@NotBlank(message = "브랜드는 필수입니다.")
 		String brandId,
 
-		@NotBlank(message = "제품상태는 필수입니다.")
+		@NotBlank(message = "스타일상태는 필수입니다.")
 		String status,
 
 		/** 생산지. 비워 둘 수 있다 — 기획 단계에는 정해지지 않는다. */

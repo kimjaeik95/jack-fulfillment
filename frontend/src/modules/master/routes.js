@@ -3,7 +3,7 @@
  *
  * 거점 3단계(플랜트 · 창고 · 빈)가 먼저 온다. 재고주소가 이 위에서
  * 정해지기 때문이다 — 플랜트 · 창고 · 빈 · 상품(SKU) · 거래처.
- * 이어서 분류 · 브랜드 · 제품 · SKU 가 붙는다. SKU 는 모든 트랜잭션의
+ * 이어서 분류 · 브랜드 · 스타일 · SKU 가 붙는다. SKU 는 모든 트랜잭션의
  * FK 기준이라 재고보다 먼저 서야 한다.
  *
  * 판매채널과 채널 SKU 매핑은 SKU 뒤에 온다. 매핑이 SKU 를 가리키므로
@@ -61,7 +61,7 @@ export const routes = [
     path: '/products',
     name: 'products',
     component: () => import('./views/ProductView.vue'),
-    meta: { title: '제품 관리', perm: 'MST_PRODUCT' },
+    meta: { title: '스타일 관리', perm: 'MST_PRODUCT' },
   },
   {
     path: '/skus',

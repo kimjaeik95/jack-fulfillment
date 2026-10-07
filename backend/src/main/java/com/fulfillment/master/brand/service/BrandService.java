@@ -131,7 +131,7 @@ public class BrandService {
 		int products = brandDao.countProducts(before.getBrandSeq());
 		if (products > 0) {
 			throw new BusinessException(ErrorCode.IN_USE,
-					("이 브랜드의 제품 %d개가 있어 삭제할 수 없습니다. 제품을 먼저 정리하세요. "
+					("이 브랜드의 스타일 %d개가 있어 삭제할 수 없습니다. 스타일을 먼저 정리하세요. "
 							+ "더 이상 취급하지 않는 브랜드라면 사용여부를 미사용으로 바꾸세요.")
 							.formatted(products));
 		}
@@ -167,8 +167,8 @@ public class BrandService {
 		if (products == 0) {
 			return null;
 		}
-		return ("%s을(를) 미사용으로 바꿨습니다. 이 브랜드의 제품 %d개와 재고는 그대로 남지만, "
-				+ "새 제품을 이 브랜드로 등록할 수 없습니다.")
+		return ("%s을(를) 미사용으로 바꿨습니다. 이 브랜드의 스타일 %d개와 재고는 그대로 남지만, "
+				+ "새 스타일을 이 브랜드로 등록할 수 없습니다.")
 				.formatted(before.getBrandName(), products);
 	}
 

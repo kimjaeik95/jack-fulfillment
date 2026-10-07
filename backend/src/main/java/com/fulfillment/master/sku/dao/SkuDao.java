@@ -60,5 +60,8 @@ public interface SkuDao {
 
 	void update(Sku sku);
 
+	/** 전 센터의 재고 및 아직 끝나지 않은 업무가 있으면 폐기할 수 없다. */
+	boolean hasDiscardBlockers(@Param("skuSeq") Long skuSeq);
+
 	void delete(@Param("skuSeq") Long skuSeq);
 }

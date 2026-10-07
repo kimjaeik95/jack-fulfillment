@@ -2,21 +2,19 @@
 /**
  * SKU 일괄생성 (MST-PG-009).
  *
- * 패션 의류는 제품 하나에 SKU 가 20~40건씩 붙는다. 색상 × 사이즈 조합이기
+ * 패션 의류는 스타일 하나에 SKU 가 20~40건씩 붙는다. 색상 × 사이즈 조합이기
  * 때문이다. 한 건씩 등록하면 같은 일을 마흔 번 한다.
  *
- * 흐름은 장바구니와 같다. 제품 하나를 고르고 색상 · 사이즈를 체크해 '추가' 로
- * 담고, 다음 제품을 담고, 마지막에 한 번 만든다. 신상품 입고는 보통 여러
- * 제품이 한꺼번에 오므로 제품마다 화면을 다시 여는 것은 같은 일을 반복하는
+ * 흐름은 장바구니와 같다. 스타일 하나를 고르고 색상 · 사이즈를 체크해 '추가' 로
+ * 담고, 다음 스타일을 담고, 마지막에 한 번 만든다. 신상품 입고는 보통 여러
+ * 스타일이 한꺼번에 오므로 스타일마다 화면을 다시 여는 것은 같은 일을 반복하는
  * 것이다.
  *
- * 만들기는 한 번의 요청이다. 다섯 제품을 다섯 번 보내면 세 번째에서 실패했을
+ * 만들기는 한 번의 요청이다. 다섯 스타일을 다섯 번 보내면 세 번째에서 실패했을
  * 때 앞의 둘은 이미 만들어져 있고, 사용자는 무엇이 만들어졌는지 모르는 채로
  * 다시 시도하게 된다.
  *
- * 조합을 자동으로 정하지 않는다. 사이즈 공통코드에는 상의(S·M·L)와
- * 하의(28·30·32)가 함께 들어 있어서, 전 조합을 만들면 티셔츠에 28인치가
- * 생긴다. 무엇을 파는지는 사람이 안다 — 고른 것만 만든다.
+ * 스타일에 등록된 옵션 안에서 조합을 선택하고 서버에서 다시 검증한다.
  *
  * 담은 것이 바뀔 때마다 서버에 미리보기를 물어 본다. 화면이 혼자 계산하면
  * "7건이 생깁니다" 를 보고 눌렀는데 5건이 생기는 일이 벌어진다. 판정은 한
@@ -26,6 +24,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { codeOptions } from '@/api/codes.js'
 import * as skuApi from '@/api/sku.js'
+import * as optionApi from '@/api/productOptions.js'
 import { useCatalogStore } from '@/stores/catalog.js'
 import { useSessionStore } from '@/stores/session.js'
 import { useToastStore } from '@/stores/toast.js'
@@ -41,7 +40,7 @@ const toast = useToastStore()
 
 /* ── 지금 고르는 중인 것 ────────────────────────────────────── */
 
-// SKU 관리 화면에서 '일괄생성' 으로 넘어오면 그 제품이 골라진 채로 열린다
+// SKU 관리 화면에서 '일괄생성' 으로 넘어오면 그 스타일이 골라진 채로 열린다
 const draft = ref({
   productId: route.query.productId ?? '',
   colorCodes: [],
@@ -49,8 +48,27 @@ const draft = ref({
   status: 'ACTIVE',
 })
 
-const colorOptions = computed(() => codeOptions('COLOR'))
-const sizeOptions = computed(() => codeOptions('SIZE'))
+const optionsByProduct = ref({})
+const optionError = ref('')
+const optionLoading = ref(false)
+const colorOptions = computed(() => optionApi.choices(optionsByProduct.value[draft.value.productId] || [], 'COLOR'))
+const sizeOptions = computed(() => optionApi.choices(optionsByProduct.value[draft.value.productId] || [], 'SIZE'))
+let optionRequest = 0
+watch(() => draft.value.productId, async (id) => {
+  const request = ++optionRequest
+  optionError.value = ''; optionLoading.value = false
+  if (!id) return
+  optionLoading.value = true
+  try {
+    const options = await optionApi.list(id)
+    optionsByProduct.value[id] = options
+    if (request === optionRequest) {
+      draft.value.colorCodes = draft.value.colorCodes.filter(c => colorOptions.value.some(o => o.value === c))
+      draft.value.sizeCodes = draft.value.sizeCodes.filter(c => sizeOptions.value.some(o => o.value === c))
+    }
+  } catch (e) { if (request === optionRequest) optionError.value = e.message }
+  finally { if (request === optionRequest) optionLoading.value = false }
+}, { immediate: true })
 const statusOptions = computed(() => codeOptions('SKU_STATUS'))
 
 const labelOf = (options, code) => options.find((o) => o.value === code)?.label ?? code
@@ -60,6 +78,7 @@ const productNameOf = (id) =>
 const draftReady = computed(
   () =>
     !!draft.value.productId &&
+    !optionLoading.value && !optionError.value &&
     draft.value.colorCodes.length > 0 &&
     draft.value.sizeCodes.length > 0,
 )
@@ -76,15 +95,15 @@ const reason = ref('')
 /**
  * 직전에 담은 색상 · 사이즈.
  *
- * 제품을 바꾸면 체크를 비우지만(아래 onProductChange 참고), 같은 성격의
- * 제품을 연달아 담는 일이 잦아 되살릴 수단이 필요하다.
+ * 스타일을 바꾸면 체크를 비우지만(아래 onProductChange 참고), 같은 성격의
+ * 스타일을 연달아 담는 일이 잦아 되살릴 수단이 필요하다.
  */
 const lastUsed = ref(null)
 
 /**
  * 담는다.
  *
- * 같은 제품을 또 담는 것을 막지 않는다 — 색상을 나중에 떠올려 한 줄 더
+ * 같은 스타일을 또 담는 것을 막지 않는다 — 색상을 나중에 떠올려 한 줄 더
  * 담는 것은 자연스럽다. 겹치는 조합은 서버가 '앞선 항목이 만듭니다' 로
  * 건너뛴다.
  */
@@ -103,14 +122,14 @@ function addDraft() {
     sizeCodes: [...draft.value.sizeCodes],
   }
   /*
-   * 제품은 남긴다.
+   * 스타일은 남긴다.
    *
-   * 한 제품에 색상을 나눠 담는 일이 잦다 — 기본 색을 먼저 담고 시즌 색을
-   * 나중에 떠올리는 식이다. 담을 때마다 제품을 비우면 같은 것을 드롭다운에서
+   * 한 스타일에 색상을 나눠 담는 일이 잦다 — 기본 색을 먼저 담고 시즌 색을
+   * 나중에 떠올리는 식이다. 담을 때마다 스타일을 비우면 같은 것을 드롭다운에서
    * 다시 찾아야 하고, '이전과 동일' 도 색상·사이즈만 되살리는 것이라 두 번
    * 일하게 된다.
    *
-   * 다른 제품으로 넘어갈 때는 드롭다운을 바꾸면 되고, 그때 onProductChange
+   * 다른 스타일으로 넘어갈 때는 드롭다운을 바꾸면 되고, 그때 onProductChange
    * 가 색상·사이즈를 비운다 — 상의 사이즈가 하의에 남는 것을 막는 장치는
    * 그대로 돈다.
    */
@@ -118,7 +137,7 @@ function addDraft() {
 }
 
 /**
- * 제품을 바꾸면 색상 · 사이즈를 비운다.
+ * 스타일을 바꾸면 색상 · 사이즈를 비운다.
  *
  * 사이즈 목록에 상의(S·M·L)와 하의(28·30·32)가 함께 있다. 티셔츠를 담고
  * 팬츠를 골랐을 때 S·M·L 이 남아 있으면 PANTS-BK-M 같은 SKU 가 만들어지는데,
@@ -127,10 +146,10 @@ function addDraft() {
  * 방법이 없다. 그래서 남기는 쪽의 대가가 클릭 몇 번이 아니라 잘못된
  * 데이터다.
  *
- * 같은 성격의 제품을 연달아 담는 경우는 '이전과 동일' 로 한 번에 되살린다.
+ * 같은 성격의 스타일을 연달아 담는 경우는 '이전과 동일' 로 한 번에 되살린다.
  *
- * watch 가 아니라 change 인 이유는 '고치기' 때문이다. 고치기는 제품과
- * 색상·사이즈를 함께 되돌리는데, 제품을 감시하면 그때도 방금 되돌린 체크를
+ * watch 가 아니라 change 인 이유는 '고치기' 때문이다. 고치기는 스타일과
+ * 색상·사이즈를 함께 되돌리는데, 스타일을 감시하면 그때도 방금 되돌린 체크를
  * 지워 버린다. change 는 사람이 드롭다운을 건드렸을 때만 돈다.
  */
 function onProductChange() {
@@ -142,8 +161,8 @@ function reuseLast() {
   if (!lastUsed.value) return
   draft.value = {
     ...draft.value,
-    colorCodes: [...lastUsed.value.colorCodes],
-    sizeCodes: [...lastUsed.value.sizeCodes],
+    colorCodes: lastUsed.value.colorCodes.filter(c => colorOptions.value.some(o => o.value === c)),
+    sizeCodes: lastUsed.value.sizeCodes.filter(c => sizeOptions.value.some(o => o.value === c)),
   }
 }
 
@@ -259,7 +278,7 @@ async function doCreate() {
     else toast.success(`SKU ${res.createdCount}건을 만들었습니다.`)
     // 방금 만든 것이 이미 있는 조합이 되었다. 표를 다시 그린다.
     await runPreview()
-    // 제품 목록의 SKU 수가 낡는다
+    // 스타일 목록의 SKU 수가 낡는다
     catalog.invalidate('products')
   } catch (e) {
     toast.error(e.message)
@@ -279,7 +298,7 @@ async function doCreate() {
  * <b>자동으로 비우지는 않는다.</b> 무엇이 만들어졌는지 표에서 확인하는 것이
  * 이 화면의 마지막 단계다. 치우는 시점은 사람이 정한다.
  *
- * 제품은 남긴다. 같은 제품에 이어서 담는 경우가 있고, 다른 제품이면
+ * 스타일은 남긴다. 같은 스타일에 이어서 담는 경우가 있고, 다른 스타일이면
  * 드롭다운을 바꾸면 된다.
  */
 function startNext() {
@@ -299,12 +318,16 @@ const readDenyReason = computed(() => session.denyReason('MST_SKU', 'R'))
 
 <template>
   <div>
+    <p v-if="optionError" class="alert alert-danger">{{ optionError }}</p>
+    <p v-else-if="draft.productId && !optionLoading && (!colorOptions.length || !sizeOptions.length)" class="alert alert-warn">
+      스타일 화면의 옵션 관리에서 색상과 사이즈를 먼저 등록하세요.
+    </p>
     <div class="page-head">
       <div>
         <h1 class="page-title">SKU 일괄생성</h1>
         <p class="page-desc">
-          제품마다 <strong>색상 × 사이즈 조합만큼 SKU 를 만듭니다.</strong>
-          제품을 하나씩 담은 뒤 마지막에 한 번에 만듭니다 — 담은 것은 전부 만들어지거나
+          스타일마다 <strong>색상 × 사이즈 조합만큼 SKU 를 만듭니다.</strong>
+          스타일을 하나씩 담은 뒤 마지막에 한 번에 만듭니다 — 담은 것은 전부 만들어지거나
           전부 만들어지지 않습니다. 이미 있는 조합은 건너뛰고 사유를 알려 줍니다.
           바코드는 발급하지 않습니다.
         </p>
@@ -321,17 +344,17 @@ const readDenyReason = computed(() => session.denyReason('MST_SKU', 'R'))
       <span class="alert-icon">⚠</span><span>{{ createDenyReason }}</span>
     </div>
 
-    <!-- ── 1. 제품 하나를 골라 담는다 ──────────────────────────── -->
+    <!-- ── 1. 스타일 하나를 골라 담는다 ──────────────────────────── -->
     <div class="card p-3 mb-2">
       <div class="form-grid">
         <FormField
           v-model="draft.productId"
-          label="제품"
+          label="스타일"
           type="select"
           required
           empty-option="선택하세요"
           :options="catalog.productOptions"
-          help="SKU 코드는 제품코드-색상-사이즈 로 만들어집니다."
+          help="SKU 코드는 스타일코드-색상-사이즈 로 만들어집니다."
           @change="onProductChange()"
         />
         <FormField
@@ -350,7 +373,7 @@ const readDenyReason = computed(() => session.denyReason('MST_SKU', 'R'))
         type="checks"
         span
         :options="colorOptions"
-        help="옵션이 없는 제품은 '단일'만 고르세요."
+        help="선택한 스타일에 등록된 색상만 표시됩니다."
       />
       <FormField
         v-model="draft.sizeCodes"
@@ -358,11 +381,11 @@ const readDenyReason = computed(() => session.denyReason('MST_SKU', 'R'))
         type="checks"
         span
         :options="sizeOptions"
-        help="상의(S·M·L)와 하의(28·30·32)가 한 목록에 있습니다. 이 제품에 맞는 것만 고르세요."
+        help="상의(S·M·L)와 하의(28·30·32)가 한 목록에 있습니다. 이 스타일에 맞는 것만 고르세요."
       />
 
       <!--
-        제품을 바꾸면 체크가 비워진다. 같은 성격의 제품을 연달아 담을 때를
+        스타일을 바꾸면 체크가 비워진다. 같은 성격의 스타일을 연달아 담을 때를
         위해 직전 조합을 한 번에 되살릴 수 있게 둔다.
       -->
       <div v-if="canReuse" class="reuse">
@@ -377,8 +400,8 @@ const readDenyReason = computed(() => session.denyReason('MST_SKU', 'R'))
             {{ draft.sizeCodes.length }} = <strong>{{ draftCount }}개 조합</strong>
           </template>
           <template v-else>
-            제품 · 색상 · 사이즈를 고르고 추가하세요. 제품을 바꾸면 체크는 비워집니다 —
-            사이즈 목록에 상의와 하의가 함께 있어 그대로 남기면 엉뚱한 조합이 만들어집니다.
+            스타일 · 색상 · 사이즈를 고르고 추가하세요. 스타일을 바꾸면 체크는 비워집니다 —
+            선택한 스타일에 등록된 색상과 사이즈만 사용할 수 있습니다.
           </template>
         </span>
         <button class="btn btn-primary" :disabled="!draftReady" @click="addDraft()">
@@ -389,14 +412,14 @@ const readDenyReason = computed(() => session.denyReason('MST_SKU', 'R'))
 
     <!-- ── 2. 담은 목록 ───────────────────────────────────────── -->
     <div v-if="!items.length" class="card empty-note">
-      담은 항목이 없습니다. 위에서 제품을 골라 추가하면 여기에 쌓입니다.
+      담은 항목이 없습니다. 위에서 스타일을 골라 추가하면 여기에 쌓입니다.
     </div>
 
     <div v-else class="card">
       <div class="panel-head">
         <div>
           <strong>담은 목록</strong>
-          <span class="small dim"> · 제품 {{ items.length }}건</span>
+          <span class="small dim"> · 스타일 {{ items.length }}건</span>
           <span v-if="preview" class="small dim">
             · 조합 {{ preview.total }}개 · 생성 {{ preview.creatableCount }}건 · 건너뜀
             {{ preview.skipCount }}건
@@ -412,20 +435,12 @@ const readDenyReason = computed(() => session.denyReason('MST_SKU', 'R'))
         <span class="alert-icon">⛔</span><span>{{ previewError }}</span>
       </div>
 
-      <!--
-        사이즈 공통코드에는 알파벳(S·M·L)과 인치(28·30·32)가 함께 있고,
-        서버는 그 값이 SIZE 목록에 있는지만 본다. 티셔츠에 30 을 걸어도
-        코드 규칙에 맞고, 중복도 아니고, 미리보기에도 '생성' 으로 보인다.
-
-        막을 수 없으니 <b>막지 않는다고 적어 둔다.</b> 아무 말이 없으면
-        사람은 시스템이 걸러 줄 것이라고 믿는다 — 없는 규칙보다 있다고
-        믿게 만드는 쪽이 나쁘다.
-      -->
+      <!-- 스타일별 허용 옵션은 서버에서도 검사한다. -->
       <div class="alert alert-warn m-2">
         <span class="alert-icon">⚠</span>
         <span>
           사이즈 체계가 섞이지 않았는지 미리보기의 SKU 코드를 확인하세요.
-          <strong>시스템은 제품과 사이즈가 맞는지 검사하지 않습니다.</strong>
+          <strong>스타일에 등록되지 않은 색상·사이즈는 생성할 수 없습니다.</strong>
         </span>
       </div>
 
@@ -477,7 +492,7 @@ const readDenyReason = computed(() => session.denyReason('MST_SKU', 'R'))
               </thead>
               <tbody>
                 <tr v-for="c in it.colorCodes" :key="c">
-                  <th class="rowhead"><CodeBadge group="COLOR" :code="c" /></th>
+                  <th class="rowhead"><span class="badge">{{ c }}</span></th>
                   <td v-for="sz in it.sizeCodes" :key="sz">
                     <template v-if="comboAt(i, c, sz)">
                       <span
@@ -544,7 +559,7 @@ const readDenyReason = computed(() => session.denyReason('MST_SKU', 'R'))
         <div>
           <strong>생성 결과</strong>
           <span class="small dim">
-            · 제품 {{ result.items.length }}건 · 요청 {{ result.requested }}건 · 생성
+            · 스타일 {{ result.items.length }}건 · 요청 {{ result.requested }}건 · 생성
             {{ result.createdCount }}건 · 건너뜀 {{ result.skippedCount }}건
           </span>
         </div>
@@ -591,7 +606,7 @@ const readDenyReason = computed(() => session.denyReason('MST_SKU', 'R'))
     <ConfirmDialog
       v-if="askCreate"
       title="SKU 일괄생성"
-      :message="`제품 ${items.length}건에 SKU ${preview?.creatableCount ?? 0}건을 만듭니다.`"
+      :message="`스타일 ${items.length}건에 SKU ${preview?.creatableCount ?? 0}건을 만듭니다.`"
       detail="담은 것은 전부 만들어지거나 전부 만들어지지 않습니다. 바코드는 발급하지 않습니다. 만든 뒤에는 하나씩 지워야 하며, 재고가 붙은 SKU 는 지울 수 없습니다."
       confirm-label="생성"
       :busy="creating"
@@ -660,7 +675,7 @@ const readDenyReason = computed(() => session.denyReason('MST_SKU', 'R'))
   flex: 1;
   min-width: 0;
 }
-/* 제품명 바로 뒤의 코드 — 인라인 공백은 접히므로 여백으로 띄운다 */
+/* 스타일명 바로 뒤의 코드 — 인라인 공백은 접히므로 여백으로 띄운다 */
 .item-title .code {
   margin-left: 6px;
 }

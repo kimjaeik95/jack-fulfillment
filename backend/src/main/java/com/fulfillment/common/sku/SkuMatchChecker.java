@@ -1,10 +1,8 @@
 package com.fulfillment.common.sku;
 
-import com.fulfillment.common.code.CodeGroups;
 import com.fulfillment.common.util.Particles;
-import com.fulfillment.domain.Code;
 import com.fulfillment.domain.Sku;
-import com.fulfillment.system.code.dao.CodeDao;
+import com.fulfillment.master.product.dao.ProductOptionDao;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
@@ -25,17 +23,17 @@ import java.util.Map;
  * 그래서 색상 · 사이즈 · 상품명 셋만 본다. 이 셋은 어긋나면 거의 확실히
  * 실수이고, 맞아도 맞다고 보장하지는 않는다. 판단은 사람이 한다.
  *
- * 왜 색상 · 사이즈가 쓸 만한가: 둘 다 공통코드라 'BK' 의 이름이 '블랙' 임을
+	 * 왜 색상 · 사이즈가 쓸 만한가: 스타일 옵션에 'BK' 의 이름이 '블랙' 임을
  * 서버가 안다. 채널은 대개 옵션명에 그 말을 그대로 적는다 ("블랙 / M").
  * 코드값('BK')으로 적는 채널도 있어서 코드와 이름을 둘 다 찾아본다.
  */
 @Component
 public class SkuMatchChecker {
 
-	private final CodeDao codeDao;
+	private final ProductOptionDao options;
 
-	public SkuMatchChecker(CodeDao codeDao) {
-		this.codeDao = codeDao;
+	public SkuMatchChecker(ProductOptionDao options) {
+		this.options = options;
 	}
 
 	/**
@@ -63,8 +61,8 @@ public class SkuMatchChecker {
 			return notes;
 		}
 
-		checkCode(notes, haystack, CodeGroups.COLOR, sku.getColorCode(), "색상");
-		checkCode(notes, haystack, CodeGroups.SIZE, sku.getSizeCode(), "사이즈");
+		checkCode(notes, haystack, sku.getProductSeq(), "COLOR", sku.getColorCode(), "색상");
+		checkCode(notes, haystack, sku.getProductSeq(), "SIZE", sku.getSizeCode(), "사이즈");
 
 		// 상품명은 한 글자도 안 겹치면 짚는다. 부분만 겹치는 경우는 넘긴다 —
 		// '베이직 반팔티' 와 '베이직 반팔 티셔츠' 를 틀렸다고 할 수 없다.
@@ -96,12 +94,12 @@ public class SkuMatchChecker {
 	 * 옵션을 안 보내는 채널이 흔한데, 그때마다 경고를 내면 경고가 흔해져서
 	 * 아무도 안 읽는다. 다른 값을 <b>썼을 때만</b> 짚는다.
 	 */
-	private void checkCode(List<String> notes, String haystack, String groupId,
+	private void checkCode(List<String> notes, String haystack, Long productSeq, String groupId,
 			String skuCode, String label) {
 		if (skuCode == null || skuCode.isBlank()) {
 			return;
 		}
-		Map<String, String> labels = labelsOf(groupId);
+		Map<String, String> labels = labelsOf(productSeq, groupId);
 
 		String mine = labels.get(skuCode);
 		if (mine != null && contains(haystack, mine)) {
@@ -130,10 +128,10 @@ public class SkuMatchChecker {
 	}
 
 	/** 코드값 → 이름. 순서를 지켜 읽기 좋게 둔다. */
-	private Map<String, String> labelsOf(String groupId) {
+	private Map<String, String> labelsOf(Long productSeq, String groupId) {
 		Map<String, String> map = new LinkedHashMap<>();
-		for (Code c : codeDao.selectCodeLabels(groupId)) {
-			map.put(c.getCodeId(), c.getCodeName());
+		for (var c : options.listBySeq(productSeq)) {
+			if (c.optionType().equals(groupId)) map.put(c.optionCode(), c.optionName());
 		}
 		return map;
 	}

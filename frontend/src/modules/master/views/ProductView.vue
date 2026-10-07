@@ -1,14 +1,15 @@
 <script setup>
 /**
- * 제품 관리 (MST-PG-007).
+ * 스타일 관리 (MST-PG-007).
  *
- * 제품은 고객이 고르는 단위이고, 창고에 쌓이고 팔리는 단위는 SKU 다.
- * 제품만 등록하면 재고를 잡을 수 없어서 저장 후 그 안내가 뜬다.
+ * 스타일은 고객이 고르는 단위이고, 창고에 쌓이고 팔리는 단위는 SKU 다.
+ * 스타일만 등록하면 재고를 잡을 수 없어서 저장 후 그 안내가 뜬다.
  *
  * 건수가 많아 **서버 페이징**을 쓴다. 검색 조건이 바뀌면 서버에 다시
  * 물어본다.
  */
 import { computed, onMounted, reactive, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { codeOptions } from '@/api/codes.js'
 import * as productApi from '@/api/product.js'
 import { useCatalogStore } from '@/stores/catalog.js'
@@ -20,9 +21,17 @@ import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import FormField from '@/components/FormField.vue'
 import CodeBadge from '@/components/CodeBadge.vue'
 import DetailDialog from '@/components/DetailDialog.vue'
+import ProductOptionsDialog from '../components/ProductOptionsDialog.vue'
 
 const catalog = useCatalogStore()
 const session = useSessionStore()
+const optionProduct = ref(null)
+const router = useRouter()
+const skuReadDenyReason = computed(() => session.denyReason('MST_SKU', 'R'))
+
+function openSkus(product) {
+  router.push({ name: 'skus', query: { productId: product.productId } })
+}
 
 const loadError = ref('')
 const loading = ref(false)
@@ -53,7 +62,7 @@ function resetFilters() {
   })
 }
 
-/** 방금 만든 제품. 목록에서 짚어 주기만 하고 다른 뜻은 없다. */
+/** 방금 만든 스타일. 목록에서 짚어 주기만 하고 다른 뜻은 없다. */
 const justMade = ref(null)
 
 /**
@@ -120,8 +129,8 @@ const detailFields = computed(() => {
   const d = detail.value
   if (!d) return []
   return [
-    { label: '제품코드', value: d.productId, mono: true },
-    { label: '제품명', value: d.productName },
+    { label: '스타일코드', value: d.productId, mono: true },
+    { label: '스타일명', value: d.productName },
     { label: '분류', value: d.categoryPath, span: true },
     { label: '브랜드', value: d.brandName },
     { label: '시즌', value: d.seasonLabel },
@@ -136,14 +145,15 @@ const detailFields = computed(() => {
 })
 
 const columns = [
-  { key: 'productId', label: '제품코드', width: '120px', sortable: true, cls: 'code' },
-  { key: 'productName', label: '제품명', width: '200px', sortable: true },
+  { key: 'productId', label: '스타일코드', width: '120px', sortable: true, cls: 'code' },
+  { key: 'productName', label: '스타일명', width: '200px', sortable: true },
   { key: 'categoryPath', label: '분류', width: '190px' },
   { key: 'brandName', label: '브랜드', width: '110px', sortable: true },
   { key: 'seasonLabel', label: '시즌', width: '72px', align: 'center' },
   { key: 'costAmount', label: '원가', width: '100px', align: 'right', sortable: true },
   { key: 'status', label: '상태', width: '86px', align: 'center', sortable: true },
   { key: 'skuCount', label: 'SKU', width: '62px', align: 'right' },
+  { key: '_options', label: '색상·사이즈', width: '100px', align: 'center' },
   { key: '_act', label: '', width: '112px', align: 'right' },
 ]
 
@@ -156,18 +166,18 @@ const {
 } = useCrud({
   perm: 'MST_PRODUCT',
   pk: 'productId',
-  label: '제품',
+  label: '스타일',
   nameOf: (p) => `${p.productName}(${p.productId})`,
   api: {
     create: (payload) => productApi.create(payload),
     update: (productId, payload) => productApi.update(productId, payload),
-    remove: (productId) => productApi.remove(productId, '제품 삭제'),
+    remove: (productId) => productApi.remove(productId, '스타일 삭제'),
   },
   /**
    * 등록하면 <b>목록을 그대로 두고</b> 방금 만든 것을 맨 위로 올린다.
    *
    * 전에는 검색어에 코드를 넣어 한 줄만 남겼다. 등록된 것을 확인하기에는
-   * 확실하지만, 그 한 줄 말고는 아무것도 안 보여서 <b>비슷한 제품이 이미
+   * 확실하지만, 그 한 줄 말고는 아무것도 안 보여서 <b>비슷한 스타일이 이미
    * 있는지</b>를 볼 수가 없었다 — 같은 옷이 코드 두 개로 생기는 것이
    * 기준정보에서 가장 고치기 어려운 사고다.
    *
@@ -185,9 +195,9 @@ const {
     } else {
       await fetchPage()
     }
-    // 제품 목록이 바뀌면 SKU 화면의 제품 드롭다운도 낡는다
+    // 스타일 목록이 바뀌면 SKU 화면의 스타일 드롭다운도 낡는다
     await catalog.loadProducts(true)
-    // 분류 · 브랜드 목록의 제품 수가 낡는다
+    // 분류 · 브랜드 목록의 스타일 수가 낡는다
     catalog.invalidate('categories', 'brands')
   },
   blank: () => ({
@@ -229,13 +239,13 @@ const {
   }),
   validate(f, ctx) {
     const e = {}
-    if (!f.productId?.trim()) e.productId = '제품코드는 필수입니다.'
+    if (!f.productId?.trim()) e.productId = '스타일코드는 필수입니다.'
     else if (!/^[A-Z0-9][A-Z0-9-]{2,29}$/.test(f.productId))
       e.productId = '영문 대문자·숫자·하이픈 3~30자. 예) PRD-24001'
-    if (!f.productName?.trim()) e.productName = '제품명은 필수입니다.'
-    if (!f.categoryId) e.categoryId = '제품분류를 선택하세요.'
+    if (!f.productName?.trim()) e.productName = '스타일명은 필수입니다.'
+    if (!f.categoryId) e.categoryId = '스타일분류를 선택하세요.'
     if (!f.brandId) e.brandId = '브랜드를 선택하세요.'
-    if (!f.status) e.status = '제품상태를 선택하세요.'
+    if (!f.status) e.status = '스타일상태를 선택하세요.'
     if (f.costAmount !== '' && Number(f.costAmount) < 0) e.costAmount = '원가는 0 이상이어야 합니다.'
     if (f.releaseYear !== '' && (Number(f.releaseYear) < 1900 || Number(f.releaseYear) > 2999))
       e.releaseYear = '출시연도는 1900 ~ 2999 사이여야 합니다.'
@@ -261,7 +271,7 @@ const deleteDetail = computed(() => {
   const row = askDelete.value
   if (!row) return ''
   if (row.skuCount) {
-    return `이 제품의 SKU ${row.skuCount}개가 있어 삭제할 수 없습니다. SKU 를 먼저 삭제하세요. 더 이상 팔지 않는 제품이라면 상태를 '단종'으로 바꾸세요.`
+    return `이 스타일의 SKU ${row.skuCount}개가 있어 삭제할 수 없습니다. SKU 를 먼저 삭제하세요. 더 이상 팔지 않는 스타일이라면 상태를 '단종'으로 바꾸세요.`
   }
   return 'SKU 가 있으면 서버가 삭제를 거부합니다.'
 })
@@ -275,21 +285,21 @@ const readDenyReason = computed(() => session.denyReason('MST_PRODUCT', 'R'))
   <div>
     <div class="page-head">
       <div>
-        <h1 class="page-title">제품 관리</h1>
+        <h1 class="page-title">스타일 관리</h1>
         <p class="page-desc">
           고객이 보는 단위를 관리합니다. 실제로 창고에 쌓이고 팔리는 단위는 <strong>SKU</strong>이므로,
-          제품을 등록한 뒤 색상 · 사이즈 SKU 를 만들어야 재고를 잡을 수 있습니다.
-          제품은 소분류에만 등록할 수 있습니다.
+          스타일 등록 후 옵션 관리에서 색상·사이즈를 지정하고 SKU를 생성하세요.
+          스타일은 소분류에만 등록할 수 있습니다.
         </p>
       </div>
       <div class="page-head-actions">
         <button
           class="btn btn-primary"
           :disabled="!canCreate"
-          :title="createDenyReason ?? '제품 등록'"
+          :title="createDenyReason ?? '스타일 등록'"
           @click="openCreate()"
         >
-          + 제품 등록
+          + 스타일 등록
         </button>
       </div>
     </div>
@@ -310,7 +320,7 @@ const readDenyReason = computed(() => session.denyReason('MST_PRODUCT', 'R'))
           v-model="filters.keyword"
           class="grow"
           label="검색어"
-          placeholder="제품코드 / 제품명"
+          placeholder="스타일코드 / 스타일명"
           @keyup.enter="search()"
         />
         <FormField
@@ -363,9 +373,9 @@ const readDenyReason = computed(() => session.denyReason('MST_PRODUCT', 'R'))
         :page-size="0"
         :show-pager="false"
         :muted-when="(p) => p.useYn !== 'Y'"
-        empty-text="조건에 맞는 제품이 없습니다."
+        empty-text="조건에 맞는 스타일이 없습니다."
       >
-        <!-- 제품명을 누르면 상세가 열린다 (원산지 · 생산일자 · 출시연도) -->
+        <!-- 스타일명을 누르면 상세가 열린다 (원산지 · 생산일자 · 출시연도) -->
         <template #cell-productName="{ row, value }">
           <button class="link-cell" @click="detail = row">{{ value }}</button>
         </template>
@@ -387,10 +397,20 @@ const readDenyReason = computed(() => session.denyReason('MST_PRODUCT', 'R'))
         </template>
 
         <!-- SKU 가 없으면 재고를 잡을 수 없다. 눈에 띄게 둔다. -->
-        <template #cell-skuCount="{ value }">
-          <span :class="{ dim: !value }">{{ value || '없음' }}</span>
+        <template #cell-skuCount="{ row, value }">
+          <button
+            v-if="value"
+            class="btn btn-ghost btn-sm"
+            :disabled="!!skuReadDenyReason"
+            :title="skuReadDenyReason || `${row.productName}의 옵션 SKU 보기`"
+            @click.stop="openSkus(row)"
+          >{{ value }}</button>
+          <span v-else class="dim">없음</span>
         </template>
 
+        <template #cell-_options="{ row }">
+          <button class="btn btn-sm" @click.stop="optionProduct = row">옵션 관리</button>
+        </template>
         <template #cell-_act="{ row }">
           <div class="btn-row" style="justify-content: flex-end">
             <button
@@ -427,7 +447,7 @@ const readDenyReason = computed(() => session.denyReason('MST_PRODUCT', 'R'))
 
     <DetailDialog
       v-if="detail"
-      title="제품 상세"
+      title="스타일 상세"
       :subtitle="detail.productName + ' · ' + detail.productId"
       :fields="detailFields"
       :can-edit="canUpdate"
@@ -445,8 +465,8 @@ const readDenyReason = computed(() => session.denyReason('MST_PRODUCT', 'R'))
 
     <ModalDialog
       v-if="dlgOpen"
-      :title="mode === 'create' ? '제품 등록' : '제품 수정'"
-      :subtitle="mode === 'edit' ? form.productId : '제품코드는 등록 후 변경할 수 없습니다.'"
+      :title="mode === 'create' ? '스타일 등록' : '스타일 수정'"
+      :subtitle="mode === 'edit' ? form.productId : '스타일코드는 등록 후 변경할 수 없습니다.'"
       @close="close()"
     >
       <div v-if="serverError" class="alert alert-danger mb-2">
@@ -457,7 +477,7 @@ const readDenyReason = computed(() => session.denyReason('MST_PRODUCT', 'R'))
       <div class="form-grid">
         <FormField
           v-model="form.productId"
-          label="제품코드"
+          label="스타일코드"
           required
           mono
           placeholder="PRD-24001"
@@ -467,14 +487,14 @@ const readDenyReason = computed(() => session.denyReason('MST_PRODUCT', 'R'))
         />
         <FormField
           v-model="form.productName"
-          label="제품명"
+          label="스타일명"
           required
           placeholder="베이직 반팔 티셔츠"
           :error="errors.productName"
         />
         <FormField
           v-model="form.categoryId"
-          label="제품분류"
+          label="스타일분류"
           type="select"
           required
           empty-option="선택하세요"
@@ -493,7 +513,7 @@ const readDenyReason = computed(() => session.denyReason('MST_PRODUCT', 'R'))
         />
         <FormField
           v-model="form.status"
-          label="제품상태"
+          label="스타일상태"
           type="select"
           required
           :options="codeOptions('PRODUCT_STATUS')"
@@ -550,7 +570,7 @@ const readDenyReason = computed(() => session.denyReason('MST_PRODUCT', 'R'))
 
     <ConfirmDialog
       v-if="askDelete"
-      title="제품 삭제"
+      title="스타일 삭제"
       :message="deleteMessage"
       :detail="deleteDetail"
       confirm-label="삭제"
@@ -560,6 +580,8 @@ const readDenyReason = computed(() => session.denyReason('MST_PRODUCT', 'R'))
       @confirm="doDelete()"
     />
   </div>
+    <ProductOptionsDialog v-if="optionProduct" :product="optionProduct"
+      :readonly="!session.can('MST_PRODUCT', 'U')" @close="optionProduct = null" />
 </template>
 
 <style scoped>

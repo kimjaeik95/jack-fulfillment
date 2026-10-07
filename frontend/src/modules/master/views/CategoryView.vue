@@ -1,6 +1,6 @@
 <script setup>
 /**
- * 제품분류 관리 (MST-PG-005).
+ * 스타일분류 관리 (MST-PG-005).
  *
  * 대 · 중 · 소 3단계 트리다. 목록은 경로순으로 내려오므로 그대로 펼쳐
  * 보여주면 트리처럼 읽힌다 — 단계만큼 들여쓰기를 준다.
@@ -73,7 +73,7 @@ const columns = [
   { key: 'levelNo', label: '단계', width: '84px', align: 'center', sortable: true },
   { key: 'parentName', label: '상위 분류', width: '130px' },
   { key: 'childCount', label: '하위', width: '60px', align: 'right', sortable: true },
-  { key: 'productCount', label: '제품', width: '60px', align: 'right', sortable: true },
+  { key: 'productCount', label: '스타일', width: '60px', align: 'right', sortable: true },
   { key: 'useYn', label: '사용', width: '64px', align: 'center', sortable: true },
   { key: '_act', label: '', width: '112px', align: 'right' },
 ]
@@ -183,10 +183,10 @@ const deleteDetail = computed(() => {
   if (!row) return ''
   const blockers = []
   if (row.childCount) blockers.push(`하위 분류 ${row.childCount}개`)
-  if (row.productCount) blockers.push(`제품 ${row.productCount}개`)
+  if (row.productCount) blockers.push(`스타일 ${row.productCount}개`)
   return blockers.length
     ? `${blockers.join(', ')}이(가) 있어 삭제할 수 없습니다. 더 이상 쓰지 않는 분류라면 사용여부를 '미사용'으로 바꾸세요.`
-    : '하위 분류나 제품이 있으면 서버가 삭제를 거부합니다.'
+    : '하위 분류나 스타일이 있으면 서버가 삭제를 거부합니다.'
 })
 
 const readDenyReason = computed(() => session.denyReason('MST_CATEGORY', 'R'))
@@ -198,7 +198,7 @@ const readDenyReason = computed(() => session.denyReason('MST_CATEGORY', 'R'))
       <div>
         <h1 class="page-title">카테고리 관리</h1>
         <p class="page-desc">
-          제품분류를 <strong>대 · 중 · 소 3단계</strong>로 관리합니다. 제품은 소분류에만 등록할 수 있습니다.
+          스타일분류를 <strong>대 · 중 · 소 3단계</strong>로 관리합니다. 스타일은 소분류에만 등록할 수 있습니다.
           분류명은 같은 상위 분류 아래에서만 유일하면 되므로, 상의 &gt; 티셔츠와 아동 &gt; 티셔츠는 함께 둘 수 있습니다.
         </p>
       </div>
@@ -342,7 +342,7 @@ const readDenyReason = computed(() => session.denyReason('MST_CATEGORY', 'R'))
           required
           :options="LEVELS"
           :error="errors.levelNo"
-          help="제품은 소분류에만 등록할 수 있습니다."
+          help="스타일은 소분류에만 등록할 수 있습니다."
         />
         <FormField
           v-model="form.parentId"
