@@ -81,7 +81,7 @@ async function pick(hit) {
 function goTo(step) {
   if (!step.route) return
   close()
-  router.push({ name: step.route, query: { keyword: step.no } })
+  router.push(searchApi.targetOf(step))
 }
 
 function goFull() {
@@ -134,7 +134,7 @@ const dt = (v) => (v ? String(v).replace('T', ' ').slice(0, 16) : '')
           ref="input"
           v-model="q"
           type="text"
-          placeholder="주문번호 · 채널 주문번호 · 송장번호 · 지시번호 · SKU · 수령인 · 연락처"
+          placeholder="전표번호 · 주문번호 · 송장번호 · SKU · 수령인 · 연락처"
           @keydown.enter="run()"
         />
         <button class="btn btn-sm btn-primary" :disabled="loading" @click="run()">
@@ -154,7 +154,7 @@ const dt = (v) => (v ? String(v).replace('T', ' ').slice(0, 16) : '')
       </div>
 
       <!-- 여럿이면 고르게 둔다. 아무거나 골라 펼치면 그것을 답으로 읽는다 -->
-      <div v-if="hits.length > 1 && !chain" class="gs-list">
+      <div v-if="hits.length && !chain" class="gs-list">
         <div v-for="h in hits" :key="h.kind + h.seq" class="gs-row" @click="pick(h)">
           <span class="gs-kind">{{ h.kindLabel }}</span>
           <span class="code">{{ h.no }}</span>

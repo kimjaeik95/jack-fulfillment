@@ -35,4 +35,21 @@ export const KIND_QUERY = {
   OUTBOUND: 'keyword',
   WAYBILL: 'keyword',
   SKU: 'skuId',
+  INBOUND_CORRECT: 'keyword',
+  ADJUST: 'keyword',
+  STOCKTAKE: 'keyword',
+  MOVE: 'refNo',
+  UNSELLABLE: 'refNo',
+}
+
+/** 전체 검색과 상단 검색창이 같은 조건으로 업무 화면을 연다. */
+export function targetOf(hit) {
+  const query = { [KIND_QUERY[hit.kind] ?? 'keyword']: hit.no }
+  if (hit.route === 'stock-history') {
+    query.tab = 'history'
+    query.refType = hit.kind
+    // 전표가 오래됐어도 기본 조회기간에 가려지지 않도록 실제 발생일을 전달한다.
+    if (hit.when) query.fromDate = query.toDate = String(hit.when).slice(0, 10)
+  }
+  return { name: hit.route, query }
 }

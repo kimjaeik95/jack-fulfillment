@@ -56,6 +56,10 @@ async function openChain(hit) {
   loading.value = true
   try {
     chain.value = await searchApi.chain(hit.kind, hit.seq)
+    if (!chain.value) {
+      goTo(hit)
+      return
+    }
     await nextTick()
     box.value?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
   } catch (e) {
@@ -68,8 +72,7 @@ async function openChain(hit) {
 /** 그 문서 화면으로. 번호를 검색어로 넘겨 바로 그 줄이 뜨게 한다 */
 function goTo(step) {
   if (!step.route) return
-  const param = searchApi.KIND_QUERY[step.kind] ?? 'keyword'
-  router.push({ name: step.route, query: { [param]: step.no } })
+  router.push(searchApi.targetOf(step))
 }
 
 const hits = computed(() => result.value?.hits ?? [])
@@ -86,8 +89,8 @@ const dt = (v) => (v ? String(v).replace('T', ' ').slice(0, 16) : '')
       <div>
         <h1 class="page-title">통합검색</h1>
         <p class="page-desc">
-          번호 하나로 <strong>그 건의 진행이력</strong>을 봅니다. 주문번호 · 채널 주문번호 ·
-          송장번호 · 지시번호 · 발주번호 · SKU · 수령인 · 연락처로 찾습니다.
+          모든 전표번호로 <strong>처리 내용과 관련 이력</strong>을 찾습니다.
+          구매 · 입출고 · 정정 · 재고조정 · 이동 · 실사 · 불량처리와 주문 · 송장 · SKU를 검색할 수 있습니다.
         </p>
       </div>
     </div>
@@ -102,7 +105,7 @@ const dt = (v) => (v ? String(v).replace('T', ' ').slice(0, 16) : '')
           v-model="keyword"
           class="grow"
           label="검색어"
-          placeholder="ORD-20260923-0010 · 880150888879 · PRD-23001-BE-FREE · 홍길동 · 010-…"
+          placeholder="DEF-20261006-0001 · ADJ-… · INBC-… · 주문번호 · SKU · 수령인 · 연락처"
           @enter="run()"
         />
         <div class="toolbar-actions">
@@ -153,7 +156,7 @@ const dt = (v) => (v ? String(v).replace('T', ' ').slice(0, 16) : '')
               <template v-if="h.when"> · {{ dt(h.when) }}</template>
             </div>
           </div>
-          <div class="hit-go small dim">진행이력 →</div>
+          <div class="hit-go small dim">상세 / 이력 →</div>
         </div>
       </div>
     </div>

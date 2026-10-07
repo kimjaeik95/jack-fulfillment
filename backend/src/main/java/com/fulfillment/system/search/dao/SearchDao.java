@@ -18,6 +18,12 @@ public interface SearchDao {
 
 	boolean canAccess(@Param("kind") String kind, @Param("seq") Long seq, @Param("scope") ScopeFilter scope);
 
+	List<SearchHit> findInboundCorrects(@Param("q") String q, @Param("limit") int limit, @Param("scope") ScopeFilter scope);
+	List<SearchHit> findAdjusts(@Param("q") String q, @Param("limit") int limit, @Param("scope") ScopeFilter scope);
+	List<SearchHit> findStocktakes(@Param("q") String q, @Param("limit") int limit, @Param("scope") ScopeFilter scope);
+	List<SearchHit> findStockDocuments(@Param("q") String q, @Param("limit") int limit,
+			@Param("scope") ScopeFilter scope, @Param("refType") String refType);
+
 	/* ── 무엇이 걸리나 ──────────────────────────────────────── */
 
 	List<SearchHit> findPurchaseRequests(@Param("q") String q, @Param("limit") int limit, @Param("scope") ScopeFilter scope);

@@ -73,7 +73,7 @@ async function loadAll() {
   if (hierarchy.denyReason.companies) missing.push('회사')
   if (hierarchy.denyReason.plants) missing.push('플랜트')
   if (catalog.denyReason.categories) missing.push('분류')
-  if (catalog.denyReason.products) missing.push('제품')
+  if (catalog.denyReason.products) missing.push('스타일')
 
   unreadable.value = [...new Set(missing)]
   loading.value = false
@@ -133,7 +133,7 @@ const cards = computed(() => [
     to: 'plants',
   },
   {
-    label: '제품 · SKU',
+    label: '스타일 · SKU',
     value: n(catalog.products),
     sub: `분류 ${n(catalog.categories)} · 브랜드 ${n(catalog.brands)} · SKU ${catalog.products.reduce((s, p) => s + (p.skuCount ?? 0), 0)}`,
     to: 'products',
@@ -197,12 +197,12 @@ const scopeMismatch = computed(() =>
     .filter(Boolean),
 )
 
-/** SKU 가 없는 제품 — 재고를 잡을 수 없어 팔 수 없다 */
+/** SKU 가 없는 스타일 — 재고를 잡을 수 없어 팔 수 없다 */
 const productsWithoutSku = computed(() =>
   catalog.products.filter((p) => (p.skuCount ?? 0) === 0),
 )
 
-/** 제품이 하나도 없는 소분류 — 분류만 만들고 채우지 않은 것 */
+/** 스타일이 하나도 없는 소분류 — 분류만 만들고 채우지 않은 것 */
 const emptyLeafCategories = computed(() =>
   catalog.categories.filter((c) => c.levelNo === 3 && (c.productCount ?? 0) === 0),
 )
@@ -251,14 +251,14 @@ const checks = computed(() => [
     tone: 'warn',
   },
   {
-    label: 'SKU 가 없는 제품 (재고를 잡을 수 없음)',
+    label: 'SKU 가 없는 스타일 (재고를 잡을 수 없음)',
     count: productsWithoutSku.value.length,
     detail: productsWithoutSku.value.map((p) => p.productName).join(', '),
     to: 'skus',
     tone: 'warn',
   },
   {
-    label: '제품이 없는 소분류',
+    label: '스타일이 없는 소분류',
     count: emptyLeafCategories.value.length,
     detail: emptyLeafCategories.value.map((c) => c.pathName ?? c.categoryName).join(', '),
     to: 'categories',

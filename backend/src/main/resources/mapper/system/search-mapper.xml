@@ -17,6 +17,65 @@
 -->
 <mapper namespace="com.fulfillment.system.search.dao.SearchDao">
 
+    <select id="findInboundCorrects" resultType="com.fulfillment.system.search.dto.SearchHit">
+        SELECT 'INBOUND_CORRECT' AS kind, '입고정정' AS kind_label,
+               c.correct_no AS no, c.correct_seq AS seq, i.inbound_no AS label,
+               c.correct_status AS status, 'CORRECT_STATUS' AS status_group,
+               c.requested_at AS when, pl.plant_name, 'inbound-corrects' AS route
+          FROM tb_inbound_correct c
+          JOIN tb_inbound i ON i.inbound_seq = c.inbound_seq
+          JOIN tb_plant pl ON pl.plant_seq = i.plant_seq
+         WHERE c.correct_no ILIKE '%' || #{q} || '%'
+           AND <include refid="documentVisible"><property name="documentKind" value="'INBOUND_CORRECT'"/><property name="documentSeq" value="c.correct_seq"/></include>
+         ORDER BY c.correct_seq DESC LIMIT #{limit}
+    </select>
+
+    <select id="findAdjusts" resultType="com.fulfillment.system.search.dto.SearchHit">
+        SELECT 'ADJUST' AS kind, '재고조정' AS kind_label,
+               a.adjust_no AS no, a.adjust_seq AS seq, COALESCE(a.remark, '') AS label,
+               a.adjust_status AS status, 'ADJUST_STATUS' AS status_group,
+               a.requested_at AS when, pl.plant_name, 'stock-adjust' AS route
+          FROM tb_stock_adjust a
+          JOIN tb_warehouse wh ON wh.warehouse_seq = a.warehouse_seq
+          JOIN tb_plant pl ON pl.plant_seq = wh.plant_seq
+         WHERE a.adjust_no ILIKE '%' || #{q} || '%'
+           AND <include refid="documentVisible"><property name="documentKind" value="'ADJUST'"/><property name="documentSeq" value="a.adjust_seq"/></include>
+         ORDER BY a.adjust_seq DESC LIMIT #{limit}
+    </select>
+
+    <select id="findStocktakes" resultType="com.fulfillment.system.search.dto.SearchHit">
+        SELECT 'STOCKTAKE' AS kind, '재고실사' AS kind_label,
+               t.take_no AS no, t.take_seq AS seq, t.take_name AS label,
+               t.take_status AS status, 'TAKE_STATUS' AS status_group,
+               t.created_at AS when, pl.plant_name, 'stocktake' AS route
+          FROM tb_stocktake t
+          JOIN tb_warehouse wh ON wh.warehouse_seq = t.warehouse_seq
+          JOIN tb_plant pl ON pl.plant_seq = wh.plant_seq
+         WHERE t.take_no ILIKE '%' || #{q} || '%'
+           AND <include refid="documentVisible"><property name="documentKind" value="'STOCKTAKE'"/><property name="documentSeq" value="t.take_seq"/></include>
+         ORDER BY t.take_seq DESC LIMIT #{limit}
+    </select>
+
+    <!-- 별도 헤더가 없는 이동/불량 전표는 조회 가능한 이력을 번호별로 묶는다. -->
+    <select id="findStockDocuments" resultType="com.fulfillment.system.search.dto.SearchHit">
+        SELECT h.ref_type AS kind,
+               CASE h.ref_type WHEN 'MOVE' THEN '재고이동' ELSE '불량처리전표' END AS kind_label,
+               h.ref_no AS no, MIN(h.history_seq) AS seq,
+               STRING_AGG(DISTINCT k.sku_id, ', ' ORDER BY k.sku_id) AS label,
+               NULL::varchar AS status, NULL::varchar AS status_group,
+               MIN(h.occurred_at) AS when, MIN(pl.plant_name) AS plant_name, 'stock-history' AS route
+          FROM tb_stock_history h
+          JOIN tb_stock s ON s.stock_seq = h.stock_seq
+          JOIN tb_sku k ON k.sku_seq = s.sku_seq
+          JOIN tb_location l ON l.location_seq = s.location_seq
+          JOIN tb_warehouse wh ON wh.warehouse_seq = l.warehouse_seq
+          JOIN tb_plant pl ON pl.plant_seq = wh.plant_seq
+         WHERE h.ref_type = #{refType} AND h.ref_no ILIKE '%' || #{q} || '%'
+           AND <include refid="documentVisible"><property name="documentKind" value="h.ref_type"/><property name="documentSeq" value="h.history_seq"/></include>
+         GROUP BY h.ref_type, h.ref_no
+         ORDER BY MIN(h.history_seq) DESC LIMIT #{limit}
+    </select>
+
     <!-- ══════════════════════════════════════════════════════
          무엇이 걸리나
          ══════════════════════════════════════════════════════ -->
@@ -412,6 +471,25 @@
               LEFT JOIN tb_plant pl ON pl.plant_seq = wh.plant_seq
             UNION ALL
             SELECT 'SKU', k.sku_seq, NULL::bigint, k.created_by FROM tb_sku k
+            UNION ALL
+            SELECT 'INBOUND_CORRECT', c.correct_seq, pl.org_seq, c.requested_by
+              FROM tb_inbound_correct c JOIN tb_inbound i ON i.inbound_seq = c.inbound_seq
+              JOIN tb_plant pl ON pl.plant_seq = i.plant_seq
+            UNION ALL
+            SELECT 'ADJUST', a.adjust_seq, pl.org_seq, a.requested_by
+              FROM tb_stock_adjust a JOIN tb_warehouse wh ON wh.warehouse_seq = a.warehouse_seq
+              JOIN tb_plant pl ON pl.plant_seq = wh.plant_seq
+            UNION ALL
+            SELECT 'STOCKTAKE', t.take_seq, pl.org_seq, t.created_by
+              FROM tb_stocktake t JOIN tb_warehouse wh ON wh.warehouse_seq = t.warehouse_seq
+              JOIN tb_plant pl ON pl.plant_seq = wh.plant_seq
+            UNION ALL
+            SELECT h.ref_type, h.history_seq, pl.org_seq, s.created_by
+              FROM tb_stock_history h JOIN tb_stock s ON s.stock_seq = h.stock_seq
+              JOIN tb_location l ON l.location_seq = s.location_seq
+              JOIN tb_warehouse wh ON wh.warehouse_seq = l.warehouse_seq
+              JOIN tb_plant pl ON pl.plant_seq = wh.plant_seq
+             WHERE h.ref_type IN ('MOVE', 'UNSELLABLE')
         ) access
         WHERE access.kind = ${documentKind} AND access.seq = ${documentSeq}
         <if test="!scope.unrestricted">
